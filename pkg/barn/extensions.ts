@@ -369,18 +369,44 @@ const IMPORT_SCRIPT = `
 const fs = require('fs');
 const path = require('path');
 const root = '/tmp/barn-import';
-let named = '';
-try { named = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).name || ''; } catch (e) {}
-const dir = named || process.env.BARN_IMPORT_NAME;
+
+// Two shapes of repository, and both are ones this product produces.
+//
+// A repository laid out as a Rancher extension keeps its package under pkg/<name>/ with the
+// dashboard skeleton around it at the root - package.json, the vue config, a lockfile - which
+// is what rancher/dashboard's build expects and what a repository has to look like to publish
+// itself. The pod already has a skeleton of its own, so only the package is taken and the root
+// is left where it is.
+//
+// A repository that is only the package has it at the root, which is what Publish to GitHub
+// writes. Both arrive here as one directory under /app/pkg, named after the package.
+let src = root;
+let dir = '';
+const nested = path.join(root, 'pkg');
+
+try {
+  const found = fs.readdirSync(nested, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+
+  if (found.length) {
+    src = path.join(nested, found[0].name);
+    dir = found[0].name;
+  }
+} catch (e) {}
+
+if (!dir) {
+  try { dir = JSON.parse(fs.readFileSync(path.join(src, 'package.json'), 'utf8')).name || ''; } catch (e) {}
+}
+
+dir = dir || process.env.BARN_IMPORT_NAME;
 const out = {};
 (function walk(d) {
   for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
     const full = path.join(d, entry.name);
     if (entry.isDirectory()) walk(full);
-    else out['pkg/' + dir + '/' + path.relative(root, full)] = fs.readFileSync(full, 'utf8');
+    else out['pkg/' + dir + '/' + path.relative(src, full)] = fs.readFileSync(full, 'utf8');
   }
-})(root);
+})(src);
 process.stdout.write(JSON.stringify(out));
 `;
 
