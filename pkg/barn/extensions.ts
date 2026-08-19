@@ -10,21 +10,20 @@
 //
 // There can be several. Each is a name, and that name is the whole of its
 // identity: it decides the objects in the cluster, the directory on the node
-// its tree lives in, and the URL it is served at. What they are all seeded from
-// is one thing, the tree in pkg/barn/dev-extension/, baked into this bundle as
-// SEED_FILES, so a new extension starts as a copy of the one we have rather
-// than as a skeleton nobody maintains.
+// its tree lives in, and the URL it is served at. What one starts as is a
+// choice: the stock package baked into this bundle, a repository to clone, or
+// the live tree of an extension already running here.
 //
 // Everything an extension needs travels with this bundle: the source is written
 // into a ConfigMap, the pod installs from it on first boot, and creating one is
 // four objects. There is no install step and nothing to run outside the cluster.
 //
 // Editing is done in the pod. That tree is the live source once it has booted:
-//   kubectl -n barn exec -it deploy/barn-dev-extension \
-//     -- bash -c 'cd /app/pkg/dev-extension && exec bash'
+//   kubectl -n barn exec -it deploy/barn-<name>-extension \
+//     -- bash -c 'cd "$(ls -d /app/pkg/*/ | head -1)" && exec bash'
 // ---------------------------------------------------------------------------
 import { rancherFetch } from './api';
-import { SEEDS } from './dev-extension-seed.generated';
+import { SEEDS } from './extension-seed.generated';
 
 // The `local` cluster, like the editor's content pod: the extension loads in
 // contexts that have no cluster of their own, and a dev server should be at one
@@ -47,8 +46,13 @@ const EXT_IMAGE = 'node:24';
  * It is a name like any other. The only thing special about it is that it is
  * created without being asked for, so that a Rancher with this bundle loaded has
  * somewhere to edit before anybody has typed anything.
+ *
+ * The stock extension rather than this product's own, which is what it used to be. That one
+ * now lives in codyrancher/dev-extension and is imported like any other repository, and making
+ * it the default again would mean cloning from GitHub in front of the editor on every fresh
+ * cluster - a network round trip, and something else to fail, before anything can be looked at.
  */
-export const DEFAULT_EXTENSION = 'dev';
+export const DEFAULT_EXTENSION = 'base';
 
 const EXT_BASE = `/k8s/clusters/${ EXT_CLUSTER }`;
 
@@ -243,14 +247,20 @@ function extGet(type: string, object: string): Promise<any> {
 /**
  * Where a new extension's files come from.
  *
- * A baked-in seed (`dev`, this product's own extension, or `base`, the stock one) or the live
- * tree of an extension already running here. The last is the interesting case: it is a copy of
- * what somebody has been editing, including whatever they changed an hour ago, which is not
+ * The baked-in seed (`base`, the stock extension), a repository to clone, or the live tree of
+ * an extension already running here. The last is the interesting case: it is a copy of what
+ * somebody has been editing, including whatever they changed an hour ago, which is not
  * something a baked-in seed can be.
+ *
+ * There used to be a second baked-in one, this product's own extension. It is a repository now
+ * (codyrancher/dev-extension) and arrives through the same import as anybody else's, which is
+ * the point of having built the import at all: a package that can only be had by being vendored
+ * into another extension's bundle is a package nobody outside this repo can contribute to.
  */
 export const BUILT_IN_SEEDS = Object.keys(SEEDS);
 
-export const DEFAULT_SEED = 'dev';
+/** The one there is. Kept as a name rather than inlined, because it is a decision and not a fact. */
+export const DEFAULT_SEED = 'base';
 
 function seedFiles(source: string): Record<string, string> {
   return SEEDS[source] || SEEDS[DEFAULT_SEED];
@@ -1169,10 +1179,11 @@ function asPodUser(script: string): string[] {
 /**
  * Where the extension's own source is inside the pod.
  *
- * Resolved by looking rather than by name. Every pod is seeded from one tree, so the package
- * directory is called whatever that tree calls it (`pkg/dev-extension`) no matter what the
- * extension is named, and a constant here would be right for one of them and wrong for the
- * rest. There is exactly one directory under `/app/pkg`, which is what makes this safe.
+ * Resolved by looking rather than by name. Every pod is seeded, cloned or imported from one
+ * tree, so the package directory is called whatever that tree calls its package - `pkg/base`
+ * for the stock one, whatever a repository's package.json says for an imported one - no matter
+ * what the extension is named. There is exactly one directory under `/app/pkg`, which is what
+ * makes this safe.
  */
 const PACKAGE_DIR = '"$(ls -d /app/pkg/*/ | head -1)"';
 
