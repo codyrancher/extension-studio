@@ -273,8 +273,10 @@ export default {
     async waitForDevServer() {
       const mine = this.extension;
 
-      ensureExtension(mine);
-
+      // This waits; it does not install. It used to call ensureExtension here, which quietly
+      // made the objects the checklist was about to report on - so the checklist would find
+      // nothing missing and the install nobody could see went on being invisible. Creating is
+      // InstallProgress's job now, and this starts once it says the objects are there.
       while (!this.unmounted && this.extension === mine) {
         if (await extensionReady(mine)) {
           if (this.extension === mine) {
