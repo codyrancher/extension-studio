@@ -23,15 +23,22 @@ export default function(plugin: IPlugin): void {
   // edit from the moment this bundle loads rather than behind a toggle. First
   // boot installs and compiles for a couple of minutes; the pod is only ready
   // once it can serve. Any others are made from the header's box, on demand.
-  ensureDefaultExtension();
+  //
+  // The catch is not decoration. A plugin is initialised on every page load, including the
+  // login page, where nobody is authenticated and every one of these calls comes back 401 -
+  // and an un-caught rejection there is an unhandled rejection, which in a dev build raises
+  // webpack's error overlay over the login form and makes the dashboard unusable. There is
+  // nothing to report either way: if the objects cannot be made now, the editor's own install
+  // checklist makes them when somebody opens it.
+  ensureDefaultExtension().catch(() => {});
 
   // And the browser those extensions are looked at in (see ensureBrowser): one
   // Chromium for the namespace, with CDP open on its Service, so a claude in an
   // extension pod can open the page it just changed and see what it did rather
   // than describing what it should have done. Created the same way and for the
   // same reason as the pod above - here rather than behind a toggle, so it is
-  // already warming up by the time anybody opens the editor.
-  ensureBrowser();
+  // already warming up by the time anybody opens the editor. Caught for the reason above.
+  ensureBrowser().catch(() => {});
 
   // The Studio's front door: every extension this cluster has (Figma screen 01). The side-menu
   // button points here, and each row opens the editor below.
