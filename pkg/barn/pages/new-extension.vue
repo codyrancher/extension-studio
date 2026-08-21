@@ -13,7 +13,7 @@
 //   hidden because the design shows it and because the sentence under it - changes only ever
 //   run here until you publish - is the reassurance the screen exists to give.
 import {
-  SButton, SField, SIcon, SLabel, SChip
+  SButton, SField, SIcon, SLabel
 } from '../components/ui';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
@@ -49,7 +49,7 @@ export default {
   name: 'BarnNewExtension',
 
   components: {
-    SButton, SField, SIcon, SLabel, SChip, ImportExtensionModal, EditorSettingsModal
+    SButton, SField, SIcon, SLabel, ImportExtensionModal, EditorSettingsModal
   },
 
   data() {

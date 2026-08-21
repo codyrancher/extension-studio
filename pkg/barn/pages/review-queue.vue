@@ -14,7 +14,7 @@
 // Placeholder: "Waiting on others" (nothing here models a second reviewer), the sort control,
 // and Review settings.
 import {
-  SButton, SBadge, SChip, SIcon, SEmpty, STabs, SBanner
+  SButton, SBadge, SChip, SIcon, SEmpty, STabs
 } from '../components/ui';
 import { toastNotYet } from '../toast';
 import {
@@ -29,7 +29,7 @@ export default {
   name: 'BarnReviewQueue',
 
   components: {
-    SButton, SBadge, SChip, SIcon, SEmpty, STabs, SBanner
+    SButton, SBadge, SChip, SIcon, SEmpty, STabs
   },
 
   data() {

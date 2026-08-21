@@ -12,7 +12,7 @@
 // Two things are drawn and not wired, and say so: sorting (the header's carets) and the
 // per-row overflow menu. Search and the two buttons are real.
 import {
-  SButton, SBadge, SIcon, SEmpty, SField, SChip
+  SButton, SBadge, SIcon, SEmpty
 } from '../components/ui';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import StartingExtensions from '../components/StartingExtensions.vue';
@@ -78,7 +78,7 @@ export default {
   name: 'BarnExtensions',
 
   components: {
-    SButton, SBadge, SIcon, SEmpty, SField, SChip, ImportExtensionModal, StartingExtensions
+    SButton, SBadge, SIcon, SEmpty, ImportExtensionModal, StartingExtensions
   },
 
   data() {

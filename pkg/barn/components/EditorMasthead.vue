@@ -15,7 +15,7 @@
 // publish status strip, the extension picker and the settings cog. The design has no such bar
 // - it has this masthead and then the two panels - so they come in through slots rather than
 // this component knowing what any of them are.
-import { SIcon, SBadge, SChip, SButton } from './ui';
+import { SBadge, SChip, SButton } from './ui';
 import PublishSplit from './PublishSplit.vue';
 import { toastNotYet } from '../toast';
 import { listBranches, countChanges, EXT_NS } from '../extensions';
@@ -24,7 +24,7 @@ export default {
   name: 'EditorMasthead',
 
   components: {
-    SIcon, SBadge, SChip, SButton, PublishSplit
+    SBadge, SChip, SButton, PublishSplit
   },
 
   props: {
