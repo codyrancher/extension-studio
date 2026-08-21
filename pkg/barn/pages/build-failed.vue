@@ -124,37 +124,45 @@ export default {
       </SEmpty>
 
       <template v-else>
-        <SBanner type="error" with-icon>
-          <strong>The publish did not finish.</strong>
-          {{ failure.message }}
-        </SBanner>
+        <!-- the explanation, and the ways out of it -->
+        <div class="failed__explain">
+          <SBanner type="error" with-icon>
+            <strong>The publish did not finish.</strong>
+            {{ failure.message }}
+          </SBanner>
 
-        <SCard v-if="firstError" title="The line that looks like the problem" icon="alert">
-          <code class="failed__error-line">{{ firstError }}</code>
-          <p class="failed__hint">
-            Picked out of the log by pattern, not by understanding it — the assistant does not
-            yet read a build log and explain it. Treat this as a pointer to where to look.
-          </p>
-        </SCard>
+          <SCard v-if="firstError" title="The line that looks like the problem" icon="alert">
+            <code class="failed__error-line">{{ firstError }}</code>
+            <p class="failed__hint">
+              Picked out of the log by pattern, not by understanding it — the assistant does not
+              yet read a build log and explain it. Treat this as a pointer to where to look.
+            </p>
+          </SCard>
 
-        <div class="failed__ways">
-          <SLabel text="Ways back" />
-          <div class="failed__buttons">
-            <SButton variant="primary" icon="sparkle" @click="fixIt">
-              Fix it with the assistant
-            </SButton>
-            <SButton variant="neutral" icon="compare" @click="seeChanges">
-              See what changed{{ culprit ? ` (${ culprit })` : '' }}
-            </SButton>
-            <SButton variant="neutral" icon="refresh" @click="retry">
-              Try the publish again
-            </SButton>
+          <div class="failed__ways">
+            <SLabel text="Ways back" />
+            <div class="failed__buttons">
+              <SButton variant="primary" icon="sparkle" @click="fixIt">
+                Fix it with the assistant
+              </SButton>
+              <SButton variant="neutral" icon="compare" @click="seeChanges">
+                See what changed{{ culprit ? ` (${ culprit })` : '' }}
+              </SButton>
+              <SButton variant="neutral" icon="refresh" @click="retry">
+                Try the publish again
+              </SButton>
+            </div>
           </div>
         </div>
 
-        <SCard title="Build log" icon="terminal" flush collapsible :open="true">
+        <!-- the log, filling the height rather than pushing the buttons off the bottom -->
+        <div class="failed__log-panel">
+          <div class="failed__panel-head">
+            <SIcon name="terminal" :size="14" />
+            <span class="failed__panel-title">Build log</span>
+          </div>
           <pre class="failed__log">{{ log || 'The build produced no output.' }}</pre>
-        </SCard>
+        </div>
       </template>
     </div>
   </div>
@@ -187,18 +195,47 @@ export default {
     color:          var(--studio-error);
   }
 
+  // The frame's body is a row: the explanation on the left, the log beside it. Stacking them
+  // put the ways back below a log that can be hundreds of lines, which is the one thing this
+  // screen exists to keep in reach.
   &__body {
+    display:    flex;
+    flex:       1 1 auto;
+    min-height: 0;
+  }
+
+  &__explain {
     display:        flex;
     flex-direction: column;
     gap:            var(--studio-space-16);
-    padding:        var(--studio-space-20) var(--studio-space-24) var(--studio-space-24);
-    max-width:      1000px;
-    width:          100%;
-    margin:         0 auto;
+    width:          var(--studio-panel-assistant);
+    flex:           0 0 var(--studio-panel-assistant);
+    padding:        var(--studio-space-20) var(--studio-space-24);
+    border-right:   1px solid var(--studio-border);
     overflow-y:     auto;
     min-height:     0;
-    flex:           1 1 auto;
   }
+
+  &__log-panel {
+    display:        flex;
+    flex-direction: column;
+    flex:           1 1 auto;
+    min-width:      0;
+    min-height:     0;
+  }
+
+  &__panel-head {
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-8);
+    padding:       var(--studio-space-12) 14px;
+    background:    var(--studio-surface-subtle);
+    border-bottom: 1px solid var(--studio-border-subtle);
+    color:         var(--studio-text-secondary);
+    flex:          0 0 auto;
+  }
+
+  &__panel-title { font: var(--studio-heading-14); color: var(--studio-text); }
 
   &__error-line {
     display:       block;
@@ -230,13 +267,14 @@ export default {
 
   &__log {
     margin:      0;
-    padding:     var(--studio-space-12);
+    padding:     var(--studio-space-12) var(--studio-space-16);
     background:  var(--studio-surface-terminal);
     color:       #D5D6DB;
     font:        var(--studio-mono-12);
     white-space: pre-wrap;
     word-break:  break-word;
-    max-height:  420px;
+    flex:        1 1 auto;
+    min-height:  0;
     overflow-y:  auto;
   }
 }
