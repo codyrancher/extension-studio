@@ -86,12 +86,39 @@ export default {
       ];
     },
 
-    // The design's "Connected as ken@suse.com". The real one is whoever is signed in to this
-    // Rancher, which is the account the pod's claude is acting for.
+    /**
+     * The design's "Connected as ken@suse.com". The real one is whoever is signed in to this
+     * Rancher, which is the account the pod's claude is acting for.
+     *
+     * `auth/principalId` is the getter the shell actually has - there is no `auth/principal` -
+     * and it holds something like `local://user-abc123`, so the readable half is what follows
+     * the scheme. `auth/user` and `auth/selfUser` carry a name when the store has fetched one,
+     * which it has not always done by the time this renders, so they are tried first and this
+     * falls back rather than waiting.
+     */
     connectedAs() {
-      const p = this.$store.getters['auth/principal'] || this.$store.getters['rancher/byId']?.('principal');
+      const g = this.$store?.getters || {};
+      const user = g['auth/user'] || g['auth/selfUser'];
+      const named = user?.loginName || user?.username || user?.name;
 
-      return p?.loginName || p?.name || p?.id?.split('://')?.[1] || 'this Rancher';
+      if (named) {
+        return named;
+      }
+
+      const id = g['auth/principalId'] || '';
+      const tail = String(id).split('://').pop();
+
+      return tail && tail !== id ? tail : '';
+    },
+
+    /**
+     * The whole sentence, because the fallback changes the grammar.
+     *
+     * With no name to show, "Connected as this Rancher" is wrong in a way that reads as a bug
+     * in the connection rather than a gap in what we know about the account.
+     */
+    connectedLabel() {
+      return this.connectedAs ? `Connected as ${ this.connectedAs }` : 'Connected to this Rancher';
     },
 
     changesLabel() {
@@ -171,7 +198,7 @@ export default {
         class="assistant-panel__dot"
         :class="{ 'assistant-panel__dot--off': !connected }"
       />
-      <span class="assistant-panel__who">Connected as {{ connectedAs }}</span>
+      <span class="assistant-panel__who">{{ connectedLabel }}</span>
       <span class="assistant-panel__grow" />
       <SChip
         label="Ask before each file edit"

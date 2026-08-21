@@ -127,7 +127,7 @@ export default {
         <!-- the explanation, and the ways out of it -->
         <div class="failed__explain">
           <SBanner type="error" with-icon>
-            <strong>The publish did not finish.</strong>
+            <strong>The publish did not finish:</strong>
             {{ failure.message }}
           </SBanner>
 

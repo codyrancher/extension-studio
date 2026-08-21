@@ -282,13 +282,33 @@ export default {
         </div>
 
         <div class="files__tree-scroll">
+          <!--
+            The root's children, not the root. FileTree draws a node as a folder button with
+            its own name, and the root has no name - rendering it puts an empty, nameless
+            folder row above the tree with everything nested one level inside it.
+          -->
           <FileTree
-            v-if="tree.dirs.length || tree.files.length"
-            :node="tree"
+            v-for="dir in tree.dirs"
+            :key="dir.path"
+            :node="dir"
             :current="current"
             @select="current = $event"
           />
-          <div v-else-if="!loading" class="files__muted files__pad">
+          <button
+            v-for="file in tree.files"
+            :key="file.path"
+            type="button"
+            class="files__loose"
+            :class="{ 'files__loose--current': file.path === current }"
+            @click="current = file.path"
+          >
+            {{ file.name }}
+          </button>
+
+          <div
+            v-if="!loading && !tree.dirs.length && !tree.files.length"
+            class="files__muted files__pad"
+          >
             No files match.
           </div>
         </div>
@@ -512,6 +532,28 @@ export default {
     padding:    0;
     font:       var(--studio-caption-12);
     color:      var(--studio-text);
+  }
+
+  // A file that sits at the root of the package, with no folder above it.
+  &__loose {
+    display:       block;
+    width:         100%;
+    padding:       3px var(--studio-space-8);
+    text-align:    left;
+    background:    none;
+    border:        none;
+    border-radius: var(--studio-radius-control);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-link);
+    cursor:        pointer;
+
+    &:hover { background: var(--studio-surface-subtle); }
+
+    &--current,
+    &--current:hover {
+      background: var(--studio-blue-050);
+      color:      var(--studio-text);
+    }
   }
 
   &__tree-scroll {
