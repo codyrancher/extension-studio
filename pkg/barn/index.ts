@@ -51,20 +51,18 @@ export default function(plugin: IPlugin): void {
   // The rest of the Studio. Each is a full frame in the design, so each is a route: the brief
   // agreed before any code exists, the gate in front of publishing, the file browser, and the
   // three review screens.
+  //
+  // Each import is written out rather than built from a template literal: webpack turns a
+  // template-literal import into a context module over the whole pages directory, which pulls
+  // every page into the graph whether or not a route reaches it.
   [
-    { name: BRIEF_ROUTE, path: '/barn/extensions/:extension/brief', page: 'brief' },
-    { name: REVIEW_ROUTE, path: '/barn/extensions/:extension/review', page: 'review' },
-    { name: FILES_ROUTE, path: '/barn/extensions/:extension/files', page: 'files' },
-    { name: REVIEW_QUEUE_ROUTE, path: '/barn/review', page: 'review-queue' },
-    { name: REVIEW_CHANGE_ROUTE, path: '/barn/review/:extension/:change', page: 'review-change' },
-    { name: VERIFICATION_ROUTE, path: '/barn/extensions/:extension/verification', page: 'verification' },
-  ].forEach(({ name, path, page }) => {
-    plugin.addRoute('plain', {
-      name,
-      path,
-      component: () => import(`./pages/${ page }.vue`),
-    });
-  });
+    { name: BRIEF_ROUTE, path: '/barn/extensions/:extension/brief', component: () => import('./pages/brief.vue') },
+    { name: REVIEW_ROUTE, path: '/barn/extensions/:extension/review', component: () => import('./pages/review.vue') },
+    { name: FILES_ROUTE, path: '/barn/extensions/:extension/files', component: () => import('./pages/files.vue') },
+    { name: REVIEW_QUEUE_ROUTE, path: '/barn/review', component: () => import('./pages/review-queue.vue') },
+    { name: REVIEW_CHANGE_ROUTE, path: '/barn/review/:extension/:change', component: () => import('./pages/review-change.vue') },
+    { name: VERIFICATION_ROUTE, path: '/barn/extensions/:extension/verification', component: () => import('./pages/verification.vue') },
+  ].forEach((route) => plugin.addRoute('plain', route));
 
   // The editor itself: two panes under Rancher's own header.
   //

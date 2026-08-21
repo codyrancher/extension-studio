@@ -8,19 +8,16 @@
 // what a settings form has to know. Showing a saved credential back to the page would put it
 // in the DOM of a tab somebody leaves open on a shared screen, and buys nothing - nobody
 // reads a token to check it, they replace it.
-import AppModal from '@shell/components/AppModal';
-import AsyncButton from '@shell/components/AsyncButton';
-import { LabeledInput } from '@components/Form/LabeledInput';
-import { Card } from '@components/Card';
-import { RcButton } from '@components/RcButton';
-import { Banner } from '@components/Banner';
+import {
+  SModal, SButton, SField, SBanner
+} from './ui';
 import { readSettings, saveSettings } from '../extensions';
 
 export default {
   name: 'EditorSettingsModal',
 
   components: {
-    AppModal, AsyncButton, Card, RcButton, Banner, LabeledInput
+    SModal, SButton, SField, SBanner
   },
 
   emits: ['close', 'saved'],
@@ -36,6 +33,8 @@ export default {
       // Set by the Clear button, which is the only way to remove a token: a blank field means
       // "keep", so it cannot also mean "delete".
       clearToken: false,
+      // The primary button's own spinner, which AsyncButton used to own.
+      saving:     false,
     };
   },
 
@@ -59,18 +58,20 @@ export default {
   },
 
   methods: {
-    async save(done) {
+    async save() {
+      this.saving = true;
+
       try {
         await saveSettings('', {
           // undefined rather than '' when it was left alone, because '' is the deliberate clear.
           token: this.clearToken ? '' : (this.token || undefined),
         });
         this.$emit('saved');
-        done(true);
         this.$emit('close');
       } catch (e) {
         this.error = e?.message || String(e);
-        done(false);
+      } finally {
+        this.saving = false;
       }
     },
   },
@@ -78,106 +79,74 @@ export default {
 </script>
 
 <template>
-  <AppModal
-    name="barn-editor-settings"
+  <SModal
+    title="Editor settings"
+    icon="gear"
     :width="560"
+    :busy="saving"
     @close="$emit('close')"
   >
-    <Card
-      class="editor-settings"
-      :show-highlight-border="false"
-    >
-      <template #title>
-        <h4 class="text-default-text">
-          Editor settings
-        </h4>
-      </template>
+    <div class="editor-settings">
+      <SBanner v-if="error" type="error" :message="error" />
 
-      <template #body>
-        <Banner
-          v-if="error"
-          color="error"
-          :label="error"
-        />
+      <p class="editor-settings__intro">
+        Used to import and publish extensions to GitHub.
+      </p>
 
-        <p class="editor-settings__intro">
-          Used to import and publish extensions to GitHub.
-        </p>
+      <SField
+        v-model="token"
+        label="GitHub token"
+        type="password"
+        :placeholder="tokenPlaceholder"
+        :disabled="loading || clearToken"
+      />
 
-        <LabeledInput
-          v-model:value="token"
-          label="GitHub token"
-          type="password"
-          :placeholder="tokenPlaceholder"
-          :disabled="loading || clearToken"
-          class="editor-settings__field"
-        />
-        <p
-          v-if="hasToken"
-          class="editor-settings__hint"
-        >
-          One is stored; typing here replaces it.
-          <a
-            href="#"
-            @click.prevent="clearToken = !clearToken"
-          >{{ clearToken ? 'Keep it' : 'Remove it' }}</a>
-        </p>
-        <Banner
-          v-if="clearToken"
-          color="warning"
-          label="The stored token will be removed when you save."
-        />
-      </template>
+      <p v-if="hasToken" class="editor-settings__hint">
+        One is stored; typing here replaces it.
+        <a href="#" @click.prevent="clearToken = !clearToken">{{ clearToken ? 'Keep it' : 'Remove it' }}</a>
+      </p>
 
-      <template #actions>
-        <div class="editor-settings__actions">
-          <RcButton
-            variant="tertiary"
-            @click="$emit('close')"
-          >
-            Cancel
-          </RcButton>
-          <AsyncButton
-            mode="edit"
-            action-label="Save"
-            waiting-label="Saving"
-            success-label="Saved"
-            :disabled="loading"
-            @click="save"
-          />
-        </div>
-      </template>
-    </Card>
-  </AppModal>
+      <SBanner
+        v-if="clearToken"
+        type="warning"
+        message="The stored token will be removed when you save."
+      />
+    </div>
+
+    <template #footer>
+      <SButton variant="ghost" @click="$emit('close')">
+        Cancel
+      </SButton>
+      <SButton
+        variant="primary"
+        :loading="saving"
+        :disabled="loading"
+        @click="save"
+      >
+        Save
+      </SButton>
+    </template>
+  </SModal>
 </template>
 
 <style lang="scss" scoped>
 .editor-settings {
-  &__intro {
-    max-width: 70ch;
-    margin-bottom: 15px;
-    color: var(--muted);
-  }
+  display:        flex;
+  flex-direction: column;
+  gap:            var(--studio-space-12);
 
-  &__field {
-    margin-top: 10px;
+  &__intro {
+    font:   var(--studio-body-13);
+    color:  var(--studio-text-secondary);
+    margin: 0;
   }
 
   &__hint {
-    margin: 4px 0 10px;
-    color: var(--muted);
-    font-size: 12px;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-tertiary);
+    margin: 0;
 
-    &--error {
-      color: var(--error);
-    }
-  }
-
-  &__actions {
-    display:         flex;
-    gap:             10px;
-    justify-content: flex-end;
-    width:           100%;
+    a { color: var(--studio-text-link); }
   }
 }
 </style>

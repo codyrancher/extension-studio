@@ -7,19 +7,16 @@
 //
 // So the answer is remembered and offered back, and the question is still asked. Blank the
 // first time, filled in and one Return away every time after that.
-import AppModal from '@shell/components/AppModal';
-import AsyncButton from '@shell/components/AsyncButton';
-import { LabeledInput } from '@components/Form/LabeledInput';
-import { Card } from '@components/Card';
-import { RcButton } from '@components/RcButton';
-import { Banner } from '@components/Banner';
+import {
+  SModal, SButton, SField, SBanner
+} from './ui';
 import { readSettings } from '../extensions';
 
 export default {
   name: 'PublishGithubModal',
 
   components: {
-    AppModal, AsyncButton, Card, RcButton, Banner, LabeledInput
+    SModal, SButton, SField, SBanner
   },
 
   props: {
@@ -37,6 +34,7 @@ export default {
       repo:     '',
       hasToken: true,
       loading:  true,
+      pushing:  false,
     };
   },
 
@@ -61,110 +59,74 @@ export default {
   },
 
   methods: {
-    publish(done) {
-      if (!this.canPublish) {
-        done(false);
-
+    publish() {
+      if (!this.canPublish || this.pushing) {
         return;
       }
 
-      // The page runs it, because the page owns the status strip the progress goes to. `done`
-      // travels with it so the button stays busy until the push is over.
-      this.$emit('publish', { repo: this.repo, done });
+      this.pushing = true;
+
+      // The page runs it, because the page owns the status strip the progress goes to. The
+      // callback travels with it so this button stays busy until the push is over - which is
+      // what AsyncButton's `done` used to be.
+      this.$emit('publish', {
+        repo: this.repo,
+        done: () => {
+          this.pushing = false;
+        },
+      });
     },
   },
 };
 </script>
 
 <template>
-  <AppModal
-    name="barn-publish-github"
+  <SModal
+    :title="`Publish ${ extension } to GitHub`"
+    icon="github"
     :width="560"
+    :busy="pushing"
     @close="$emit('close')"
   >
-    <Card
-      class="publish-github"
-      :show-highlight-border="false"
-    >
-      <template #title>
-        <h4 class="text-default-text">
-          Publish {{ extension }} to GitHub
-        </h4>
-      </template>
+    <div class="publish-github">
+      <SBanner v-if="!loading && !hasToken" type="warning">
+        There is no GitHub token yet, and pushing needs one.
+        <a href="#" @click.prevent="$emit('settings')">Add one in settings</a>, then come back.
+      </SBanner>
 
-      <template #body>
-        <Banner
-          v-if="!loading && !hasToken"
-          color="warning"
-        >
-          <span>
-            There is no GitHub token yet, and pushing needs one.
-            <a
-              href="#"
-              @click.prevent="$emit('settings')"
-            >Add one in settings</a>, then come back.
-          </span>
-        </Banner>
+      <SField
+        v-model="repo"
+        label="GitHub repository"
+        placeholder="owner/name"
+        :disabled="loading || pushing"
+        :error="repoInvalid ? 'That has to be owner/name.' : ''"
+        @enter="publish"
+      />
+    </div>
 
-        <LabeledInput
-          v-model:value="repo"
-          label="GitHub repository"
-          placeholder="owner/name"
-          :disabled="loading"
-          class="publish-github__field"
-        />
-        <p
-          v-if="repoInvalid"
-          class="publish-github__hint publish-github__hint--error"
-        >
-          That has to be owner/name.
-        </p>
-      </template>
-
-      <template #actions>
-        <div class="publish-github__actions">
-          <RcButton
-            variant="tertiary"
-            @click="$emit('close')"
-          >
-            Cancel
-          </RcButton>
-          <AsyncButton
-            mode="edit"
-            action-label="Publish"
-            waiting-label="Pushing"
-            success-label="Pushed"
-            error-label="Push failed"
-            :disabled="!canPublish"
-            @click="publish"
-          />
-        </div>
-      </template>
-    </Card>
-  </AppModal>
+    <template #footer>
+      <SButton variant="ghost" :disabled="pushing" @click="$emit('close')">
+        Cancel
+      </SButton>
+      <SButton
+        variant="primary"
+        icon="upload"
+        :loading="pushing"
+        :disabled="!canPublish"
+        @click="publish"
+      >
+        Publish
+      </SButton>
+    </template>
+  </SModal>
 </template>
 
 <style lang="scss" scoped>
 .publish-github {
-  &__field {
-    margin-top: 10px;
-  }
+  display:        flex;
+  flex-direction: column;
+  gap:            var(--studio-space-12);
 
-  &__hint {
-    margin: 4px 0 10px;
-    color: var(--muted);
-    font-size: 12px;
-
-    &--error {
-      color: var(--error);
-    }
-  }
-
-  &__actions {
-    display:         flex;
-    gap:             10px;
-    justify-content: flex-end;
-    width:           100%;
-  }
+  a { color: var(--studio-text-link); }
 }
 </style>
