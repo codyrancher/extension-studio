@@ -1,53 +1,192 @@
 /*
- * The Extension Studio design, as tokens.
+ * The Extension Studio design system.
  *
- * Taken from the Figma concept ("Rancher Extension Studio - AI Authoring", frame 03 · Workspace)
- * rather than eyeballed, so a value here can be checked against the file. Plain CSS imported
- * from a .ts, for the reason the Dev extension's tokens file gives: the shell prepends its own
- * SCSS to every component stylesheet, so a `@use` written in one is never the first rule in the
- * sheet and sass refuses it.
+ * Every value here is read off the Figma file ("Rancher Extension Studio - AI Authoring",
+ * Foundations page, node 28:2) rather than eyeballed, so any one of them can be checked
+ * against the source. The names match the Figma variable names: `brand/green-500` in the
+ * file is `--studio-green-500` here, `status/warning-bg` is `--studio-warning-bg`, and so
+ * on. That correspondence is the point - when the design changes, the diff is obvious.
  *
- * Where the design and Rancher disagree, Rancher wins on anything themed. These are literal
- * light-mode values from a concept file, and the dashboard has a dark mode the concept does not
- * consider - so each one falls back to the shell's own variable where there is a sensible one,
- * and the literal is the default rather than the rule.
+ * Plain CSS imported from a .ts rather than SCSS in a component, for the reason the Dev
+ * extension's tokens file gives: the shell prepends its own SCSS to every component
+ * stylesheet, so a `@use` written in one is never the first rule in the sheet and sass
+ * refuses it.
+ *
+ * Two rules about what these values are:
+ *
+ * 1. Where the design and Rancher disagree on something *themed*, Rancher wins. The
+ *    concept is a light-mode document and the dashboard has a dark mode it never
+ *    considers, so the structural colours (surface, text, border, brand) resolve through
+ *    the shell's own variables and keep the Figma value only as the fallback.
+ * 2. The semantic tints (status, diff) have no shell equivalent worth borrowing, so they
+ *    are literal - and therefore need the `.theme-dark` block at the bottom, because a
+ *    #FDF6E3 warning wash on a near-black panel is a lamp, not a background.
+ */
+
+:root {
+  /* ---------------------------------------------------------------- Brand */
+  --studio-green-050: #EEF5EF;
+  --studio-green-100: #D2E5D5;
+  --studio-green-500: #3E8C4F;
+  --studio-green-600: #337041;
+  --studio-green-700: #275632;
+
+  /* --------------------------------------------------------------- Accent */
+  --studio-blue-050: #EAF4FB;
+  --studio-blue-500: #3D98D3;
+  --studio-blue-600: #2C7BB0;
+
+  /* ------------------------------------------------------------- Surfaces */
+  --studio-surface:           var(--body-bg, #FFFFFF);
+  --studio-surface-subtle:    var(--nav-bg, #F7F8FA);
+  --studio-surface-nav:       var(--nav-bg, #F2F3F5);
+  /* The terminal keeps its own two greys in both themes: it is a terminal. */
+  --studio-surface-terminal:     #1B1C21;
+  --studio-surface-terminal-alt: #26272E;
+
+  /* --------------------------------------------------------------- Border */
+  --studio-border-subtle: var(--border, #E5E6EB);
+  --studio-border:        var(--border, #DCDDE3);
+  --studio-border-strong: var(--input-border, #B4B5BE);
+  --studio-border-focus:  var(--outline, #3D98D3);
+
+  /* ----------------------------------------------------------------- Text */
+  --studio-text:           var(--body-text, #141419);
+  --studio-text-secondary: var(--muted, #61616B);
+  --studio-text-tertiary:  var(--muted, #8B8B96);
+  --studio-text-link:      var(--link, #3D98D3);
+  --studio-text-inverse:   #FFFFFF;
+
+  /* --------------------------------------------------------------- Status --
+   * The file's note: these are the colours the Rancher cluster table already
+   * uses, so a Failed extension reads the way a Failed cluster does. */
+  --studio-success:     #3E8C4F;
+  --studio-success-bg:  #EBF4EC;
+  --studio-info:        #3D98D3;
+  --studio-info-bg:     #DEEBF7;
+  --studio-warning:     #C9A227;
+  --studio-warning-bg:  #FDF6E3;
+  --studio-error:       #F64747;
+  --studio-error-bg:    #FDECEC;
+  --studio-neutral:     #8B8B96;
+  --studio-neutral-bg:  #F0F1F4;
+
+  /* ----------------------------------------------------------------- Diff */
+  --studio-diff-added-bg:     #EAF5EC;
+  --studio-diff-added-text:   #276B33;
+  --studio-diff-removed-bg:   #FDECEC;
+  --studio-diff-removed-text: #B32424;
+
+  /* ----------------------------------------------------------------- Type --
+   * Lato as Rancher ships it; JetBrains Mono for code, diffs and terminal
+   * output - the one place the file lets a second family in. Both resolve
+   * through the shell's stack first so a retheme carries. */
+  --studio-font:      var(--body-font, 'Lato', 'Helvetica Neue', Arial, sans-serif);
+  --studio-font-mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* `font:` shorthands, so a rule is one line and cannot drift in weight. */
+  --studio-display-32: 700 32px/1.25 var(--studio-font);
+  --studio-heading-24: 600 24px/1.333 var(--studio-font);
+  --studio-heading-20: 600 20px/1.4 var(--studio-font);
+  --studio-heading-16: 600 16px/1.5 var(--studio-font);
+  --studio-heading-14: 600 14px/1.4286 var(--studio-font);
+  --studio-body-16:    400 16px/1.5 var(--studio-font);
+  --studio-body-14:    400 14px/1.4286 var(--studio-font);
+  --studio-body-13:    400 13px/1.3846 var(--studio-font);
+  --studio-caption-12: 400 12px/1.3333 var(--studio-font);
+  --studio-caption-12-semi: 600 12px/1.3333 var(--studio-font);
+  --studio-caption-11-caps: 600 11px/1.2727 var(--studio-font);
+  --studio-mono-12:    400 12px/1.5 var(--studio-font-mono);
+
+  /* Tracking cannot ride in the `font:` shorthand, so the two that have it
+   * carry it separately. Display's is negative, the caps label's is wide. */
+  --studio-tracking-display: -0.00625em;
+  --studio-tracking-heading: -0.004167em;
+  --studio-tracking-caps:    0.0545em;
+
+  /* -------------------------------------------------------------- Spacing --
+   * The file's scale, named by value so a gap here is the gap in Figma. */
+  --studio-space-2:  2px;
+  --studio-space-4:  4px;
+  --studio-space-8:  8px;
+  --studio-space-12: 12px;
+  --studio-space-16: 16px;
+  --studio-space-20: 20px;
+  --studio-space-24: 24px;
+  --studio-space-32: 32px;
+  --studio-space-40: 40px;
+
+  /* --------------------------------------------------------------- Radius --
+   * 3 for controls, 4 for cards and buttons, 100 for pills. */
+  --studio-radius-control: 3px;
+  --studio-radius:         4px;
+  --studio-radius-pill:    100px;
+
+  /* -------------------------------------------------------------- Density --
+   * "Rancher is a dense product. Rows are 11-14px of vertical padding, not 20
+   * - matching it matters more than breathing room." */
+  --studio-row-pad-y: 11px;
+  --studio-row-pad-x: 12px;
+
+  /* --------------------------------------------------------- Panel widths */
+  --studio-panel-assistant: 520px;
+  --studio-panel-tree:      288px;
+  --studio-panel-rail:      340px;
+
+  /* ------------------------------------------------------------- Elevation --
+   * Not in the file as a variable; these are the two shadows the screens draw
+   * (dropdown, modal) expressed once so they match each other. */
+  --studio-shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.13);
+  --studio-shadow-modal:   0 8px 40px rgba(0, 0, 0, 0.22);
+}
+
+/*
+ * Dark theme. Only the literal tints need restating - everything routed through
+ * a shell variable has already flipped by the time we get here.
+ *
+ * The tints are rebuilt rather than hand-picked: each is its status hue at low
+ * alpha over whatever the panel behind it is, which keeps the same hue
+ * relationship the light values have without assuming a background colour.
+ */
+body.theme-dark {
+  --studio-success-bg: rgba(62, 140, 79, 0.18);
+  --studio-info-bg:    rgba(61, 152, 211, 0.18);
+  --studio-warning-bg: rgba(201, 162, 39, 0.18);
+  --studio-error-bg:   rgba(246, 71, 71, 0.16);
+  --studio-neutral-bg: rgba(139, 139, 150, 0.16);
+
+  --studio-diff-added-bg:     rgba(62, 140, 79, 0.20);
+  --studio-diff-added-text:   #7BC98C;
+  --studio-diff-removed-bg:   rgba(246, 71, 71, 0.18);
+  --studio-diff-removed-text: #F08C8C;
+
+  /* Lift the mid-greys so they stay legible against a dark panel. */
+  --studio-warning: #E0BC4A;
+  --studio-error:   #FF6B6B;
+}
+
+/*
+ * Legacy aliases.
+ *
+ * The masthead was written against an earlier, smaller version of this file. These keep it
+ * compiling while it is migrated onto the names above; delete the block once nothing
+ * matches `grep -r 'studio-line\|studio-surface-sunken\|studio-text-muted'`.
  */
 :root {
-  /* Surfaces */
-  --studio-surface:        var(--body-bg, #FFFFFF);
-  --studio-surface-sunken: var(--nav-bg, #F7F8FA);
-  --studio-line:           var(--border, #DCDDE3);
-  --studio-line-soft:      var(--border, #E5E6EB);
-
-  /* Text */
-  --studio-text:           var(--body-text, #141419);
-  --studio-text-muted:     var(--muted, #8B8B96);
-  --studio-text-strong:    var(--body-text, #61616B);
-
-  /* Rancher green, which the design uses for the primary action and the selected rail item */
-  --studio-accent:         var(--primary, #3E8C4F);
-  --studio-accent-text:    var(--primary, #337041);
-
-  /* The amber "unsaved" state, mirroring Rancher's own state pill */
-  --studio-warn-bg:        #FDF6E3;
-  --studio-warn-line:      #C9A227;
-  --studio-warn-text:      #C9A227;
-
-  /* The blue "phase" chip */
-  --studio-info-bg:        #EAF4FB;
-  --studio-info-text:      #2C7BB0;
-
-  /* Type. Lato is Rancher's own face, so this is the shell's stack rather than a webfont. */
-  --studio-heading-16: 600 16px/1.5 var(--body-font, 'Lato', sans-serif);
-  --studio-heading-14: 600 14px/1.43 var(--body-font, 'Lato', sans-serif);
-  --studio-caption-12: 400 12px/1.33 var(--body-font, 'Lato', sans-serif);
-  --studio-caption-12-semi: 600 12px/1.33 var(--body-font, 'Lato', sans-serif);
-
-  /* Spacing the frame actually uses, so a gap here is the gap in the file */
-  --studio-gap:      10px;
-  --studio-gap-tight: 6px;
-  --studio-pad-x:    16px;
-  --studio-pad-y:    10px;
-  --studio-radius:   4px;
-  --studio-radius-chip: 3px;
+  --studio-line:           var(--studio-border);
+  --studio-line-soft:      var(--studio-border-subtle);
+  --studio-surface-sunken: var(--studio-surface-subtle);
+  --studio-text-muted:     var(--studio-text-tertiary);
+  --studio-text-strong:    var(--studio-text-secondary);
+  --studio-accent:         var(--studio-green-500);
+  --studio-accent-text:    var(--studio-green-600);
+  --studio-warn-bg:        var(--studio-warning-bg);
+  --studio-warn-line:      var(--studio-warning);
+  --studio-warn-text:      var(--studio-warning);
+  --studio-info-text:      var(--studio-blue-600);
+  --studio-gap:            var(--studio-space-8);
+  --studio-gap-tight:      6px;
+  --studio-pad-x:          var(--studio-space-16);
+  --studio-pad-y:          var(--studio-space-8);
+  --studio-radius-chip:    var(--studio-radius-control);
 }

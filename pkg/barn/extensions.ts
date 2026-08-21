@@ -1397,6 +1397,21 @@ export async function countChanges(name: string): Promise<number> {
 }
 
 /**
+ * The working tree's diff against HEAD, as a patch.
+ *
+ * What the Studio's Changes tab shows, and what its "14 changes since v0.1.0" bar is counting.
+ *
+ * `git add -N` first, because a file claude has just created is untracked, and `git diff` says
+ * nothing at all about untracked files - so without this the one change a person most wants to
+ * look at is the one change that never appears. Intent-to-add records the path without staging
+ * the content, which puts the whole file in the diff as an addition and leaves the index alone
+ * for whatever commits next.
+ */
+export async function workingDiff(name: string): Promise<string> {
+  return inPackage(name, 'git add -A -N >/dev/null 2>&1 ; git diff 2>/dev/null');
+}
+
+/**
  * Write a binary file into an extension's pod.
  *
  * For images pasted into the terminal. Base64 all the way in, because the payload is binary and

@@ -66,6 +66,18 @@ export default {
     },
   },
 
+  // The connection's state, for whatever is drawing a dot for it - the Studio's session row.
+  emits: ['state'],
+
+  watch: {
+    state: {
+      immediate: true,
+      handler(v) {
+        this.$emit('state', v);
+      },
+    },
+  },
+
   data() {
     return {
       // 'waiting' (no pod yet) | 'connecting' | 'open' | 'closed'
@@ -319,6 +331,24 @@ export default {
       } else {
         this.backlog.push(frame);
       }
+    },
+
+    /**
+     * Type a line into the session from outside it, as the Studio composer does.
+     *
+     * This is exactly what a person typing the same words would produce - stdin, then a
+     * carriage return - so claude cannot tell the two apart, and neither can the terminal:
+     * the text appears in the scrollback the way anything else typed does.
+     *
+     * `\r` rather than `\n`, matching what xterm sends for Enter. A newline reaches most
+     * readline implementations as a literal rather than as a submit.
+     */
+    sendText(text) {
+      if (!text) {
+        return;
+      }
+
+      this.send(STDIN + base64Encode(`${ text }\r`));
     },
 
     flush() {

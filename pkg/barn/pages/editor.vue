@@ -15,23 +15,20 @@
 // route and nothing else, which meant this page had to carry a Back button to be escapable
 // at all. Plain brings the top-level menu, which is the way out; its header bar is hidden
 // here (see the unscoped style block at the bottom) because each pane labels itself.
-import { RcIcon } from '@components/RcIcon';
 import PodTerminal from '../components/PodTerminal.vue';
 import ExtensionSelect from '../components/ExtensionSelect.vue';
-import AsyncButton from '@shell/components/AsyncButton';
-import { RcButton } from '@components/RcButton';
 import PublishStatus from '../components/PublishStatus.vue';
 import ExtensionFiles from '../components/ExtensionFiles.vue';
 import NewExtensionModal from '../components/NewExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import PublishGithubModal from '../components/PublishGithubModal.vue';
-import PublishSplit from '../components/PublishSplit.vue';
 import InstallProgress from '../components/InstallProgress.vue';
 import EditorMasthead from '../components/EditorMasthead.vue';
+import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/studio';
 import StartingExtensions from '../components/StartingExtensions.vue';
 import {
-  ensureExtension, extensionReady, extensionUrl, extensionProxyPath, publishExtension,
+  ensureExtension, extensionReady, extensionUrl, publishExtension,
   publishExtensionToGithub, removeLocalInstall, DEFAULT_EXTENSION
 } from '../extensions';
 import { installState } from '../install';
@@ -76,9 +73,9 @@ export default {
   name: 'BarnEditor',
 
   components: {
-    RcIcon, RcButton, PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions, AsyncButton,
-    PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal, PublishSplit,
-    InstallProgress, EditorMasthead
+    PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions,
+    PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal,
+    InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges
   },
 
   data() {
@@ -90,10 +87,15 @@ export default {
       // Bookkeeping for the dev server poll, so it stops with the page.
       unmounted:    false,
       devPollTimer: null,
-      // Which of the left pane's two views is showing. The terminal stays mounted whichever it
-      // is (see the template): it is a live session, and unmounting it to look at a file would
-      // end whatever claude was in the middle of.
-      leftTab: 'cli',
+      // Which of the assistant panel's four views is showing. The terminal stays mounted
+      // whichever it is (see the template): it is a live session, and unmounting it to look at
+      // a file would end whatever claude was in the middle of.
+      leftTab: 'assistant',
+      // The terminal's websocket state, for the session row's dot.
+      terminalState: '',
+      // Bumped to make the Changes tab re-read the working tree when it is opened, so it is
+      // never showing a diff from before the last thing the assistant did.
+      changesRevision: 0,
       // Whether this cluster still has objects to make before the editor is worth showing.
       // Undefined until the first read, so the page shows neither the panes nor the checklist
       // in the moment before it knows which is right - a flash of the wrong one reads as a bug.
@@ -123,9 +125,6 @@ export default {
       // What the right pane is showing, as a path inside the framed dashboard. Kept in sync
       // with the iframe by a poll rather than by its load event, because the thing in there is
       // a single-page app: it changes its URL with pushState and never loads again.
-      address:      '',
-      addressFocused: false,
-      addressTimer: null,
       // What the last publish did and said. The stage is what the bar counts; the log is kept
       // whether it worked or not, because a build log is worth reading either way.
       publishStage: 0,
@@ -145,12 +144,8 @@ export default {
      * here next - a release, a chart, a different repository - is another line rather than
      * another control on a bar that is already full.
      */
-    /** The left pane's two views. A list so the bar is a loop rather than two copies of a button. */
-    leftTabs() {
-      return [
-        { id: 'cli', label: 'CLI' },
-        { id: 'files', label: 'Files' },
-      ];
+    terminalConnected() {
+      return this.terminalState === 'open';
     },
 
     publishOptions() {
@@ -168,17 +163,6 @@ export default {
       return this.$route.params.extension || DEFAULT_EXTENSION;
     },
 
-    /**
-     * What the pop-out opens: where the pane is now, not where it started.
-     *
-     * Built from the address rather than from `rightUrl`, so somebody who has navigated three
-     * pages into the framed dashboard gets those three pages rather than its front door.
-     */
-    popoutUrl() {
-      const path = this.address.startsWith('/') ? this.address : `/${ this.address }`;
-
-      return this.rightUrl ? `${ extensionProxyPath(this.extension) }${ path }` : '';
-    },
   },
 
   watch: {
@@ -216,7 +200,6 @@ export default {
     // The terminal brings itself up (it waits on the pod, not on the dev
     // server), so nothing here has to wait for the left pane.
     this.waitForDevServer();
-    this.addressTimer = setInterval(() => this.readAddress(), 1000);
 
     // What the page needs from the template it is under, and cannot ask for from inside its
     // own scope: see the unscoped style block at the bottom. The class goes on <html> rather
@@ -230,7 +213,6 @@ export default {
   beforeUnmount() {
     this.unmounted = true;
     clearTimeout(this.devPollTimer);
-    clearInterval(this.addressTimer);
     document.documentElement.classList.remove('barn-editor-page');
   },
 
@@ -345,50 +327,27 @@ export default {
     },
 
     /**
-     * Where the framed dashboard currently is.
+     * Switch the assistant panel's tab.
      *
-     * Readable at all because it is same-origin: the pane is served through the apiserver's
-     * proxy, which is on Rancher's own origin, so this is an ordinary property access rather
-     * than something that needs the frame to cooperate. The try/catch is for the moment during
-     * a navigation when contentWindow is briefly not there.
-     *
-     * The proxy prefix comes off for display. Leaving it on would mean a box that is three
-     * quarters boilerplate and whose interesting part is off the right-hand edge.
+     * Entering Changes bumps a revision the tab watches, so it re-reads the working tree
+     * rather than showing whatever the diff was the last time it was looked at.
      */
-    readAddress() {
-      if (this.addressFocused) {
-        return;
+    onLeftTab(tab) {
+      this.leftTab = tab;
+
+      if (tab === 'changes') {
+        this.changesRevision++;
       }
-
-      try {
-        const href = this.$refs.frame?.contentWindow?.location?.href;
-
-        if (href) {
-          this.address = href.replace(window.location.origin, '').replace(extensionProxyPath(this.extension), '') || '/';
-        }
-      } catch { /* mid-navigation, or not framed yet */ }
     },
 
     /**
-     * Back and forward inside the framed dashboard.
+     * Send what was typed in the composer to the claude in the pod.
      *
-     * Its own history rather than the browser's: the pane is same-origin, so this is the
-     * ordinary History API on the frame's window. Using the outer browser's would take the
-     * whole editor back instead, which is the opposite of what a button next to that address
-     * should do.
+     * Real, and the same thing as typing it into the terminal: the panel has already switched
+     * to the terminal by the time this runs, so the reply arrives somewhere visible.
      */
-    history(delta) {
-      try {
-        this.$refs.frame?.contentWindow?.history?.go(delta);
-      } catch { /* mid-navigation */ }
-    },
-
-    /** Go where the box says. A path, so what is typed reads like a Rancher URL. */
-    go() {
-      const path = this.address.startsWith('/') ? this.address : `/${ this.address }`;
-
-      this.$refs.frame.contentWindow.location.href = `${ extensionProxyPath(this.extension) }${ path }`;
-      this.$refs.address?.blur();
+    sendToAssistant(text) {
+      this.$refs.terminal?.sendText(text);
     },
 
     openExtension(name) {
@@ -600,68 +559,22 @@ export default {
       per pane. What was on the right bar - the extension picker, publish - moves here or
       stays beside the pane it is about; the tabs stay in the pane they switch.
     -->
+    <!--
+      The masthead is the whole top of the page now. The bar that used to sit under it held
+      the tabs (which the assistant panel owns), the pop-out (which the preview panel owns)
+      and these three, which come in as slots.
+    -->
     <EditorMasthead
       :extension="extension"
       :publish-options="publishOptions"
       :publishing="publishing"
       @back="$router.push({ name: 'home' })"
-      @files="leftTab = 'files'"
+      @files="onLeftTab('changes')"
       @publish="publishTo('local')"
       @publish-select="onPublishSelect"
-    />
-
-    <div class="mc-editor__bars">
-      <div
-        class="mc-editor__bar"
-        :style="{ width: `calc(${ split }% - 4px)` }"
-      >
-        <div
-          class="mc-editor__tabs"
-          role="tablist"
-        >
-          <button
-            v-for="tab in leftTabs"
-            :key="tab.id"
-            type="button"
-            role="tab"
-            class="mc-editor__tab"
-            :class="{ 'mc-editor__tab--current': leftTab === tab.id }"
-            :aria-selected="leftTab === tab.id"
-            :data-testid="`barn-left-tab-${ tab.id }`"
-            @click="leftTab = tab.id"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
-        <!--
-          At the far end of this bar rather than beside Files, because it is not another thing
-          to do to the source: it is what the editor itself is configured with, and the two
-          would read as a pair if they sat together.
-        -->
-        <button
-          type="button"
-          class="mc-editor__cog"
-          title="Editor settings"
-          aria-label="Editor settings"
-          data-testid="barn-editor-settings-button"
-          @click="showSettings = true"
-        >
-          <i class="icon icon-gear" />
-        </button>
-      </div>
-      <div class="mc-editor__bar-gap" />
-      <div class="mc-editor__bar mc-editor__bar--right">
-        <a
-          class="mc-editor__popout"
-          :class="{ 'mc-editor__popout--disabled': !rightUrl }"
-          :href="popoutUrl"
-          target="_blank"
-          rel="noopener"
-          title="Open this page on its own"
-          aria-label="Open this page on its own"
-        >
-          <i class="icon icon-external-link" />
-        </a>
+      @settings="showSettings = true"
+    >
+      <template #status>
         <PublishStatus
           :stage="publishStage"
           :total="publishTotal"
@@ -670,31 +583,17 @@ export default {
           :log="publishLog"
           :done="published"
         />
+      </template>
+
+      <template #picker>
         <ExtensionSelect
           class="mc-editor__bar-select"
           :value="extension"
           @open="openExtension"
           @create="createExtension"
         />
-        <!--
-          Two publishes, and the button says which is which rather than asking. The near half
-          is the one that is wanted almost every time - build it and point this Rancher at it -
-          and the far half is the one that leaves the cluster. What either is doing is on the
-          status strip to the left, which is why neither half has to say "Building" itself.
-        -->
-        <PublishSplit
-          class="mc-editor__publish"
-          label="Publish locally"
-          aria-label-trigger="Other ways to publish"
-          :items="publishOptions"
-          :disabled="publishing"
-          data-testid="barn-publish-button"
-          @click="publishTo('local')"
-          @select="onPublishSelect($event)"
-        />
-      </div>
-    </div>
-
+      </template>
+    </EditorMasthead>
 
     <StartingExtensions
       :names="starting"
@@ -725,20 +624,41 @@ export default {
         :style="{ width: `calc(${ split }% - 4px)` }"
       >
         <!--
-          v-show, not v-if: this is a websocket to a tmux session, and unmounting it to look at
-          a file would end the conversation in it. The files view is v-if for the opposite
-          reason - it is a read of the pod, and opening the tab is when it should be taken.
+          The assistant panel owns the tab strip, the session row and the composer; the three
+          views it switches between are passed in, because they are this page's and it should
+          not have to know how to build a terminal.
+
+          The terminal is in a slot the panel v-shows rather than v-ifs, for the reason it
+          always was: it is a websocket to a tmux session, and unmounting it to look at a file
+          would end the conversation in it.
         -->
-        <PodTerminal
-          v-show="leftTab === 'cli'"
+        <AssistantPanel
           class="mc-editor__left-view"
           :extension="extension"
-        />
-        <ExtensionFiles
-          v-if="leftTab === 'files'"
-          class="mc-editor__left-view"
-          :extension="extension"
-        />
+          :tab="leftTab"
+          :connected="terminalConnected"
+          @update:tab="onLeftTab"
+          @send="sendToAssistant"
+        >
+          <template #terminal>
+            <PodTerminal
+              ref="terminal"
+              :extension="extension"
+              @state="terminalState = $event"
+            />
+          </template>
+
+          <template #files>
+            <ExtensionFiles :extension="extension" />
+          </template>
+
+          <template #changes>
+            <WorkingChanges
+              :extension="extension"
+              :revision="changesRevision"
+            />
+          </template>
+        </AssistantPanel>
       </div>
       <div
         class="mc-editor__divider"
@@ -758,70 +678,16 @@ export default {
       >
         <span class="mc-editor__grip" />
       </div>
-      <div class="mc-editor__right">
-        <!--
-          The address, over the pane it is about. Nothing else on the action bar is about that
-          pane, and at the width a bar shared with three controls left it, a Rancher path was
-          mostly off the end.
-        -->
-        <div class="mc-editor__addressbar">
-          <div class="mc-editor__nav-group">
-            <button
-              type="button"
-              class="mc-editor__nav"
-              title="Back"
-              aria-label="Back"
-              :disabled="!rightUrl"
-              @click="history(-1)"
-            >
-              <i class="icon icon-chevron-left" />
-            </button>
-            <button
-              type="button"
-              class="mc-editor__nav"
-              title="Forward"
-              aria-label="Forward"
-              :disabled="!rightUrl"
-              @click="history(1)"
-            >
-              <i class="icon icon-chevron-right" />
-            </button>
-          </div>
-          <input
-            ref="address"
-            v-model="address"
-            class="mc-editor__address"
-            spellcheck="false"
-            aria-label="Address of the framed dashboard"
-            :disabled="!rightUrl"
-            @focus="addressFocused = true"
-            @blur="addressFocused = false"
-            @keydown.enter="go"
-          >
-        </div>
-        <iframe
-          v-if="rightUrl"
-          ref="frame"
-          class="mc-editor__frame"
-          :src="rightUrl"
-          :title="extension"
-          @load="readAddress"
-        />
-        <div
-          v-else
-          class="mc-editor__frame mc-editor__waiting"
-        >
-          <RcIcon
-            type="spinner"
-            size="large"
-            class="icon-spin"
-          />
-          <span>Starting the dev server for {{ extension }}</span>
-          <span class="mc-editor__waiting-note">
-            A first boot installs and compiles, which takes a few minutes.
-          </span>
-        </div>
-      </div>
+      <!--
+        The preview panel owns the iframe and everything above it: back, forward, reload, the
+        route, the live dot and the viewport chip. All of that used to be spread between this
+        page and the action bar; it belongs with the thing it drives.
+      -->
+      <PreviewPanel
+        class="mc-editor__right"
+        :url="rightUrl"
+        :extension="extension"
+      />
     </div>
 
     <EditorSettingsModal
@@ -857,8 +723,6 @@ export default {
 $divider-width: 8px;
 // Every control on the action bar is this tall.
 $control-height: 30px;
-// The recessed strip over the framed pane, and everything in it.
-$address-height: 28px;
 // Rancher's collapsed top-level menu rail: the shell's $app-bar-collapsed-width.
 $rancher-rail-width: 70px;
 
@@ -871,86 +735,10 @@ $rancher-rail-width: 70px;
   height: 100%;
   background: var(--body-bg, #fff);
 
-  &__bars {
-    flex: 0 0 auto;
-    display: flex;
-    border-bottom: 1px solid var(--border, #dcdee7);
-  }
-
-  &__bar {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    // Enough for a name and a word about it, and no more: this bar exists to label a pane,
-    // not to become a second toolbar.
-    padding: 6px 10px;
-    min-width: 0;
-    font-size: 12px;
-    overflow: hidden;
-    white-space: nowrap;
-
-    &--right {
-      flex: 1 1 0;
-      width: auto;
-    }
-  }
-
-  // The divider's width, so the two bars break where the panes do - and the divider's line,
-  // so it runs from the top of the bars to the bottom of the page in one stroke. Two bars
-  // separated by a gap read as one bar with a space in it; the line is what makes the sides
-  // look like sides.
-  &__bar-gap {
-    flex:            0 0 $divider-width;
-    display:         flex;
-    justify-content: center;
-
-    &::after {
-      content:    '';
-      width:      1px;
-      background: var(--border, #dcdee7);
-    }
-  }
-
-  &__bar-name {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  &__bar-note {
-    color: var(--muted, #6c6c76);
-    // A build failure is a paragraph of webpack, and this bar is one line. The whole of it is
-    // on the title attribute; what shows is enough to know it failed.
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-
-  &__bar-error {
-    color: var(--error, #f64747);
-  }
-
-  &__publish {
-    flex: 0 0 auto;
-
-    // The split button is two buttons in a wrapper, so the thing that has to line up with the
-    // rest of the bar is the wrapper rather than either half of it.
-    display: inline-flex;
-  }
-
-  // One height for everything on the bar, said once. None of the shell's size props is this
-  // number - small is 24 and the default is 30 - and a bar whose controls are three different
-  // heights is what it looked like while each of them was left to its own.
-  //
-  // The `:deep` entries are the controls that live inside a child component: a scoped rule
-  // reaches a child's root element and nothing below it, so a plain `button` selector matches
-  // the cog and the old AsyncButton (whose root was the button) and silently misses both
-  // halves of the split button, whose buttons are two levels in.
-  &__bar button,
-  &__bar a,
-  &__bar :deep(.vs__dropdown-toggle),
-  &__bar :deep(.rc-button-split button) {
+  // The extension picker is passed into the masthead as slot content, so it is compiled in
+  // this component's scope and these rules still reach it. Its height is pinned to match the
+  // masthead's own controls, which the design system sizes rather than this file.
+  &__bar-select :deep(.vs__dropdown-toggle) {
     height:     $control-height;
     min-height: $control-height;
   }
@@ -1021,102 +809,6 @@ $rancher-rail-width: 70px;
     flex-direction: column;
   }
 
-  // The address and the two buttons in front of it are one recessed strip: same background,
-  // same bottom border, no gaps, so it reads as the top edge of the pane rather than as three
-  // controls that happen to be next to each other.
-  &__addressbar {
-    flex:          0 0 auto;
-    display:       flex;
-    align-items:   stretch;
-    height:        $address-height;
-    background:    var(--body-bg, #fff);
-    border-bottom: 1px solid var(--border, #dcdee7);
-    box-shadow:    inset 0 1px 2px rgba(0, 0, 0, 0.06);
-  }
-
-  &__nav {
-    flex:            1 1 0;
-    display:         inline-flex;
-    align-items:     center;
-    justify-content: center;
-    padding:         0;
-    border:          none;
-    background:      none;
-    // Chrome rather than a link: these are the same kind of thing as the border they sit on,
-    // and in link blue they were the loudest thing on a strip whose job is to be quiet.
-    color:           var(--muted);
-    cursor:          pointer;
-    line-height:     0;
-    // Both, because the shell gives every button a minimum height for touch targets. Without
-    // it these were 40px tall inside a 28px strip and hung out of both edges of it.
-    height:          100%;
-    min-height:      0;
-
-    i {
-      font-size: 16px;
-    }
-
-    &:hover:not(:disabled) {
-      background: var(--accent-btn);
-      color:      var(--body-text);
-    }
-
-    &:disabled {
-      opacity: 0.4;
-      cursor:  default;
-    }
-  }
-
-  // The two buttons share the width of Rancher's own collapsed menu rail, so the hairline after
-  // them lands on the edge of that rail in the pane below rather than a few pixels off it. The
-  // number is the shell's `$app-bar-collapsed-width`, repeated because this file cannot import
-  // the shell's variables, and it is a constant of Rancher's layout rather than a taste.
-  &__nav-group {
-    flex:        0 0 $rancher-rail-width;
-    display:     flex;
-    align-items: stretch;
-    border-right: 1px solid var(--border, #dcdee7);
-  }
-
-  &__frame {
-    flex:      1 1 auto;
-    min-height: 0;
-    width:     100%;
-    border:    none;
-  }
-
-  // Tabs the way Rancher draws them: the current one is named in the active colour and
-  // underlined, and there is no box around either. The first attempt made them a segmented
-  // control, which is a different thing - that says "pick a mode", and these say "this pane has
-  // two pages". Matched to @shell/components/Tabbed, which uses a 2px bottom border in
-  // --active for the same purpose.
-  &__tabs {
-    display: inline-flex;
-    flex:    0 0 auto;
-    gap:     4px;
-  }
-
-  &__tab {
-    padding:       0 10px;
-    background:    transparent;
-    border:        none;
-    // Reserved whether or not it is drawn, so selecting a tab does not move the text up.
-    border-bottom: 2px solid transparent;
-    border-radius: 0;
-    color:         var(--muted);
-    font-size:     12px;
-    cursor:        pointer;
-
-    &:hover {
-      color: var(--body-text);
-    }
-
-    &--current {
-      color:               var(--active, var(--primary));
-      border-bottom-color: var(--active, var(--primary));
-    }
-  }
-
   // The left pane is a box with two views in it rather than one component, so it has to do the
   // filling the component used to do itself.
   &__left {
@@ -1130,82 +822,6 @@ $rancher-rail-width: 70px;
     flex:       1 1 auto;
     min-height: 0;
     width:      100%;
-  }
-
-  // The same square as the popout at the other end of the other bar, so the two bars agree
-  // about what an icon-only control looks like. `auto` on the left rather than the right,
-  // because this one is the thing pushed to the end.
-  &__cog {
-    display:         inline-flex;
-    align-items:     center;
-    justify-content: center;
-    flex:            0 0 auto;
-    width:           $control-height;
-    height:          $control-height;
-    margin-left:     auto;
-    padding:         0;
-    background:      transparent;
-    border:          1px solid var(--border, #dcdee7);
-    border-radius:   var(--border-radius);
-    color:           var(--link);
-    cursor:          pointer;
-
-    &:hover {
-      background:   var(--accent-btn);
-      border-color: var(--primary);
-    }
-  }
-
-  &__popout {
-    display:         inline-flex;
-    align-items:     center;
-    justify-content: center;
-    flex:            0 0 auto;
-    // Square, and the height of everything else on the bar.
-    width:           $control-height;
-    // Everything after it is pushed to the far end, so the bar reads as: this pane, then what
-    // is happening to it, then what you can do.
-    margin-right:    auto;
-    border:          1px solid var(--border, #dcdee7);
-    border-radius:   var(--border-radius);
-    color:           var(--link);
-
-    &:hover {
-      background:   var(--accent-btn);
-      border-color: var(--primary);
-    }
-
-    &--disabled {
-      pointer-events: none;
-      opacity:        0.5;
-    }
-  }
-
-  // Square and edge to edge, and carrying none of the strip's own chrome: the strip draws the
-  // border and the inset, this is just where the text goes.
-  &__address {
-    flex:          1 1 auto;
-    min-width:     0;
-    padding:       0 10px;
-    border:        none;
-    border-radius: 0;
-    background:    none;
-    color:         var(--body-text);
-    font-family:   monospace;
-    font-size:     12px;
-
-    &:focus {
-      outline: none;
-    }
-
-    &:disabled {
-      color: var(--muted);
-    }
-  }
-
-  &__bar-select {
-    flex: 0 0 auto;
-
   }
 
   &__install {
@@ -1265,20 +881,6 @@ $rancher-rail-width: 70px;
     height: 100%;
     background: var(--border, #dcdee7);
     transition: background 100ms, width 100ms;
-  }
-
-  &__waiting {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    color: var(--muted, #6c6c76);
-
-    &-note {
-      font-size: 12px;
-      opacity: 0.8;
-    }
   }
 
 }

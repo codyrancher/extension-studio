@@ -1,24 +1,31 @@
 <script>
 // The masthead from the Extension Studio design (Figma frame 03, node 9:177).
 //
-// Built to the design, and honest about which half of it exists. Four things are real, because
-// the code behind them is: the extension's name, the branch it is on, the cluster the preview
-// runs in, and Publish. The rest is drawn to the design and says so when pressed - a control
-// that looks finished and silently does nothing is worse than one that admits it, because a
-// person cannot tell it apart from a bug in something that does work.
+// Built to the design, and honest about which half of it exists. What is real is real because
+// the code behind it is: the extension's name, the branch it is on, the cluster the preview
+// runs in, whether the working tree has uncommitted changes, and Publish. The rest is drawn to
+// the design and says so when pressed - a control that looks finished and silently does
+// nothing is worse than one that admits it, because a person cannot tell it apart from a bug
+// in something that does work.
 //
 // Every placeholder goes through toastNotYet, which names the control in the message, so a
 // report of one is actionable without a screenshot.
-import { RcButton } from '@components/RcButton';
+//
+// It also carries the three controls that used to live on a bar of their own under it: the
+// publish status strip, the extension picker and the settings cog. The design has no such bar
+// - it has this masthead and then the two panels - so they come in through slots rather than
+// this component knowing what any of them are.
+import { SIcon, SBadge, SChip, SButton } from './ui';
 import PublishSplit from './PublishSplit.vue';
 import { toastNotYet } from '../toast';
-import { listBranches, EXT_NS } from '../extensions';
-import '../design/tokens';
+import { listBranches, countChanges, EXT_NS } from '../extensions';
 
 export default {
   name: 'EditorMasthead',
 
-  components: { RcButton, PublishSplit },
+  components: {
+    SIcon, SBadge, SChip, SButton, PublishSplit
+  },
 
   props: {
     extension: {
@@ -38,10 +45,14 @@ export default {
     },
   },
 
-  emits: ['back', 'publish', 'publish-select', 'files'],
+  emits: ['back', 'publish', 'publish-select', 'files', 'settings'],
 
   data() {
-    return { branch: '' };
+    return {
+      branch:     '',
+      changes:    0,
+      pollTimer:  null,
+    };
   },
 
   computed: {
@@ -54,16 +65,36 @@ export default {
     namespace() {
       return EXT_NS;
     },
+
+    // Real, now that the working tree is counted: the design's badge says Unsaved when there
+    // is something uncommitted and Live when there is not.
+    state() {
+      return this.changes > 0 ? 'unsaved' : 'live';
+    },
+  },
+
+  watch: {
+    extension: 'refresh',
   },
 
   async mounted() {
-    // Real: the pod's package is a git repository, so this is the branch it is actually on.
-    const branches = await listBranches(this.extension).catch(() => null);
+    await this.refresh();
+    this.pollTimer = setInterval(() => this.refresh(), 60000);
+  },
 
-    this.branch = branches?.current || '';
+  beforeUnmount() {
+    clearInterval(this.pollTimer);
   },
 
   methods: {
+    async refresh() {
+      // Real: the pod's package is a git repository, so this is the branch it is actually on.
+      const branches = await listBranches(this.extension).catch(() => null);
+
+      this.branch = branches?.current || '';
+      this.changes = await countChanges(this.extension).catch(() => 0);
+    },
+
     notYet(what) {
       toastNotYet(this.$store, what);
     },
@@ -74,14 +105,14 @@ export default {
 <template>
   <div class="studio-masthead">
     <!-- Real: leaves the editor the way every other page does. -->
-    <button
-      type="button"
-      class="studio-masthead__icon"
+    <SButton
+      variant="ghost"
+      size="sm"
+      icon="chevronLeft"
+      icon-only
       aria-label="Back"
       @click="$emit('back')"
-    >
-      <i class="icon icon-chevron-left" />
-    </button>
+    />
 
     <div class="studio-masthead__name">
       <div class="studio-masthead__title">
@@ -92,73 +123,61 @@ export default {
       </div>
     </div>
 
-    <!--
-      Placeholder. The design's state pill mirrors Rancher's cluster-state pill and says
-      "Unsaved"; knowing that means diffing the pod's tree against its last commit on every
-      change, which nothing does yet.
-    -->
-    <button
-      type="button"
-      class="studio-masthead__badge"
-      @click="notYet('Unsaved state badge')"
-    >
-      Unsaved
-    </button>
+    <!-- Real: whether the pod's working tree has anything uncommitted in it. -->
+    <SBadge :state="state" />
 
     <!-- Real: the branch the pod's package repository is on. -->
-    <div
-      v-if="branch"
-      class="studio-masthead__chip"
-    >
-      <i class="icon icon-git" />
-      <span>{{ branch }}</span>
-    </div>
+    <SChip v-if="branch" :label="branch" icon="branch" />
 
     <!-- Real: the cluster the preview is served from. -->
-    <div class="studio-masthead__chip">
-      <i class="icon icon-dot" />
-      <span>Preview on: {{ previewOn }}</span>
-    </div>
+    <SChip :label="`Preview on: ${ previewOn }`" icon="server" />
 
-    <!-- Placeholder: there is no notion of a phase or a change count since a version. -->
-    <button
-      type="button"
-      class="studio-masthead__chip studio-masthead__chip--info"
-      @click="notYet('Phase chip')"
-    >
-      <i class="icon icon-refresh" />
-      <span>Iterating</span>
-    </button>
+    <!-- Placeholder: there is no notion of a phase. -->
+    <SChip
+      label="Iterating"
+      icon="refresh"
+      tone="info"
+      clickable
+      @click="notYet('the phase chip')"
+    />
 
     <div class="studio-masthead__grow" />
 
+    <!-- What the last publish did and said, when there was one. -->
+    <slot name="status" />
+
     <!-- Placeholder: nothing snapshots the tree, so there is nothing to have saved. -->
-    <button
-      type="button"
-      class="studio-masthead__autosave"
-      @click="notYet('Snapshot / autosave')"
+    <SButton
+      variant="ghost"
+      size="sm"
+      icon="clock"
+      @click="notYet('snapshots')"
     >
-      <i class="icon icon-info" />
-      <span>Snapshots</span>
-    </button>
+      Snapshots
+    </SButton>
 
     <!-- Placeholder: undo would need those snapshots to exist first. -->
-    <RcButton
-      variant="link"
-      size="small"
-      @click="notYet('Undo last change')"
+    <SButton
+      variant="ghost"
+      size="sm"
+      icon="undo"
+      @click="notYet('undo last change')"
     >
-      Undo last change
-    </RcButton>
+      Undo
+    </SButton>
 
-    <!-- Real: the Files tab already shows a diff of the working tree against its history. -->
-    <RcButton
+    <!-- Real: the Changes tab shows a diff of the working tree against its history. -->
+    <SButton
       variant="secondary"
-      size="small"
+      size="sm"
+      icon="compare"
       @click="$emit('files')"
     >
       See what changed
-    </RcButton>
+    </SButton>
+
+    <!-- Which extension this editor is pointed at. -->
+    <slot name="picker" />
 
     <!-- Real: the existing split button, unchanged. -->
     <PublishSplit
@@ -167,125 +186,71 @@ export default {
       aria-label-trigger="Other ways to publish"
       :items="publishOptions"
       :disabled="publishing"
+      data-testid="barn-publish-button"
       @click="$emit('publish')"
       @select="$emit('publish-select', $event)"
     />
 
-    <button
-      type="button"
-      class="studio-masthead__icon"
+    <!-- Real: what the editor itself is configured with. -->
+    <SButton
+      variant="ghost"
+      size="sm"
+      icon="gear"
+      icon-only
+      aria-label="Editor settings"
+      data-testid="barn-editor-settings-button"
+      @click="$emit('settings')"
+    />
+
+    <SButton
+      variant="ghost"
+      size="sm"
+      icon="more"
+      icon-only
       aria-label="More"
-      @click="notYet('Masthead overflow menu')"
-    >
-      <i class="icon icon-actions" />
-    </button>
+      @click="notYet('the masthead overflow menu')"
+    />
   </div>
 </template>
 
 <style lang="scss" scoped>
-// Figure 9:177: row, align center, gap 10, padding 10/16, 1px bottom border.
 .studio-masthead {
   display:       flex;
   align-items:   center;
-  gap:           var(--studio-gap);
-  padding:       var(--studio-pad-y) var(--studio-pad-x);
-  border-bottom: 1px solid var(--studio-line);
+  gap:           var(--studio-space-8);
+  padding:       var(--studio-space-8) var(--studio-space-16);
+  border-bottom: 1px solid var(--studio-border);
   background:    var(--studio-surface);
   flex:          0 0 auto;
-  min-width:     0;
 
   &__name {
     display:        flex;
     flex-direction: column;
-    gap:            1px;
+    margin-right:   var(--studio-space-4);
     min-width:      0;
   }
 
   &__title {
-    font:      var(--studio-heading-16);
-    color:     var(--studio-text);
-    overflow:  hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font:  var(--studio-heading-16);
+    color: var(--studio-text);
   }
 
-  // Caption/11 SemiBold Caps, with the design's 5.45% tracking.
   &__eyebrow {
-    font:           600 11px/1.27 var(--body-font, 'Lato', sans-serif);
-    letter-spacing: 0.0545em;
+    font:           var(--studio-caption-11-caps);
+    letter-spacing: var(--studio-tracking-caps);
     text-transform: uppercase;
-    color:          var(--studio-text-muted);
+    color:          var(--studio-text-tertiary);
   }
 
-  &__badge {
-    padding:       4px 9px;
-    border:        none;
-    border-radius: var(--studio-radius);
-    background:    var(--studio-warn-bg);
-    color:         var(--studio-warn-text);
-    font:          var(--studio-caption-12);
-    cursor:        pointer;
-  }
+  &__grow { flex: 1 1 auto; }
 
-  &__chip {
-    display:       inline-flex;
-    align-items:   center;
-    gap:           var(--studio-gap-tight);
-    padding:       4px 8px;
-    border:        1px solid var(--studio-line);
-    border-radius: var(--studio-radius-chip);
-    background:    var(--studio-surface-sunken);
-    color:         var(--studio-text-strong);
-    font:          var(--studio-caption-12);
-    white-space:   nowrap;
-
-    .icon {
-      font-size: 13px;
-    }
-
-    &--info {
-      border-color: transparent;
-      background:   var(--studio-info-bg);
-      color:        var(--studio-info-text);
-      cursor:       pointer;
-    }
-  }
-
-  &__grow {
-    flex: 1 1 auto;
-  }
-
-  &__autosave {
-    display:     inline-flex;
-    align-items: center;
-    gap:         var(--studio-gap-tight);
-    border:      none;
-    background:  transparent;
-    color:       var(--studio-text-muted);
-    font:        var(--studio-caption-12);
-    cursor:      pointer;
-    white-space: nowrap;
-  }
-
-  &__icon {
-    display:         inline-flex;
-    align-items:     center;
-    justify-content: center;
-    width:           26px;
-    height:          26px;
-    border:          none;
-    border-radius:   var(--studio-radius);
-    background:      transparent;
-    color:           var(--studio-text-strong);
-    cursor:          pointer;
-
-    &:hover {
-      background: var(--studio-surface-sunken);
-    }
-  }
-
+  // The split button is the shell's, so its height comes from the shell's stylesheet and
+  // not from ours. Scoped CSS reaches a child component's root element only, which is why
+  // this needs :deep to get at the buttons inside it.
   &__publish {
-    flex: 0 0 auto;
+    :deep(button) {
+      height: 30px;
+    }
   }
 }
 </style>
