@@ -172,7 +172,7 @@ export default {
         </div>
       </div>
 
-      <SBadge :state="count ? 'unsaved' : 'live'" />
+      <SBadge :status="count ? 'unsaved' : 'live'" />
       <SChip v-if="branch" :label="branch" icon="branch" />
 
       <span class="review__grow" />

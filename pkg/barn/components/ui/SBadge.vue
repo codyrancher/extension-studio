@@ -18,8 +18,17 @@ export default {
   name: 'SBadge',
 
   props: {
-    /** live | draft | building | unsaved | failed | published */
-    state: {
+    /**
+     * live | draft | building | unsaved | failed | published
+     *
+     * Named `status` rather than the obvious `state`, and that is not a preference. Inside
+     * Rancher's dashboard a component's `this.state` does not resolve to a prop called `state`
+     * - something in the shell's own layer occupies that name on every instance - so the
+     * template read the prop correctly while this component's computeds read something else
+     * entirely, and every badge in the product rendered "Draft" no matter what it was handed.
+     * The template said `live`, the computed said `neutral`, and both were telling the truth.
+     */
+    status: {
       type:      String,
       default:   'draft',
       validator: (v) => Object.keys(STATES).includes(v),
@@ -40,11 +49,11 @@ export default {
 
   computed: {
     tone() {
-      return (STATES[this.state] || STATES.draft).tone;
+      return (STATES[this.status] || STATES.draft).tone;
     },
 
     text() {
-      return this.label || (STATES[this.state] || STATES.draft).label;
+      return this.label || (STATES[this.status] || STATES.draft).label;
     },
   },
 };

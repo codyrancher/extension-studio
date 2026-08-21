@@ -124,7 +124,7 @@ export default {
     </div>
 
     <!-- Real: whether the pod's working tree has anything uncommitted in it. -->
-    <SBadge :state="state" />
+    <SBadge :status="state" />
 
     <!-- Real: the branch the pod's package repository is on. -->
     <SChip v-if="branch" :label="branch" icon="branch" />

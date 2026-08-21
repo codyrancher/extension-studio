@@ -222,7 +222,7 @@ export default {
         </div>
       </div>
 
-      <SBadge :state="verdictBadge" :label="verdictLabel" />
+      <SBadge :status="verdictBadge" :label="verdictLabel" />
 
       <span class="verify__grow" />
 

@@ -24,44 +24,48 @@ import {
 import { EDITOR_ROUTE, STUDIO_ROUTE, REVIEW_ROUTE } from '../editor-product';
 import '../design/tokens';
 
-/** Turn a flat list of paths into the nested shape FileTree wants. */
+/**
+ * Turn a flat list of paths into the shape FileTree renders.
+ *
+ * `dirs` and `files` as separate arrays, not one `children` list - that is what the component
+ * walks, and giving it `children` renders an empty tree with no error, which is exactly the
+ * kind of bug that survives a build and a type-check.
+ */
 function toTree(paths) {
-  const root = { name: '', path: '', children: [] };
+  const root = {
+    name: '', path: '', dirs: [], files: [],
+  };
 
   paths.forEach((path) => {
-    const parts = path.split('/');
+    const parts = path.split('/').filter(Boolean);
+    const fileName = parts.pop();
     let node = root;
+    let walked = '';
 
-    parts.forEach((part, i) => {
-      const isFile = i === parts.length - 1;
-      const soFar = parts.slice(0, i + 1).join('/');
-      let next = node.children.find((c) => c.name === part);
+    parts.forEach((part) => {
+      walked = walked ? `${ walked }/${ part }` : part;
+
+      let next = node.dirs.find((dir) => dir.name === part);
 
       if (!next) {
         next = {
-          name: part, path: soFar, children: isFile ? null : [],
+          name: part, path: walked, dirs: [], files: [],
         };
-        node.children.push(next);
+        node.dirs.push(next);
       }
 
       node = next;
     });
+
+    if (fileName) {
+      node.files.push({ name: fileName, path });
+    }
   });
 
   const sort = (node) => {
-    if (!node.children) {
-      return;
-    }
-
-    // Directories first, then files, each alphabetical - which is how every file tree a
-    // person has ever used is ordered.
-    node.children.sort((a, b) => {
-      const aDir = !!a.children;
-      const bDir = !!b.children;
-
-      return aDir === bDir ? a.name.localeCompare(b.name) : (aDir ? -1 : 1);
-    });
-    node.children.forEach(sort);
+    node.dirs.sort((a, b) => a.name.localeCompare(b.name));
+    node.files.sort((a, b) => a.name.localeCompare(b.name));
+    node.dirs.forEach(sort);
   };
 
   sort(root);
@@ -78,7 +82,9 @@ export default {
 
   data() {
     return {
-      tree:     { name: '', path: '', children: [] },
+      tree:     {
+        name: '', path: '', dirs: [], files: [],
+      },
       current:  '',
       contents: '',
       commits:  [],
@@ -222,7 +228,7 @@ export default {
         </div>
       </div>
 
-      <SBadge :state="changes ? 'unsaved' : 'live'" />
+      <SBadge :status="changes ? 'unsaved' : 'live'" />
       <SChip v-if="branch" :label="branch" icon="branch" />
 
       <span class="files__grow" />
@@ -277,7 +283,7 @@ export default {
 
         <div class="files__tree-scroll">
           <FileTree
-            v-if="tree.children && tree.children.length"
+            v-if="tree.dirs.length || tree.files.length"
             :node="tree"
             :current="current"
             @select="current = $event"

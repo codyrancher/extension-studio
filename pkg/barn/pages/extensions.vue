@@ -145,23 +145,36 @@ export default {
         const existing = this.rows.find((r) => r.name === s.name);
 
         return {
-          ...existing,
-          name:    s.name,
-          ready:   s.ready,
-          detail:  existing?.detail || null,
+          ...(existing || {}), name: s.name, ready: s.ready,
         };
       });
       this.loading = false;
 
-      await Promise.all(this.rows.map((row) => this.enrich(row)));
+      await Promise.all(summaries.map((s) => this.enrich(s.name)));
     },
 
-    async enrich(row) {
+    /**
+     * Fill in one row's slow columns.
+     *
+     * The row is looked up again *after* the reads rather than held across them, which is not
+     * fussiness: this runs on a fifteen-second poll, and a poll that lands while these execs
+     * are in flight replaces every object in `rows`. A reference captured beforehand is then
+     * an orphan - still writable, no longer rendered - so the writes vanished and the row kept
+     * whatever the previous pass had put in it. That is what made a ready extension sit there
+     * badged "Draft" while its own subtitle said it was on main with nothing uncommitted.
+     */
+    async enrich(name) {
       const [detail, source, version] = await Promise.all([
-        extensionDetail(row.name).catch(() => null),
-        extensionSource(row.name).catch(() => ''),
-        publishedVersion(row.name).catch(() => ''),
+        extensionDetail(name).catch(() => null),
+        extensionSource(name).catch(() => ''),
+        publishedVersion(name).catch(() => ''),
       ]);
+
+      const row = this.rows.find((r) => r.name === name);
+
+      if (!row) {
+        return;
+      }
 
       const github = parseGithubSource(source || '');
 
@@ -341,7 +354,7 @@ export default {
           @click="open(row.name)"
         >
           <div class="studio-home__td" :style="{ width: '128px', flex: '0 0 128px' }">
-            <SBadge :state="row.state || 'draft'" />
+            <SBadge :status="row.state || 'draft'" />
           </div>
 
           <div class="studio-home__td studio-home__td--grow studio-home__td--stack">

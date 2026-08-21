@@ -76,20 +76,40 @@ export default {
 
       const summaries = await listExtensions().catch(() => []);
 
-      this.rows = summaries.map((s) => ({
-        name: s.name, ready: s.ready, changes: 0, intent: '', risk: '', committedAt: null,
-      }));
+      this.rows = summaries.map((s) => {
+        const existing = this.rows.find((r) => r.name === s.name);
+
+        return {
+          ...(existing || {}),
+          name:    s.name,
+          ready:   s.ready,
+          changes: existing?.changes || 0,
+        };
+      });
       this.loading = false;
 
-      await Promise.all(this.rows.map((row) => this.enrich(row)));
+      await Promise.all(summaries.map((s) => this.enrich(s.name)));
     },
 
-    async enrich(row) {
+    /**
+     * Fill in one row's readings.
+     *
+     * The row is re-found after the reads rather than held across them - see the same note in
+     * the extensions list. A reference captured before an await survives a reload of `rows`
+     * only as an orphan, and writes to it go nowhere visible.
+     */
+    async enrich(name) {
       const [detail, changes, brief] = await Promise.all([
-        extensionDetail(row.name).catch(() => null),
-        countChanges(row.name).catch(() => 0),
-        readExtensionFile(row.name, 'BRIEF.md').catch(() => ''),
+        extensionDetail(name).catch(() => null),
+        countChanges(name).catch(() => 0),
+        readExtensionFile(name, 'BRIEF.md').catch(() => ''),
       ]);
+
+      const row = this.rows.find((r) => r.name === name);
+
+      if (!row) {
+        return;
+      }
 
       row.changes = changes;
       row.branch = detail?.branch || '';
@@ -250,7 +270,7 @@ export default {
           </div>
 
           <div class="queue__action">
-            <SBadge :state="row.changes ? 'unsaved' : 'live'" />
+            <SBadge :status="row.changes ? 'unsaved' : 'live'" />
             <SButton variant="secondary" size="sm" @click.stop="open(row)">
               Review
             </SButton>
