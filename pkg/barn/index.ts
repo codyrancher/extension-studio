@@ -4,7 +4,7 @@ import { ensureBrowser, ensureDefaultExtension } from './extensions';
 import {
   EDITOR_ROUTE, EXTENSION_STARTING_ROUTE, STUDIO_ROUTE, NEW_EXTENSION_ROUTE,
   REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, REVIEW_QUEUE_ROUTE, REVIEW_CHANGE_ROUTE,
-  VERIFICATION_ROUTE
+  VERIFICATION_ROUTE, BUILD_FAILED_ROUTE
 } from './editor-product';
 
 // Init the package
@@ -62,6 +62,7 @@ export default function(plugin: IPlugin): void {
     { name: REVIEW_QUEUE_ROUTE, path: '/barn/review', component: () => import('./pages/review-queue.vue') },
     { name: REVIEW_CHANGE_ROUTE, path: '/barn/review/:extension/:change', component: () => import('./pages/review-change.vue') },
     { name: VERIFICATION_ROUTE, path: '/barn/extensions/:extension/verification', component: () => import('./pages/verification.vue') },
+    { name: BUILD_FAILED_ROUTE, path: '/barn/extensions/:extension/build-failed', component: () => import('./pages/build-failed.vue') },
   ].forEach((route) => plugin.addRoute('plain', route));
 
   // The editor itself: two panes under Rancher's own header.

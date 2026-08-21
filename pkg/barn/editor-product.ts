@@ -34,6 +34,9 @@ export const REVIEW_QUEUE_ROUTE = 'barn-review-queue';
 export const REVIEW_CHANGE_ROUTE = 'barn-review-change';
 export const VERIFICATION_ROUTE = 'barn-verification';
 
+/** Where a failed publish lands, with its log and a way back (Figma screen 08). */
+export const BUILD_FAILED_ROUTE = 'barn-build-failed';
+
 /**
  * Where a newly created extension is watched while it comes up.
  *

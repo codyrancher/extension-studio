@@ -26,12 +26,15 @@ import PublishGithubModal from '../components/PublishGithubModal.vue';
 import InstallProgress from '../components/InstallProgress.vue';
 import EditorMasthead from '../components/EditorMasthead.vue';
 import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/studio';
+import { BUILD_FAILED_ROUTE } from '../editor-product';
+import { SButton } from '../components/ui';
 import StartingExtensions from '../components/StartingExtensions.vue';
 import {
   ensureExtension, extensionReady, extensionUrl, publishExtension,
   publishExtensionToGithub, removeLocalInstall, DEFAULT_EXTENSION
 } from '../extensions';
 import { installState } from '../install';
+import { recordFailure } from '../publish-failure';
 
 // How close to an edge the divider can be dragged, in percent of the page.
 const MIN_SPLIT = 10;
@@ -75,7 +78,7 @@ export default {
   components: {
     PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions,
     PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal,
-    InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges
+    InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton
   },
 
   data() {
@@ -455,6 +458,11 @@ export default {
         this.publishLog = e.log || '';
         this.publishLabel = e.stage || this.publishLabel;
 
+        // The failure is recorded before the status strip reports it, so the screen that
+        // explains it has the log even if somebody reloads on the way there. The strip still
+        // shows the error inline - this is the longer read, not a replacement for it.
+        recordFailure(this.extension, this.publishError, this.publishLog);
+
         return false;
       } finally {
         this.publishStage = 0;
@@ -583,6 +591,19 @@ export default {
           :log="publishLog"
           :done="published"
         />
+        <!--
+          The strip says what failed; this is the way to the screen that explains it and offers
+          a route out. Only drawn when there is a failure to explain.
+        -->
+        <SButton
+          v-if="publishError"
+          variant="ghost"
+          size="sm"
+          icon="alert"
+          @click="$router.push({ name: BUILD_FAILED_ROUTE, params: { extension } })"
+        >
+          See what went wrong
+        </SButton>
       </template>
 
       <template #picker>
