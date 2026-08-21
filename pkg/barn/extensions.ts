@@ -1316,6 +1316,43 @@ export async function listExtensionFiles(name: string): Promise<string[]> {
   return out.split('\n').map((line) => line.trim()).filter(Boolean).sort();
 }
 
+/**
+ * Where else in the package a name appears.
+ *
+ * The Studio's file screen has a "where used" rail beside the file it is showing, and this is
+ * the honest version of it: a fixed-string grep for the file's own basename across the package,
+ * minus node_modules and .git. It is not a symbol index and does not pretend to be - it finds
+ * the imports and the string references, which is most of what somebody looking at that rail
+ * wants, and it finds them from the actual tree rather than from a model's recollection of it.
+ */
+export interface Usage {
+  path: string;
+  line: number;
+  text: string;
+}
+
+export async function findUsages(name: string, term: string, limit = 40): Promise<Usage[]> {
+  if (!term.trim()) {
+    return [];
+  }
+
+  const out = await inPackage(
+    name,
+    `grep -rnF --exclude-dir=node_modules --exclude-dir=.git -- ${ shellQuote(term) } . 2>/dev/null | head -n ${ limit }`
+  ).catch(() => '');
+
+  return out.split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      // ./path/to/file.ts:12:the matching text
+      const m = /^\.?\/?(.+?):(\d+):(.*)$/.exec(line);
+
+      return m ? { path: m[1], line: parseInt(m[2], 10), text: m[3].trim() } : null;
+    })
+    .filter(Boolean) as Usage[];
+}
+
 export async function readExtensionFile(name: string, path: string): Promise<string> {
   return inPackage(name, `cat ${ shellQuote(path) } 2>/dev/null`);
 }
@@ -1381,6 +1418,30 @@ export async function showCommit(name: string, sha: string): Promise<string> {
 }
 
 /** Commit whatever is currently different, which is how an edit here becomes history. */
+/**
+ * Write a text file into an extension's package directory.
+ *
+ * Base64 through the exec, for the same reason writePodImage is: what is between here and the
+ * file is a shell, and a brief full of quotes and newlines put through it directly would come
+ * out mangled. `base64 -d` is in the image; `printf` of an escaped string is not worth the
+ * escaping rules.
+ */
+export async function writeExtensionFile(name: string, path: string, contents: string): Promise<void> {
+  // btoa cannot take anything above U+00FF, and a brief can easily contain an em dash or a
+  // quotation mark. Encode to UTF-8 bytes first, then base64 those.
+  const bytes = new TextEncoder().encode(contents);
+  let binary = '';
+
+  bytes.forEach((b) => {
+    binary += String.fromCharCode(b);
+  });
+
+  const encoded = btoa(binary);
+  const quoted = shellQuote(path);
+
+  await inPackage(name, `mkdir -p "$(dirname ${ quoted })" && printf %s ${ shellQuote(encoded) } | base64 -d > ${ quoted }`);
+}
+
 export async function commitExtension(name: string, message: string): Promise<string> {
   return inPackage(name, [
     'git add -A',
@@ -1394,6 +1455,121 @@ export async function countChanges(name: string): Promise<number> {
   const out = await inPackage(name, 'git status --porcelain 2>/dev/null | wc -l');
 
   return parseInt(out.trim(), 10) || 0;
+}
+
+/**
+ * The working tree's changes, file by file.
+ *
+ * `git status --porcelain` with the rename-detection off, because the Studio's review screen
+ * lists paths and a rename shown as `old -> new` is a path that matches nothing. Untracked
+ * files are included and reported as additions, which is what they are to somebody reading
+ * the screen - the distinction between "untracked" and "added" is git's, not theirs.
+ */
+export interface ChangedFile {
+  path:   string;
+  /** added | modified | deleted */
+  status: string;
+}
+
+export async function changedFiles(name: string): Promise<ChangedFile[]> {
+  const out = await inPackage(name, 'git status --porcelain --no-renames 2>/dev/null').catch(() => '');
+
+  return out.split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      // Porcelain v1: two status characters, a space, then the path.
+      const code = line.slice(0, 2);
+      const path = line.slice(3).trim().replace(/^"|"$/g, '');
+
+      let status = 'modified';
+
+      if (code.includes('?') || code.includes('A')) {
+        status = 'added';
+      } else if (code.includes('D')) {
+        status = 'deleted';
+      }
+
+      return { path, status };
+    })
+    .filter((f) => !!f.path);
+}
+
+/**
+ * One file's diff against HEAD.
+ *
+ * Same `git add -N` as workingDiff and for the same reason: an untracked file is invisible to
+ * `git diff` until git has been told it is coming, and an untracked file is exactly the one a
+ * reviewer most wants to see.
+ */
+export async function fileDiff(name: string, path: string): Promise<string> {
+  const quoted = `'${ path.replace(/'/g, `'\\''`) }'`;
+
+  return inPackage(name, `git add -N -- ${ quoted } >/dev/null 2>&1 ; git diff -- ${ quoted } 2>/dev/null`);
+}
+
+/**
+ * Throw the working tree away.
+ *
+ * Both halves are needed and neither is enough: `checkout` restores tracked files to HEAD and
+ * says nothing about files git has never seen, and `clean` removes those but will not touch a
+ * tracked file that has been edited. `-d` for directories the assistant created, and `-e
+ * node_modules` because that is a hundred megabytes the pod spent minutes installing and is
+ * not anybody's idea of a change to discard.
+ */
+export async function discardChanges(name: string): Promise<void> {
+  await inPackage(name, 'git checkout -- . 2>/dev/null ; git clean -fd -e node_modules 2>/dev/null');
+}
+
+/**
+ * Everything the Studio's extension list wants to know about one extension, in one exec.
+ *
+ * The list needs a branch, a change count and a last-changed time per row, and each of those on
+ * its own is a shell into the pod. Three execs per row times a dozen rows is a page that takes
+ * ten seconds to fill in; one exec that prints three lines is a page that does not. The parsing
+ * is deliberately dull - `KEY=value` lines - because the alternative is quoting JSON through
+ * two layers of shell.
+ *
+ * Everything is best-effort: a pod that is still coming up has no git repository yet, and the
+ * right answer for that row is blanks rather than a failed page.
+ */
+export interface ExtensionDetail {
+  branch:     string;
+  changes:    number;
+  lastChange: string;
+}
+
+export async function extensionDetail(name: string): Promise<ExtensionDetail> {
+  const out = await inPackage(name, [
+    'echo "BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"',
+    'echo "CHANGES=$(git status --porcelain 2>/dev/null | wc -l)"',
+    'echo "LAST=$(git log -1 --format=%cI 2>/dev/null)"',
+  ].join(' ; ')).catch(() => '');
+
+  const read = (key: string): string => {
+    const m = new RegExp(`^${ key }=(.*)$`, 'm').exec(out);
+
+    return (m?.[1] || '').trim();
+  };
+
+  return {
+    branch:     read('BRANCH'),
+    changes:    parseInt(read('CHANGES'), 10) || 0,
+    lastChange: read('LAST'),
+  };
+}
+
+/**
+ * What an extension was made from, as recorded when it was created.
+ *
+ * `github:owner/repo#ref` for an import, a seed name for one made from a template, or the name
+ * of another extension for a copy. The Studio's list turns the first into a repository line and
+ * everything else into "Created here".
+ */
+export async function extensionSource(name: string): Promise<string> {
+  const cm = await extGet('configmaps', extensionObject(name)).catch(() => null);
+
+  return cm?.metadata?.annotations?.[SOURCE_ANNOTATION] || '';
 }
 
 /**

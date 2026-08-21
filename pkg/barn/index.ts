@@ -1,7 +1,11 @@
 import { importTypes } from '@rancher/auto-import';
 import { IPlugin } from '@shell/core/types';
 import { ensureBrowser, ensureDefaultExtension } from './extensions';
-import { EDITOR_ROUTE, EXTENSION_STARTING_ROUTE } from './editor-product';
+import {
+  EDITOR_ROUTE, EXTENSION_STARTING_ROUTE, STUDIO_ROUTE, NEW_EXTENSION_ROUTE,
+  REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, REVIEW_QUEUE_ROUTE, REVIEW_CHANGE_ROUTE,
+  VERIFICATION_ROUTE
+} from './editor-product';
 
 // Init the package
 export default function(plugin: IPlugin): void {
@@ -28,6 +32,39 @@ export default function(plugin: IPlugin): void {
   // same reason as the pod above - here rather than behind a toggle, so it is
   // already warming up by the time anybody opens the editor.
   ensureBrowser();
+
+  // The Studio's front door: every extension this cluster has (Figma screen 01). The side-menu
+  // button points here, and each row opens the editor below.
+  plugin.addRoute('plain', {
+    name:      STUDIO_ROUTE,
+    path:      '/barn/extensions',
+    component: () => import('./pages/extensions.vue'),
+  });
+
+  // Describing a new one before it exists (Figma screen 02).
+  plugin.addRoute('plain', {
+    name:      NEW_EXTENSION_ROUTE,
+    path:      '/barn/extensions/new',
+    component: () => import('./pages/new-extension.vue'),
+  });
+
+  // The rest of the Studio. Each is a full frame in the design, so each is a route: the brief
+  // agreed before any code exists, the gate in front of publishing, the file browser, and the
+  // three review screens.
+  [
+    { name: BRIEF_ROUTE, path: '/barn/extensions/:extension/brief', page: 'brief' },
+    { name: REVIEW_ROUTE, path: '/barn/extensions/:extension/review', page: 'review' },
+    { name: FILES_ROUTE, path: '/barn/extensions/:extension/files', page: 'files' },
+    { name: REVIEW_QUEUE_ROUTE, path: '/barn/review', page: 'review-queue' },
+    { name: REVIEW_CHANGE_ROUTE, path: '/barn/review/:extension/:change', page: 'review-change' },
+    { name: VERIFICATION_ROUTE, path: '/barn/extensions/:extension/verification', page: 'verification' },
+  ].forEach(({ name, path, page }) => {
+    plugin.addRoute('plain', {
+      name,
+      path,
+      component: () => import(`./pages/${ page }.vue`),
+    });
+  });
 
   // The editor itself: two panes under Rancher's own header.
   //
