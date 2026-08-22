@@ -1,0 +1,1302 @@
+{
+  "note": "Expected values read off the Figma file 'Rancher Extension Studio - AI Authoring (Concept)' (Xm3Q6WVin7U3cwMeOdGV6z). Each entry names the node it came from, plus the style id from the globalVars block of the fetch that produced it. NOTE ON STYLE IDS: the MCP layout_*/fill_*/stroke_* ids are generated per response, not stable across fetches, so they identify the value inside one dump rather than across the file - the node id is the durable half of the citation. Colours are the light-theme literals. Where the extension routes a colour through a Rancher shell variable, the expectation is still the Figma literal: the two used to agree because the shell variables were unset in the scope the tokens were declared in, and they no longer do (see README of the defect report).",
+  "conventions": {
+    "pad": "top right bottom left, px, no units",
+    "gap": "single number when both axes match, else row/column",
+    "size": "WxH; '*' means unconstrained on that axis",
+    "font": "px/weight",
+    "border": "top right bottom left widths",
+    "from": "<figma node id> <style id> - the node the number was read off"
+  },
+  "unexpressible": [
+    ".s-tab__count colour (03-workspace 11:212, 05-files 22:916): Figma writes #FFFFFF on the #C9A227 amber pill. Not followed - the app uses --studio-on-warning (#141419) in both themes. White on #C9A227 is 2.42:1 and on the lifted dark-theme #E0BC4A 1.83:1; the pill carries a count in Caption/11 SemiBold Caps, which is normal text under WCAG and needs 4.5:1, so both fail every threshold. Dark ink gives 7.59:1 and 10.02:1. Verified arithmetic, 2026-08. The same token drives the amber \"Can't tell\" verdict segment on 13-verify (39:1233 sibling). Note the green and red segments keep #FFFFFF and are NOT clean: at 12px/600 white on #3E8C4F is 4.14:1 and on #F64747 3.55:1 (dark-theme #FF6B6B is 2.78:1) - all below AA for normal text. They are followed as drawn only because the deviation was scoped to amber.",
+    "Rancher's own chrome (nav rail, header) is out of scope.",
+    ".new-ext__prompt border colour: Figma 13:313 strokes 2px #3D98D3, but the app routes it through --studio-border-focus -> Rancher --outline, which is #008657 in Prime light. Deferring a focus colour to the host product is the stated rule in studio.css, so only the 2px width is checked.",
+    "03-workspace assistant pane width: --studio-panel-assistant is 520px, but editor.vue seeds the splitter from localStorage \"barn.editor.split\" (a percentage) and only falls back to the token when that key is absent. Any profile that has dragged the divider renders a different width forever, so a pane-width expectation would measure the harness browser's history rather than the design. The 520 is checked by reading the token, not the box."
+  ],
+  "tokens": {
+    "text/primary": "#141419",
+    "text/secondary": "#61616B",
+    "text/tertiary": "#8B8B96",
+    "border/subtle": "#E5E6EB",
+    "border/default": "#DCDDE3",
+    "border/strong": "#B4B5BE",
+    "surface/subtle": "#F7F8FA",
+    "surface/nav": "#F2F3F5",
+    "brand/green-500": "#3E8C4F",
+    "brand/green-600": "#337041",
+    "brand/green-050": "#EEF5EF",
+    "accent/blue-050": "#EAF4FB",
+    "accent/blue-500": "#3D98D3",
+    "accent/blue-600": "#2C7BB0",
+    "status/success-bg": "#EBF4EC",
+    "status/info-bg": "#DEEBF7",
+    "status/warning": "#C9A227",
+    "status/warning-bg": "#FDF6E3",
+    "status/error": "#F64747",
+    "status/error-bg": "#FDECEC",
+    "status/neutral-bg": "#F0F1F4",
+    "diff/added-bg": "#EAF5EC",
+    "row-pad-y": 11,
+    "panel/tree": 288,
+    "panel/rail": 340,
+    "panel/assistant": 520
+  },
+  "screens": {
+    "01-home": {
+      "route": "/barn/extensions",
+      "ready": ".studio-home__table",
+      "measure": [
+        ".studio-home__masthead",
+        ".studio-home__breadcrumb",
+        ".studio-home__crumb",
+        ".studio-home__title-row",
+        ".studio-home__title",
+        ".studio-home__count",
+        ".studio-home__lede",
+        ".studio-home__search",
+        ".studio-home__table-wrap",
+        ".studio-home__table",
+        ".studio-home__head",
+        ".studio-home__th",
+        ".studio-home__row",
+        ".studio-home__td--stack",
+        ".studio-home__name",
+        ".s-btn--primary",
+        ".s-btn--sm:not(.s-btn--icon-only)",
+        ".s-badge",
+        ".s-badge--warning"
+      ],
+      "expect": {
+        ".studio-home__masthead": {
+          "pad": "20 24 16 24",
+          "gap": 6,
+          "dir": "column",
+          "from": "8:101 layout_CJLFWL"
+        },
+        ".studio-home__breadcrumb": {
+          "gap": 6,
+          "align": "center",
+          "from": "8:102 layout_OLH527"
+        },
+        ".studio-home__crumb": {
+          "font": "12/400",
+          "from": "8:103 Caption/12 Regular"
+        },
+        ".studio-home__title-row": {
+          "gap": 12,
+          "align": "center",
+          "from": "8:107 layout_T441WY"
+        },
+        ".studio-home__title": {
+          "font": "24/600",
+          "from": "8:108 Heading/24 SemiBold"
+        },
+        ".studio-home__count": {
+          "pad": "2 8 2 8",
+          "radius": 3,
+          "bg": "#F2F3F5",
+          "font": "12/600",
+          "from": "8:109 layout_X7UP1F fill_DJGDPN + 8:110 Caption/12 SemiBold"
+        },
+        ".studio-home__lede": {
+          "font": "14/400",
+          "from": "8:126 Body/14 Regular"
+        },
+        ".studio-home__search": {
+          "pad": "7 10 7 10",
+          "gap": 8,
+          "size": "180x*",
+          "radius": 4,
+          "border": "1 1 1 1",
+          "align": "center",
+          "from": "8:112 layout_L3X1UB stroke_I3VE5W"
+        },
+        ".studio-home__table-wrap": {
+          "pad": "0 24 24 24",
+          "from": "8:127 layout_96I5C0"
+        },
+        ".studio-home__table": {
+          "radius": 4,
+          "border": "1 1 1 1",
+          "from": "8:128 layout_Q79B0T stroke_I3VE5W"
+        },
+        ".studio-home__head": {
+          "pad": "11 16 11 16",
+          "bg": "#F7F8FA",
+          "align": "center",
+          "from": "8:129 layout_4NETA4 fill_ETIFPI"
+        },
+        ".studio-home__th": {
+          "gap": 6,
+          "align": "center",
+          "from": "8:130 layout_PCPHBB"
+        },
+        ".studio-home__row": {
+          "pad": "11 16 11 16",
+          "align": "center",
+          "from": "8:151 layout_4NETA4"
+        },
+        ".studio-home__td--stack": {
+          "gap": 2,
+          "dir": "column",
+          "from": "8:177 layout_RDWJEI"
+        },
+        ".studio-home__name": {
+          "font": "14/600",
+          "from": "8:178 Heading/14 SemiBold"
+        },
+        ".s-btn--primary": {
+          "pad": "8 16 8 16",
+          "gap": 8,
+          "radius": 4,
+          "font": "14/600",
+          "bg": "#3E8C4F",
+          "from": "3:4 layout_PMMYLD fill_28WV58 (Button component set 3:17)"
+        },
+        ".s-badge": {
+          "pad": "4 9 4 9",
+          "gap": 6,
+          "radius": 4,
+          "font": "12/400",
+          "align": "center",
+          "from": "3:21 layout_M1WITQ + 3:20 Caption/12 Regular (State Badge set 3:42)"
+        },
+        ".s-badge--warning": {
+          "bg": "#FDF6E3",
+          "color": "#C9A227",
+          "from": "3:33 fill_P115O7 + 3:32 fill_A5DK9T"
+        },
+        ".s-btn--sm:not(.s-btn--icon-only)": {
+          "pad": "5 11 5 11",
+          "gap": 7,
+          "radius": 4,
+          "from": "8:191 layout_SEIBF9 (Button/Secondary, small, as every screen draws it)"
+        }
+      }
+    },
+    "02-new": {
+      "route": "/barn/extensions/new",
+      "ready": ".new-ext__card",
+      "measure": [
+        ".new-ext__wrap",
+        ".new-ext__card",
+        ".new-ext__head",
+        ".new-ext__title",
+        ".new-ext__lede",
+        ".new-ext__label",
+        ".new-ext__prompt",
+        ".new-ext__examples",
+        ".new-ext__example",
+        ".new-ext__section-head",
+        ".new-ext__option",
+        ".new-ext__option--selected",
+        ".new-ext__option-row",
+        ".new-ext__option-label",
+        ".new-ext__option-note",
+        ".new-ext__details",
+        ".s-field",
+        ".s-field__box",
+        ".s-field__label",
+        ".s-field__input",
+        ".s-field__hint",
+        ".new-ext__git",
+        ".new-ext__footer",
+        ".new-ext__buttons",
+        ".new-ext__note"
+      ],
+      "expect": {
+        ".new-ext__wrap": {
+          "pad": "14 24 14 24",
+          "from": "13:306 layout_F9ME4I (padding: 14px 24px)"
+        },
+        ".new-ext__card": {
+          "size": "820x*",
+          "radius": 4,
+          "border": "1 1 1 1",
+          "dir": "column",
+          "from": "13:307 layout_ALHS1V stroke 1px #DCDDE3"
+        },
+        ".new-ext__head": {
+          "pad": "20 28 14 28",
+          "gap": 6,
+          "dir": "column",
+          "from": "13:308 layout_5DMMK9"
+        },
+        ".new-ext__title": {
+          "font": "24/600",
+          "from": "13:309 Heading/24 SemiBold"
+        },
+        ".new-ext__lede": {
+          "font": "14/400",
+          "from": "13:310 Body/14 Regular"
+        },
+        ".new-ext__label": {
+          "font": "14/600",
+          "from": "13:312 Heading/14 SemiBold"
+        },
+        ".new-ext__prompt": {
+          "pad": "12 14 12 14",
+          "gap": 6,
+          "radius": 4,
+          "border": "2 2 2 2",
+          "dir": "column",
+          "from": "13:313 layout_5QW4V9 (stroke width 2px; its #3D98D3 colour is not checked - see unexpressible)"
+        },
+        ".new-ext__examples": {
+          "gap": 8,
+          "align": "center",
+          "from": "13:316 layout_FE9WMV"
+        },
+        ".new-ext__example": {
+          "pad": "4 9 4 9",
+          "radius": 100,
+          "bg": "#EAF4FB",
+          "color": "#2C7BB0",
+          "font": "12/400",
+          "from": "13:318 layout_ODC0CK + 13:319 Caption/12 Regular"
+        },
+        ".new-ext__section-head": {
+          "gap": 8,
+          "align": "center",
+          "from": "13:325 layout_GMNUVV"
+        },
+        ".new-ext__option": {
+          "pad": "11 12 11 12",
+          "gap": 5,
+          "radius": 4,
+          "dir": "column",
+          "from": "13:329 layout_22W83Y"
+        },
+        ".new-ext__option--selected": {
+          "border": "2 2 2 2",
+          "bcol": "#3E8C4F",
+          "bg": "#EEF5EF",
+          "from": "13:329 stroke 2px #3E8C4F fill #EEF5EF"
+        },
+        ".new-ext__option-row": {
+          "gap": 7,
+          "align": "center",
+          "from": "13:330 layout_IC8YUU"
+        },
+        ".new-ext__option-label": {
+          "font": "14/600",
+          "from": "13:336 Heading/14 SemiBold"
+        },
+        ".new-ext__option-note": {
+          "font": "12/400",
+          "from": "13:337 Caption/12 Regular"
+        },
+        ".new-ext__details": {
+          "pad": "22 28 0 28",
+          "gap": 14,
+          "from": "13:366 layout_EDRX6D"
+        },
+        ".s-field": {
+          "gap": 4,
+          "dir": "column",
+          "from": "4:6 layout_N3KG4V (Labeled Input set 4:23) + 13:367 layout_EMMBHU"
+        },
+        ".s-field__box": {
+          "pad": "8 12 8 12",
+          "gap": 2,
+          "radius": 3,
+          "border": "1 1 1 1",
+          "dir": "column",
+          "from": "4:3 layout_89XRI3 + 13:368 layout_JUJY3F"
+        },
+        ".s-field__label": {
+          "font": "12/400",
+          "from": "4:4 / 13:369 Caption/12 Regular"
+        },
+        ".s-field__input": {
+          "font": "14/400",
+          "from": "4:5 / 13:370 Body/14 Regular"
+        },
+        ".s-field__hint": {
+          "font": "12/400",
+          "from": "13:371 Caption/12 Regular"
+        },
+        ".new-ext__git": {
+          "pad": "10 12 10 12",
+          "gap": 10,
+          "radius": 4,
+          "bg": "#F7F8FA",
+          "border": "1 1 1 1",
+          "align": "center",
+          "from": "13:378 layout_JGIJ3N"
+        },
+        ".new-ext__footer": {
+          "pad": "16 28 18 28",
+          "gap": 12,
+          "dir": "column",
+          "from": "13:384 layout_DI2LTK"
+        },
+        ".new-ext__buttons": {
+          "gap": 10,
+          "align": "center",
+          "from": "46:1196 layout_9GU95L"
+        },
+        ".new-ext__note": {
+          "font": "12/400",
+          "from": "13:385 Caption/12 Regular"
+        }
+      }
+    },
+    "03-workspace": {
+      "route": "/barn/editor",
+      "ready": ".mc-editor",
+      "measure": [
+        ".studio-masthead",
+        ".studio-masthead__name",
+        ".studio-masthead__title",
+        ".studio-masthead__eyebrow",
+        ".s-tabs--panel",
+        ".s-tab",
+        ".s-tab__row",
+        ".s-tab__count",
+        ".s-tab__indicator",
+        ".s-tab--selected",
+        ".s-chip",
+        ".assistant-panel__status",
+        ".assistant-panel__dot",
+        ".assistant-panel__who",
+        ".assistant-panel__stream",
+        ".assistant-panel__changes",
+        ".assistant-panel__changes-title",
+        ".assistant-panel__changes-note",
+        ".assistant-panel__composer",
+        ".assistant-panel__context",
+        ".assistant-panel__field",
+        ".assistant-panel__field-bar",
+        ".assistant-panel__input",
+        ".assistant-panel__hint",
+        ".preview-panel__toolbar",
+        ".preview-panel__route",
+        ".preview-panel__address",
+        ".preview-panel__live",
+        ".preview-panel__dot",
+        ".preview-panel__canvas",
+        ".preview-panel__frame"
+      ],
+      "expect": {
+        ".studio-masthead": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "9:177 layout_5LP9A4 (padding: 10px 16px - matches 14:356, 19:664, 22:855, 34:965, 38:1101, 39:1180)"
+        },
+        ".studio-masthead__name": {
+          "dir": "column",
+          "from": "9:181 layout_SNFA7Q"
+        },
+        ".studio-masthead__title": {
+          "font": "16/600",
+          "from": "9:182 Heading/16 SemiBold"
+        },
+        ".studio-masthead__eyebrow": {
+          "font": "11/600",
+          "from": "9:183 Caption/11 SemiBold Caps"
+        },
+        ".s-tabs--panel": {
+          "pad": "0 16 0 16",
+          "gap": 22,
+          "align": "flex-end",
+          "from": "11:188 layout_F7861R"
+        },
+        ".s-tab": {
+          "pad": "12 0 0 0",
+          "gap": 9,
+          "dir": "column",
+          "align": "center",
+          "from": "11:189 layout_FGP0SM"
+        },
+        ".s-tab__row": {
+          "gap": 6,
+          "align": "center",
+          "from": "11:190 layout_VDO3ZQ (the panel strip's row; the component set 4:25 draws 8px)"
+        },
+        ".s-tab__count": {
+          "pad": "1 6 1 6",
+          "radius": 100,
+          "font": "11/600",
+          "from": "11:212 layout_VD0EEI fill #C9A227 + 22:917 Caption/11 SemiBold Caps fill #FFFFFF (the unsaved-changes count is an amber pill) - text colour deliberately not followed, see unexpressible",
+          "bg": "#C9A227"
+        },
+        ".s-tab__indicator": {
+          "size": "*x2",
+          "from": "11:196 layout_QGLEAY"
+        },
+        ".s-tab--selected": {
+          "font": "14/600",
+          "color": "#141419",
+          "from": "11:195 Heading/14 SemiBold fill #141419"
+        },
+        ".s-chip": {
+          "pad": "4 8 4 8",
+          "gap": 6,
+          "radius": 3,
+          "border": "1 1 1 1",
+          "font": "12/400",
+          "align": "center",
+          "from": "9:187 / 11:226 / 11:320 layout_9K0V8B"
+        },
+        ".assistant-panel__status": {
+          "pad": "8 16 8 16",
+          "gap": 8,
+          "bg": "#F7F8FA",
+          "align": "center",
+          "from": "11:222 layout_UFRK01 fill #F7F8FA"
+        },
+        ".assistant-panel__dot": {
+          "size": "7x7",
+          "from": "11:223 layout_DH57L0"
+        },
+        ".assistant-panel__who": {
+          "font": "12/400",
+          "from": "11:224 Caption/12 Regular"
+        },
+        ".assistant-panel__stream": {
+          "pad": "12 16 12 16",
+          "gap": 12,
+          "dir": "column",
+          "from": "11:233 layout_V4631P"
+        },
+        ".assistant-panel__changes": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "bg": "#FDF6E3",
+          "align": "center",
+          "border": "1 0 1 0",
+          "from": "11:305 layout_5LP9A4 fill #FDF6E3 stroke 1px 0px #C9A227"
+        },
+        ".assistant-panel__changes-title": {
+          "font": "14/600",
+          "from": "11:313 Heading/14 SemiBold"
+        },
+        ".assistant-panel__changes-note": {
+          "font": "12/400",
+          "from": "11:314 Caption/12 Regular"
+        },
+        ".assistant-panel__composer": {
+          "pad": "12 16 14 16",
+          "gap": 8,
+          "bg": "#F7F8FA",
+          "dir": "column",
+          "from": "11:317 layout_U1WUWW"
+        },
+        ".assistant-panel__context": {
+          "gap": 6,
+          "align": "center",
+          "from": "11:318 layout_F806CV"
+        },
+        ".assistant-panel__field": {
+          "pad": "10 12 10 12",
+          "gap": 10,
+          "radius": 4,
+          "border": "1 1 1 1",
+          "dir": "column",
+          "from": "11:337 layout_L1CEWV stroke 1px #B4B5BE"
+        },
+        ".assistant-panel__field-bar": {
+          "gap": 8,
+          "align": "center",
+          "from": "11:339 layout_682XBA"
+        },
+        ".assistant-panel__input": {
+          "font": "14/400",
+          "from": "11:338 Body/14 Regular"
+        },
+        ".assistant-panel__hint": {
+          "font": "12/400",
+          "from": "11:356 Caption/12 Regular"
+        },
+        ".preview-panel__toolbar": {
+          "pad": "8 12 8 12",
+          "gap": 8,
+          "align": "center",
+          "from": "9:234 layout_HKKQDI"
+        },
+        ".preview-panel__route": {
+          "pad": "5 10 5 10",
+          "gap": 8,
+          "radius": 3,
+          "bg": "#F7F8FA",
+          "border": "1 1 1 1",
+          "align": "center",
+          "from": "9:242 layout_ZP78UA"
+        },
+        ".preview-panel__address": {
+          "font": "12/400",
+          "from": "9:246 Mono/12 Regular"
+        },
+        ".preview-panel__live": {
+          "pad": "0 4 0 4",
+          "gap": 6,
+          "align": "center",
+          "from": "9:247 layout_RHKKT5"
+        },
+        ".preview-panel__dot": {
+          "size": "7x7",
+          "from": "9:248 layout_DH57L0"
+        },
+        ".preview-panel__canvas": {
+          "pad": "16 16 16 16",
+          "from": "9:260 layout_S7ZEQO"
+        },
+        ".preview-panel__frame": {
+          "radius": 4,
+          "border": "1 1 1 1",
+          "from": "9:261 layout_DQETZ9 stroke 1px #DCDDE3"
+        }
+      }
+    },
+    "04-review": {
+      "route": "/barn/extensions/base/review",
+      "ready": ".review__body",
+      "measure": [
+        ".review__masthead",
+        ".review__title",
+        ".review__eyebrow",
+        ".review__files",
+        ".review__panel-head",
+        ".review__explain .review__panel-head",
+        ".review__panel-title",
+        ".review__file",
+        ".review__file--selected",
+        ".review__file-path",
+        ".review__note",
+        ".review__diff-head",
+        ".review__explain",
+        ".review__explain-body",
+        ".review__fact",
+        ".review__actions",
+        ".diff__code",
+        ".diff__row--add",
+        ".s-banner",
+        ".s-banner__bar",
+        ".s-banner--info"
+      ],
+      "expect": {
+        ".review__masthead": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "14:356 layout_S5M8K0"
+        },
+        ".review__eyebrow": {
+          "font": "11/600",
+          "from": "14:362 Caption/11 SemiBold Caps"
+        },
+        ".review__files": {
+          "size": "288x*",
+          "dir": "column",
+          "from": "28:195 '520 assistant · 288 tree · 340 explain rail' + 14:388"
+        },
+        ".review__panel-head": {
+          "pad": "12 14 12 14",
+          "gap": 8,
+          "bg": "#F7F8FA",
+          "align": "center",
+          "from": "14:389 layout_7RM32C"
+        },
+        ".review__explain .review__panel-head": {
+          "pad": "12 16 12 16",
+          "gap": 8,
+          "from": "14:510 layout_ZR021D (the explanation rail's head is 12/16, not the file list's 12/14)"
+        },
+        ".review__panel-title": {
+          "font": "14/600",
+          "from": "14:390 Heading/14 SemiBold"
+        },
+        ".review__file": {
+          "pad": "10 14 10 14",
+          "gap": 9,
+          "align": "center",
+          "from": "14:394 layout_M644HG"
+        },
+        ".review__file--selected": {
+          "bg": "#EAF4FB",
+          "from": "14:403 fill #EAF4FB"
+        },
+        ".review__file-path": {
+          "font": "13/600",
+          "from": "14:399 Body/13 SemiBold"
+        },
+        ".review__note": {
+          "pad": "12 14 12 14",
+          "gap": 4,
+          "dir": "column",
+          "from": "14:423 layout_JV3ZQW"
+        },
+        ".review__diff-head": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "bg": "#F7F8FA",
+          "align": "center",
+          "from": "14:426 layout_S5M8K0"
+        },
+        ".review__explain": {
+          "size": "340x*",
+          "bg": "#F7F8FA",
+          "dir": "column",
+          "from": "28:195 panel/rail 340 + 14:509 fill_97CUG7 #F7F8FA"
+        },
+        ".review__explain-body": {
+          "pad": "14 16 14 16",
+          "gap": 12,
+          "dir": "column",
+          "from": "14:516 layout_GKWTA7"
+        },
+        ".review__fact": {
+          "gap": 4,
+          "dir": "column",
+          "from": "14:517 layout_W3W7DF"
+        },
+        ".review__actions": {
+          "pad": "12 20 12 20",
+          "gap": 10,
+          "align": "center",
+          "border": "1 0 0 0",
+          "from": "14:534 layout_BOUBB1 stroke 1px 0px 0px #DCDDE3"
+        },
+        ".diff__code": {
+          "font": "12/400",
+          "lh": 18,
+          "from": "14:456 Mono/12 Regular (fontSize 12, lineHeight 1.5em)"
+        },
+        ".diff__row--add": {
+          "bg": "#EAF5EC",
+          "from": "14:461 fill #EAF5EC (diff/added-bg)"
+        },
+        ".s-banner": {
+          "pad": "12 16 12 0",
+          "gap": 12,
+          "radius": 3,
+          "font": "13/400",
+          "from": "4:38 layout_XKMXT5 (Banner set 4:51) + Body/13 Regular"
+        },
+        ".s-banner__bar": {
+          "size": "4x*",
+          "from": "4:36 layout_HCI0HF"
+        },
+        ".s-banner--info": {
+          "bg": "#DEEBF7",
+          "from": "4:38 fill_H8GYIV"
+        },
+        ".review__title": {
+          "font": "16/600",
+          "from": "14:361 Heading/16 SemiBold"
+        }
+      }
+    },
+    "05-files": {
+      "route": "/barn/extensions/base/files",
+      "ready": ".files__body",
+      "measure": [
+        ".files__masthead",
+        ".files__title",
+        ".files__eyebrow",
+        ".files__tree",
+        ".files__panel-head",
+        ".files__panel-title",
+        ".files__used",
+        ".s-tabs--panel",
+        ".s-tab",
+        ".s-tab__count",
+        ".s-chip",
+        ".files__tree-scroll",
+        ".files__loose",
+        ".files__code-line",
+        ".files__code",
+        ".files__panel-head--wide",
+        ".file-tree__dir"
+      ],
+      "expect": {
+        ".files__masthead": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "22:855 layout_AQJVRR"
+        },
+        ".files__eyebrow": {
+          "font": "11/600",
+          "from": "22:861 Caption/11 SemiBold Caps"
+        },
+        ".files__tree": {
+          "size": "288x*",
+          "dir": "column",
+          "from": "28:195 panel/tree 288 + 22:927"
+        },
+        ".files__panel-head": {
+          "pad": "12 14 12 14",
+          "gap": 8,
+          "bg": "#F7F8FA",
+          "align": "center",
+          "from": "14:389 layout_7RM32C (the shared panel-head pattern; screen 05's own tree head 22:928 is 10/12 - see report)"
+        },
+        ".files__panel-title": {
+          "font": "14/600",
+          "from": "22:935 Heading/14 SemiBold"
+        },
+        ".files__used": {
+          "size": "340x*",
+          "bg": "#F7F8FA",
+          "dir": "column",
+          "from": "28:195 panel/rail 340"
+        },
+        ".s-tabs--panel": {
+          "pad": "0 16 0 16",
+          "gap": 22,
+          "align": "flex-end",
+          "from": "22:892 layout_1VF3CH"
+        },
+        ".s-tab": {
+          "pad": "12 0 0 0",
+          "gap": 9,
+          "dir": "column",
+          "align": "center",
+          "from": "22:893 layout_XQD7W0"
+        },
+        ".s-tab__count": {
+          "pad": "1 6 1 6",
+          "radius": 100,
+          "font": "11/600",
+          "from": "22:916 layout_KZBC53 fill #C9A227 + 22:917 Caption/11 SemiBold Caps fill #FFFFFF - text colour deliberately not followed, see unexpressible",
+          "bg": "#C9A227"
+        },
+        ".s-chip": {
+          "pad": "4 8 4 8",
+          "gap": 6,
+          "radius": 3,
+          "border": "1 1 1 1",
+          "font": "12/400",
+          "align": "center",
+          "from": "22:865 layout_69LV9R"
+        },
+        ".files__title": {
+          "font": "16/600",
+          "from": "22:860 Heading/16 SemiBold"
+        },
+        ".files__tree-scroll": {
+          "pad": "10 6 12 6",
+          "gap": 1,
+          "from": "22:965 layout_9U5FMH"
+        },
+        ".files__loose": {
+          "pad": "5 8 5 8",
+          "radius": 3,
+          "align": "center",
+          "from": "22:972 layout_LSS9TB (tree row; nested rows 22:977 differ only in the 20px left indent)"
+        },
+        ".files__code-line": {
+          "pad": "2 16 2 0",
+          "lh": 18,
+          "from": "22:1078 layout_NINOBZ (padding 2px 16px 2px 0) + Mono/12 Regular lineHeight 1.5em = 18px, so a 22px row",
+          "size": "*x22"
+        },
+        ".files__code": {
+          "pad": "8 0 8 0",
+          "from": "22:1077 layout_8SUBOF"
+        },
+        ".files__panel-head--wide": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "22:1054 layout_AQJVRR (the editor head is 10/16, not the 12/14 the other heads use)"
+        },
+        ".file-tree__dir": {
+          "pad": "5 8 5 6",
+          "gap": 7,
+          "radius": 3,
+          "align": "center",
+          "from": "22:972 layout_LSS9TB (a root-level folder row; the nested file row 22:977 is the same box with a 20px left indent)"
+        }
+      }
+    },
+    "08-failed": {
+      "route": "/barn/extensions/base/build-failed",
+      "ready": ".failed__body",
+      "measure": [
+        ".failed__masthead",
+        ".failed__explain",
+        ".failed__log-panel",
+        ".failed__panel-head"
+      ],
+      "expect": {
+        ".failed__masthead": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "19:664 layout_39PQY5"
+        },
+        ".failed__explain": {
+          "size": "520x*",
+          "dir": "column",
+          "from": "28:195 panel/assistant 520 + 19:691 (padding has no node in 19:621 - the app's layout differs from the frame's; see report)"
+        },
+        ".failed__panel-head": {
+          "pad": "12 14 12 14",
+          "gap": 8,
+          "bg": "#F7F8FA",
+          "align": "center",
+          "from": "14:389 layout_7RM32C (shared pattern)"
+        }
+      },
+      "seedFailure": true
+    },
+    "10-brief": {
+      "route": "/barn/extensions/base/brief",
+      "ready": ".brief__columns",
+      "measure": [
+        ".brief__masthead",
+        ".brief__title",
+        ".brief__eyebrow",
+        ".brief__scroll",
+        ".brief__columns",
+        ".brief__main",
+        ".brief__side",
+        ".brief__card",
+        ".brief__card-head",
+        ".brief__card-title",
+        ".brief__card-note",
+        ".brief__card-body",
+        ".brief__ticket",
+        ".brief__ac",
+        ".brief__ac-box",
+        ".s-banner",
+        ".s-banner__bar",
+        ".s-banner--warning",
+        ".s-chip--warning"
+      ],
+      "expect": {
+        ".brief__masthead": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "34:965 layout_85NU7U"
+        },
+        ".brief__eyebrow": {
+          "font": "11/600",
+          "from": "34:971 Caption/11 SemiBold Caps"
+        },
+        ".brief__scroll": {
+          "pad": "18 24 24 24",
+          "gap": 14,
+          "dir": "column",
+          "align": "center",
+          "from": "34:991 layout_0HOE6F (mode: column, alignItems: center, gap 14)"
+        },
+        ".brief__columns": {
+          "gap": 14,
+          "dir": "row",
+          "from": "34:992 layout_6MDSVN (width 1240)",
+          "size": "1240x*"
+        },
+        ".brief__main": {
+          "gap": 14,
+          "dir": "column",
+          "from": "34:993 layout_MEGO7E"
+        },
+        ".brief__side": {
+          "size": "430x*",
+          "gap": 14,
+          "dir": "column",
+          "from": "34:994 layout_63DMG5"
+        },
+        ".brief__card": {
+          "radius": 4,
+          "border": "1 1 1 1",
+          "from": "34:995 layout_RTVZ0X stroke 1px #DCDDE3"
+        },
+        ".brief__card-head": {
+          "pad": "13 18 11 18",
+          "gap": 3,
+          "dir": "column",
+          "from": "34:996 layout_KGWIGG"
+        },
+        ".brief__card-title": {
+          "font": "16/600",
+          "from": "34:997 Heading/16 SemiBold"
+        },
+        ".brief__card-note": {
+          "font": "12/400",
+          "from": "34:1020 Caption/12 Regular"
+        },
+        ".brief__card-body": {
+          "pad": "13 18 15 18",
+          "gap": 11,
+          "dir": "column",
+          "from": "34:998 layout_DLI18N"
+        },
+        ".brief__ticket": {
+          "pad": "11 14 11 14",
+          "gap": 11,
+          "radius": 4,
+          "bg": "#F7F8FA",
+          "border": "1 1 1 1",
+          "from": "34:999 layout_TE9K0C"
+        },
+        ".brief__ac": {
+          "pad": "9 12 9 12",
+          "gap": 10,
+          "radius": 3,
+          "bg": "#F7F8FA",
+          "border": "1 1 1 1",
+          "from": "34:1053 layout_L8ZIDJ"
+        },
+        ".brief__ac-box": {
+          "size": "20x20",
+          "radius": 3,
+          "border": "1 1 1 1",
+          "from": "34:1054 layout_QW5BSB"
+        },
+        ".s-banner": {
+          "pad": "12 16 12 0",
+          "gap": 12,
+          "radius": 3,
+          "font": "13/400",
+          "from": "4:38 layout_XKMXT5 (Banner set 4:51)"
+        },
+        ".s-banner__bar": {
+          "size": "4x*",
+          "from": "4:36 layout_HCI0HF"
+        },
+        ".s-banner--warning": {
+          "bg": "#FDF6E3",
+          "from": "4:46 fill_YR09MN"
+        },
+        ".s-chip--warning": {
+          "bg": "#FDF6E3",
+          "color": "#C9A227",
+          "from": "34:972 fill #FDF6E3 + 34:976 fill #C9A227"
+        },
+        ".brief__title": {
+          "font": "16/600",
+          "from": "34:970 Heading/16 SemiBold"
+        }
+      }
+    },
+    "11-queue": {
+      "route": "/barn/review",
+      "ready": ".queue__list",
+      "measure": [
+        ".queue__masthead",
+        ".queue__breadcrumb",
+        ".queue__title-row",
+        ".queue__title",
+        ".queue__tabs",
+        ".queue__tabs .s-tab",
+        ".s-tab__count",
+        ".queue__list",
+        ".queue__card",
+        ".queue__card-body",
+        ".queue__row-title",
+        ".queue__col--part",
+        ".queue__col--risk",
+        ".queue__col--who",
+        ".queue__label",
+        ".queue__footnote",
+        ".queue__footnote-text"
+      ],
+      "expect": {
+        ".queue__masthead": {
+          "pad": "20 24 0 24",
+          "gap": 6,
+          "dir": "column",
+          "from": "36:1035 layout_5DPOFH"
+        },
+        ".queue__breadcrumb": {
+          "gap": 6,
+          "align": "center",
+          "from": "36:1036 layout_7OAL8V"
+        },
+        ".queue__title-row": {
+          "gap": 12,
+          "align": "center",
+          "from": "36:1041 layout_A2W04B"
+        },
+        ".queue__title": {
+          "font": "24/600",
+          "from": "36:1042 Heading/24 SemiBold"
+        },
+        ".queue__tabs": {
+          "pad": "14 24 0 24",
+          "gap": 24,
+          "align": "flex-end",
+          "from": "36:1056 layout_FWMDBR"
+        },
+        ".queue__tabs .s-tab": {
+          "pad": "0 0 0 0",
+          "gap": 9,
+          "dir": "column",
+          "align": "center",
+          "from": "36:1057 layout_PA2AVO (no top padding here - the 14px lead-in is on the strip 36:1056)"
+        },
+        ".s-tab__count": {
+          "pad": "1 7 1 7",
+          "radius": 100,
+          "font": "11/600",
+          "from": "36:1060 layout_4N7BV2 fill #3E8C4F + 36:1061 Caption/11 SemiBold Caps fill #FFFFFF (the selected tab count is a solid green pill; unselected 36:1066 is #F2F3F5 with #61616B)",
+          "bg": "#3E8C4F",
+          "color": "#FFFFFF"
+        },
+        ".queue__list": {
+          "pad": "16 24 24 24",
+          "gap": 10,
+          "dir": "column",
+          "from": "36:1075 layout_4IQKDF"
+        },
+        ".queue__card": {
+          "radius": 4,
+          "border": "1 1 1 1",
+          "from": "36:1076 layout_HXVJT1 stroke 1px #DCDDE3"
+        },
+        ".queue__card-body": {
+          "pad": "14 18 14 18",
+          "gap": 16,
+          "align": "center",
+          "from": "36:1077 layout_7XRNC6"
+        },
+        ".queue__row-title": {
+          "font": "16/600",
+          "from": "36:1079 Heading/16 SemiBold"
+        },
+        ".queue__col--part": {
+          "size": "150x*",
+          "gap": 5,
+          "dir": "column",
+          "from": "36:1087 layout_LH97PI"
+        },
+        ".queue__col--risk": {
+          "size": "200x*",
+          "gap": 5,
+          "dir": "column",
+          "from": "36:1094 layout_9JIDA0"
+        },
+        ".queue__col--who": {
+          "size": "110x*",
+          "gap": 4,
+          "dir": "column",
+          "from": "36:1099 layout_J486JU"
+        },
+        ".queue__label": {
+          "font": "11/600",
+          "from": "36:1088 Caption/11 SemiBold Caps"
+        },
+        ".queue__footnote": {
+          "pad": "11 14 11 14",
+          "gap": 10,
+          "bg": "#F7F8FA",
+          "radius": 4,
+          "border": "1 1 1 1",
+          "from": "36:1218 layout_IDL4GR"
+        },
+        ".queue__footnote-text": {
+          "font": "12/400",
+          "from": "36:1223 Caption/12 Regular"
+        }
+      }
+    },
+    "12-change": {
+      "route": "/barn/review/base/working",
+      "ready": ".rc__body",
+      "measure": [
+        ".rc__masthead",
+        ".rc__title",
+        ".rc__eyebrow",
+        ".rc__packet",
+        ".rc__packet-body",
+        ".rc__section",
+        ".rc__section-body",
+        ".rc__file",
+        ".rc__file--selected",
+        ".rc__visual",
+        ".rc__visual .rc__panel-head",
+        ".rc__panel-head",
+        ".rc__panel-title",
+        ".rc__decision",
+        ".rc__signoffs",
+        ".s-chip",
+        ".diff__code"
+      ],
+      "expect": {
+        ".rc__masthead": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "38:1101 layout_0MOG0V"
+        },
+        ".rc__eyebrow": {
+          "font": "11/600",
+          "from": "38:1107 Caption/11 SemiBold Caps"
+        },
+        ".rc__packet": {
+          "size": "340x*",
+          "dir": "column",
+          "from": "28:195 panel/rail 340 + 38:1131"
+        },
+        ".rc__packet-body": {
+          "pad": "12 16 12 16",
+          "gap": 24,
+          "dir": "column",
+          "from": "38:1131 (column, gap 0, no padding) + 38:1132 head padding 12px 16px 8px + 38:1136 body padding 0px 16px 12px. The app collapses the per-section padding into this one body, so its own padding must be the head top (12) and the body bottom (12), and its gap must be body-bottom 12 + next-head-top 12 = 24."
+        },
+        ".rc__section": {
+          "gap": 8,
+          "from": "38:1132 layout_H04R2Z padding-bottom 8px - the space the head row leaves under its label. Figma has no section wrapper; 38:1132 (head) and 38:1136 (body) are siblings under 38:1131, which has gap 0."
+        },
+        ".rc__section-body": {
+          "gap": 6,
+          "dir": "column",
+          "from": "38:1136 layout_33F9U3"
+        },
+        ".rc__file": {
+          "pad": "7 10 7 10",
+          "gap": 2,
+          "radius": 3,
+          "dir": "column",
+          "from": "38:1180 layout_TDC1OT"
+        },
+        ".rc__file--selected": {
+          "bg": "#EAF4FB",
+          "border": "1 1 1 1",
+          "bcol": "#3D98D3",
+          "from": "38:1180 fill #EAF4FB stroke 1px #3D98D3"
+        },
+        ".rc__visual": {
+          "size": "520x*",
+          "bg": "#F7F8FA",
+          "dir": "column",
+          "from": "38:1347 fill_4HI7JB #F7F8FA + 28:195 panel/assistant 520"
+        },
+        ".rc__visual .rc__panel-head": {
+          "pad": "12 16 12 16",
+          "gap": 8,
+          "align": "center",
+          "from": "38:1348 layout_OBTU1S"
+        },
+        ".rc__panel-head": {
+          "pad": "12 14 12 14",
+          "gap": 8,
+          "align": "center",
+          "from": "14:389 layout_7RM32C (shared pattern)"
+        },
+        ".rc__panel-title": {
+          "font": "14/600",
+          "from": "38:1350 Heading/14 SemiBold"
+        },
+        ".rc__decision": {
+          "pad": "12 20 12 20",
+          "gap": 10,
+          "align": "center",
+          "border": "1 0 0 0",
+          "from": "38:1426 layout_44OTV4 stroke 1px 0px 0px #DCDDE3"
+        },
+        ".rc__signoffs": {
+          "gap": 16,
+          "align": "center",
+          "from": "38:1427 layout_FC56UE"
+        },
+        ".s-chip": {
+          "pad": "4 8 4 8",
+          "gap": 6,
+          "radius": 3,
+          "border": "1 1 1 1",
+          "font": "12/400",
+          "align": "center",
+          "from": "38:1112 layout_X7IOJV"
+        },
+        ".rc__title": {
+          "font": "16/600",
+          "from": "38:1106 Heading/16 SemiBold"
+        },
+        ".diff__code": {
+          "font": "12/400",
+          "lh": 18,
+          "from": "14:456 Mono/12 Regular (fontSize 12, lineHeight 1.5em)"
+        }
+      }
+    },
+    "13-verify": {
+      "route": "/barn/extensions/base/verification",
+      "ready": ".verify__body",
+      "measure": [
+        ".verify__masthead",
+        ".verify__title",
+        ".verify__eyebrow",
+        ".verify__list",
+        ".verify__list-body",
+        ".verify__criterion",
+        ".verify__verdicts",
+        ".verify__signoff",
+        ".verify__signoff-text",
+        ".s-banner",
+        ".s-banner__bar",
+        ".s-btn--sm:not(.s-btn--icon-only)",
+        ".verify__verdicts > *"
+      ],
+      "expect": {
+        ".verify__masthead": {
+          "pad": "10 16 10 16",
+          "gap": 10,
+          "align": "center",
+          "from": "39:1180 layout_GYFSIO"
+        },
+        ".verify__eyebrow": {
+          "font": "11/600",
+          "from": "39:1186 Caption/11 SemiBold Caps"
+        },
+        ".verify__list-body": {
+          "gap": 12,
+          "dir": "column",
+          "from": "39:1211 layout_H0817C (padding 16px 20px 20px, gap 12). The app inserts a panel head above this body that 39:1211 does not have, so the 16 applies under that head.",
+          "pad": "16 20 20 20"
+        },
+        ".verify__criterion": {
+          "pad": "13 16 13 16",
+          "gap": 12,
+          "from": "39:1219 layout_QCJMLH (the criterion is a row of the bordered list card 39:1217, not a card of its own)"
+        },
+        ".verify__verdicts": {
+          "size": "216x30",
+          "radius": 4,
+          "border": "1 1 1 1",
+          "from": "39:1232 layout_KZRX11"
+        },
+        ".verify__signoff": {
+          "pad": "12 20 12 20",
+          "gap": 10,
+          "align": "center",
+          "border": "1 0 0 0",
+          "from": "39:1391 layout_0IZX1R stroke 1px 0px 0px #DCDDE3"
+        },
+        ".s-banner": {
+          "pad": "12 16 12 0",
+          "gap": 12,
+          "radius": 3,
+          "font": "13/400",
+          "from": "4:38 layout_XKMXT5 (Banner set 4:51)"
+        },
+        ".s-banner__bar": {
+          "size": "4x*",
+          "from": "4:36 layout_HCI0HF"
+        },
+        ".verify__title": {
+          "font": "16/600",
+          "from": "39:1185 Heading/16 SemiBold"
+        },
+        ".s-btn--sm:not(.s-btn--icon-only)": {
+          "pad": "5 11 5 11",
+          "gap": 7,
+          "radius": 4,
+          "from": "39:1300 layout_3DRFXX / 8:191 layout_SEIBF9"
+        },
+        ".verify__verdicts > *": {
+          "size": "71x30",
+          "from": "39:1233 layout_2QJM52 - the segment is horizontal-fill/vertical-fill inside the 216x30 control 39:1232 (as the original entry already recorded), not a fixed 72. Three FILL children share the CONTENT box of the 216x30 control 39:1232, and that control carries a 1px stroke, so the content box is 214x28 and a segment is 214/3 = 71.33 wide. 72 was the spec's own arithmetic (216/3) and it is wrong for a border-box: 3x72 overflows the container by 2px. The measure rounds, so a correct implementation reads 71. Height stays 30 because the segments are pulled over the horizontal border with negative margins; only the width overflows. Live symptom, which the number alone does not convey: because 3x72 overflows the 214px content box, the control is a scroll container. Clicking the third segment scrolls it 2px, which clips \"Yes\" and eats the right-hand border on that row only, and the shift is sticky - toggling the verdict back off does not undo it. Fix is flex: 1 1 0 on the segment (and dropping the negative margins, which overflow:hidden clips at the padding box and so never paint)."
+        }
+      }
+    }
+  }
+}
