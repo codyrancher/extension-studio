@@ -9,10 +9,15 @@
     "from": "<figma node id> <style id> - the node the number was read off"
   },
   "unexpressible": [
-    ".s-tab__count colour (03-workspace 11:212, 05-files 22:916): Figma writes #FFFFFF on the #C9A227 amber pill. Not followed - the app uses --studio-on-warning (#141419) in both themes. White on #C9A227 is 2.42:1 and on the lifted dark-theme #E0BC4A 1.83:1; the pill carries a count in Caption/11 SemiBold Caps, which is normal text under WCAG and needs 4.5:1, so both fail every threshold. Dark ink gives 7.59:1 and 10.02:1. Verified arithmetic, 2026-08. The same token drives the amber \"Can't tell\" verdict segment on 13-verify (39:1233 sibling). Note the green and red segments keep #FFFFFF and are NOT clean: at 12px/600 white on #3E8C4F is 4.14:1 and on #F64747 3.55:1 (dark-theme #FF6B6B is 2.78:1) - all below AA for normal text. They are followed as drawn only because the deviation was scoped to amber.",
+    "Status-fill foregrounds (.s-tab__count on 03-workspace 11:212 and 05-files 22:916, the 11-queue selected pill 36:1061, the verdict segments 39:1233 and the verification badges): Figma writes #FFFFFF on every one. Not followed. All five carry 11-12px/600, which WCAG counts as normal text needing 4.5:1, and white fails on all of them - success #3E8C4F 4.14, error #F64747 5.42 light but #FF6B6B 2.78 dark, warning #C9A227 2.42 light and #E0BC4A 1.83 dark. The app uses --studio-on-status (#0E0E12), which clears every one: 4.65 / 5.42 / 6.94 / 7.96 / 10.51. #141419, the body ink, was tried first and is not enough - 4.43 on the green, just under the line. Deliberate departure on accessibility grounds, not a defect.\n\nDeliberately NOT extended to .s-btn--primary and .s-btn--danger. Those are 14px/600 on the same fills and fail the same way, but a primary button is host chrome: Rancher ships white-on-green primaries, and dark-inked ones would read as broken beside them. The token sheet's stated rule is that Rancher wins on host-consistent surfaces. Recorded as a known gap rather than silently fixed.",
     "Rancher's own chrome (nav rail, header) is out of scope.",
     ".new-ext__prompt border colour: Figma 13:313 strokes 2px #3D98D3, but the app routes it through --studio-border-focus -> Rancher --outline, which is #008657 in Prime light. Deferring a focus colour to the host product is the stated rule in studio.css, so only the 2px width is checked.",
-    "03-workspace assistant pane width: --studio-panel-assistant is 520px, but editor.vue seeds the splitter from localStorage \"barn.editor.split\" (a percentage) and only falls back to the token when that key is absent. Any profile that has dragged the divider renders a different width forever, so a pane-width expectation would measure the harness browser's history rather than the design. The 520 is checked by reading the token, not the box."
+    "03-workspace assistant pane width: --studio-panel-assistant is 520px, but editor.vue seeds the splitter from localStorage \"barn.editor.split\" (a percentage) and only falls back to the token when that key is absent. Any profile that has dragged the divider renders a different width forever, so a pane-width expectation would measure the harness browser's history rather than the design. The 520 is checked by reading the token, not the box.",
+    {
+      "selector": "11-queue .s-tab__count color",
+      "figma": "36:1061 Caption/11 SemiBold Caps fill #FFFFFF",
+      "why": "Deliberate departure, on accessibility grounds. The pill is 11px/600 - normal text by WCAG, needing 4.5:1 - and the frame's white on the #3E8C4F fill is 4.14:1. The app uses --studio-on-success (#0E0E12) at 4.65:1. The same call was already made for the amber pill on 03/05; this is the last surface of the same family. Not a defect."
+    }
   ],
   "tokens": {
     "text/primary": "#141419",
@@ -591,7 +596,7 @@
         ".review__files": {
           "size": "288x*",
           "dir": "column",
-          "from": "28:195 '520 assistant · 288 tree · 340 explain rail' + 14:388"
+          "from": "28:195 '520 assistant \u00b7 288 tree \u00b7 340 explain rail' + 14:388"
         },
         ".review__panel-head": {
           "pad": "12 14 12 14",
@@ -1038,8 +1043,7 @@
           "radius": 100,
           "font": "11/600",
           "from": "36:1060 layout_4N7BV2 fill #3E8C4F + 36:1061 Caption/11 SemiBold Caps fill #FFFFFF (the selected tab count is a solid green pill; unselected 36:1066 is #F2F3F5 with #61616B)",
-          "bg": "#3E8C4F",
-          "color": "#FFFFFF"
+          "bg": "#3E8C4F"
         },
         ".queue__list": {
           "pad": "16 24 24 24",

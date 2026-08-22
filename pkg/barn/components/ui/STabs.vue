@@ -155,11 +155,15 @@ export default {
 
     .s-tab__indicator { background: var(--studio-green-500); }
 
-    // 36:1060 / 36:1061: the selected tab's count is a solid green pill with inverse text,
-    // not a tint of one. Unselected stays the neutral pill (36:1066).
+    // 36:1060 / 36:1061: the selected tab's count is a solid green pill, not a tint of one.
+    // Unselected stays the neutral pill (36:1066).
+    //
+    // The ink is --studio-on-success, not the white the frame draws. This is 11px/600 - normal
+    // text by WCAG, needing 4.5:1 - and white on #3E8C4F is 4.14:1. Same call as the amber
+    // pill beside it; see --studio-on-status.
     .s-tab__count {
       background: var(--studio-green-500);
-      color:      var(--studio-text-inverse);
+      color:      var(--studio-on-success);
     }
   }
 
