@@ -23,6 +23,7 @@ import FileTree from '../components/FileTree.vue';
 import DiffView from '../components/DiffView.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
+  ensureRepo,
   listExtensionFiles, readExtensionFile, listCommits, listBranches, countChanges,
   findUsages, showCommit, DEFAULT_EXTENSION
 } from '../extensions';
@@ -194,6 +195,11 @@ export default {
 
   methods: {
     async load() {
+      // A freshly created extension has no repository yet, and every reading on this screen
+      // is a git reading - so without this the screen is simply empty, with nothing saying
+      // why. Memoised and idempotent, so this costs one exec the first time and nothing after.
+      await ensureRepo(this.extension).catch(() => {});
+
       this.loading = true;
 
       const [paths, commits, branches, changes] = await Promise.all([

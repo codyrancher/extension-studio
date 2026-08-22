@@ -1297,6 +1297,27 @@ async function inPackage(name: string, script: string): Promise<string> {
  * nobody set in here, and a branch dropdown that says `master` on one pod and `main` on the next
  * is a needless surprise.
  */
+/**
+ * Memoised, because every screen that reads git wants this and none of them should pay for it
+ * twice. The shell command is already idempotent; this saves the round trip.
+ */
+const repoEnsured = new Map<string, Promise<void>>();
+
+export function ensureRepo(name: string): Promise<void> {
+  if (!repoEnsured.has(name)) {
+    // A failure is not cached: a pod that was still booting on the first try should get
+    // another chance rather than being written off for the rest of the session.
+    const started = ensureExtensionRepo(name).catch((e) => {
+      repoEnsured.delete(name);
+      throw e;
+    });
+
+    repoEnsured.set(name, started);
+  }
+
+  return repoEnsured.get(name) as Promise<void>;
+}
+
 export async function ensureExtensionRepo(name: string): Promise<void> {
   await inPackage(name, [
     'test -d .git && exit 0',

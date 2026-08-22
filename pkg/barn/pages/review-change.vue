@@ -25,6 +25,7 @@ import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import PreviewPanel from '../components/studio/PreviewPanel.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
+  ensureRepo,
   changedFiles, fileDiff, readExtensionFile, commitExtension, extensionUrl, extensionReady,
   listBranches, readSettings, extensionSource, parseGithubSource, findOpenPullRequest,
   deferReview, clearDeferral, DEFAULT_EXTENSION
@@ -288,6 +289,11 @@ export default {
 
   methods: {
     async load() {
+      // A freshly created extension has no repository yet, and every reading on this screen
+      // is a git reading - so without this the screen is simply empty, with nothing saying
+      // why. Memoised and idempotent, so this costs one exec the first time and nothing after.
+      await ensureRepo(this.extension).catch(() => {});
+
       this.loading = true;
 
       const [files, brief] = await Promise.all([

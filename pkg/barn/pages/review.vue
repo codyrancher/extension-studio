@@ -20,6 +20,7 @@ import {
 import DiffView from '../components/DiffView.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
+  ensureRepo,
   changedFiles, fileDiff, discardChanges, listBranches, askAssistant, DEFAULT_EXTENSION
 } from '../extensions';
 import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
@@ -134,6 +135,11 @@ export default {
 
   methods: {
     async load() {
+      // A freshly created extension has no repository yet, and every reading on this screen
+      // is a git reading - so without this the screen is simply empty, with nothing saying
+      // why. Memoised and idempotent, so this costs one exec the first time and nothing after.
+      await ensureRepo(this.extension).catch(() => {});
+
       this.loading = true;
 
       const [files, branches] = await Promise.all([
