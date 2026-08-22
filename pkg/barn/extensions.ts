@@ -1542,8 +1542,22 @@ export async function fileDiff(name: string, path: string): Promise<string> {
  * node_modules` because that is a hundred megabytes the pod spent minutes installing and is
  * not anybody's idea of a change to discard.
  */
-export async function discardChanges(name: string): Promise<void> {
-  await inPackage(name, 'git checkout -- . 2>/dev/null ; git clean -fd -e node_modules 2>/dev/null');
+export async function discardChanges(name: string, paths: string[] = []): Promise<void> {
+  if (!paths.length) {
+    await inPackage(name, 'git checkout -- . 2>/dev/null ; git clean -fd -e node_modules 2>/dev/null');
+
+    return;
+  }
+
+  // Named files rather than the whole tree, for the review screen's per-file selection. Both
+  // halves still run and both take the same pathspecs, so an untracked file in the list is
+  // removed and a tracked one is restored, and nothing outside the list is touched.
+  const quoted = paths.map((p) => `'${ p.replace(/'/g, `'\\''`) }'`).join(' ');
+
+  await inPackage(
+    name,
+    `git checkout -- ${ quoted } 2>/dev/null ; git clean -fd -e node_modules -- ${ quoted } 2>/dev/null`
+  );
 }
 
 /**

@@ -41,6 +41,9 @@ export default {
       loading:  true,
       diffing:  false,
       discarding: false,
+      // The paths still ticked in the file list (14:395). Everything is kept until somebody
+      // says otherwise, which is what makes the default row of the action bar honest.
+      kept:     [],
     };
   },
 
@@ -58,7 +61,27 @@ export default {
         return 'Nothing has changed since the last commit.';
       }
 
-      return `These changes are running in your preview only. ${ this.count } of ${ this.count } file${ this.count === 1 ? '' : 's' } will be kept.`;
+      return `These changes are running in your preview only. ${ this.kept.length } of ${ this.count } file${ this.count === 1 ? '' : 's' } will be kept.`;
+    },
+
+    /** The paths whose box has been cleared: the ones the discard is being aimed at. */
+    unkept() {
+      return this.files.map((f) => f.path).filter((p) => !this.kept.includes(p));
+    },
+
+    /**
+     * What Discard actually throws away.
+     *
+     * With boxes cleared it is those files and only those. With every box still ticked there is
+     * no selection to honour, so it stays what it has always been - the whole working tree -
+     * rather than becoming a button that cannot be pressed.
+     */
+    discardTargets() {
+      return this.unkept.length ? this.unkept : this.files.map((f) => f.path);
+    },
+
+    discardLabel() {
+      return this.unkept.length && this.unkept.length < this.count ? `Discard ${ this.unkept.length }` : 'Discard all';
     },
 
     selectedFile() {
@@ -87,6 +110,10 @@ export default {
       this.files = files;
       this.branch = branches?.current || '';
       this.loading = false;
+      // Every file that is still here is kept. A box cleared before a reload was either acted
+      // on, in which case the file is gone, or it was not, in which case the reload is the
+      // moment to stop implying somebody still means to throw it away.
+      this.kept = files.map((f) => f.path);
 
       if (files.length && !files.find((f) => f.path === this.selected)) {
         this.selected = files[0].path;
@@ -108,17 +135,30 @@ export default {
       this.diffing = false;
     },
 
-    async discardAll() {
+    /** Tick or clear one file's box. Clearing it is what marks the file for discarding. */
+    toggleKeep(file) {
+      this.kept = this.kept.includes(file.path) ? this.kept.filter((p) => p !== file.path) : [...this.kept, file.path];
+    },
+
+    async discardSelected() {
+      const paths = this.discardTargets;
+      const all = paths.length === this.count;
+      const what = all ? `all ${ this.count } changed files` : `${ paths.length } of the ${ this.count } changed files`;
+
       // eslint-disable-next-line no-alert
-      if (!window.confirm(`Discard all ${ this.count } changed files in ${ this.extension }? This cannot be undone.`)) {
+      if (!window.confirm(`Discard ${ what } in ${ this.extension }? This cannot be undone.`)) {
         return;
       }
 
       this.discarding = true;
 
       try {
-        await discardChanges(this.extension);
-        toastSuccess(this.$store, 'Changes discarded', `${ this.extension } is back to its last commit.`);
+        await discardChanges(this.extension, all ? [] : paths);
+        toastSuccess(
+          this.$store,
+          'Changes discarded',
+          all ? `${ this.extension } is back to its last commit.` : `${ paths.length } file${ paths.length === 1 ? '' : 's' } put back to the last commit.`
+        );
         await this.load();
       } catch (e) {
         toastError(this.$store, 'Could not discard the changes', e?.message || String(e));
@@ -199,18 +239,34 @@ export default {
         </div>
 
         <div class="review__file-list">
-          <button
+          <!--
+            Two controls per row (14:395), so the row is a div rather than a button: a checkbox
+            inside a button is neither valid nor operable. The box says whether the file is kept,
+            the rest of the row opens its diff.
+          -->
+          <div
             v-for="file in files"
             :key="file.path"
-            type="button"
             class="review__file"
             :class="{ 'review__file--selected': file.path === selected }"
-            @click="selected = file.path"
           >
-            <SIcon name="file" :size="13" />
-            <span class="review__file-path">{{ file.path }}</span>
-            <SChip :label="file.status" :tone="statusTone(file.status)" />
-          </button>
+            <input
+              type="checkbox"
+              class="review__file-box"
+              :checked="kept.includes(file.path)"
+              :aria-label="`Keep ${ file.path }`"
+              @change="toggleKeep(file)"
+            >
+            <button
+              type="button"
+              class="review__file-open"
+              @click="selected = file.path"
+            >
+              <SIcon name="file" :size="13" />
+              <span class="review__file-path">{{ file.path }}</span>
+              <SChip :label="file.status" :tone="statusTone(file.status)" />
+            </button>
+          </div>
 
           <div v-if="!loading && !files.length" class="review__file-empty">
             Nothing has changed.
@@ -309,9 +365,9 @@ export default {
         icon="trash"
         :disabled="!count"
         :loading="discarding"
-        @click="discardAll"
+        @click="discardSelected"
       >
-        Discard all
+        {{ discardLabel }}
       </SButton>
       <SButton variant="neutral" @click="backToAssistant">
         Keep and continue building
@@ -439,12 +495,69 @@ export default {
     border:        none;
     border-bottom: 1px solid var(--studio-border-subtle);
     color:         var(--studio-text-secondary);
-    cursor:        pointer;
 
     &:hover { background: var(--studio-surface-subtle); }
 
     &--selected,
     &--selected:hover { background: var(--studio-blue-050); }
+  }
+
+  // 14:395: whether this file is kept. Drawn rather than left native, because a native
+  // checkbox is a different shape and a different blue in every browser and the row is 3px
+  // radius everywhere else.
+  &__file-box {
+    appearance:      none;
+    display:         inline-flex;
+    align-items:     center;
+    justify-content: center;
+    flex:            0 0 14px;
+    width:           14px;
+    height:          14px;
+    margin:          0;
+    background:      var(--studio-surface);
+    border:          1px solid var(--studio-border-strong);
+    border-radius:   var(--studio-radius-control);
+    cursor:          pointer;
+
+    &:checked {
+      background:   var(--studio-green-500);
+      border-color: var(--studio-green-500);
+    }
+
+    // The tick, as two borders of a rotated box. 4.14:1 against the green, which is a
+    // graphical object rather than text and so wants 3:1.
+    &:checked::after {
+      content:       '';
+      width:         3px;
+      height:        7px;
+      margin-top:    -2px;
+      border:        solid var(--studio-text-inverse);
+      border-width:  0 2px 2px 0;
+      transform:     rotate(45deg);
+    }
+
+    &:focus-visible {
+      outline:        2px solid var(--studio-border-focus);
+      outline-offset: 1px;
+    }
+  }
+
+  // The rest of the row: the part that opens the diff.
+  &__file-open {
+    display:     flex;
+    align-items: center;
+    gap:         9px;
+    flex:        1 1 auto;
+    min-width:   0;
+    padding:     0;
+    text-align:  left;
+    background:  none;
+    border:      none;
+    color:       inherit;
+    cursor:      pointer;
+    // The shell gives every button a 40px minimum for touch targets, which on a row that is
+    // 44 tall including its own padding would make it 60. Same escape as the file tree's rows.
+    min-height:  0;
   }
 
   &__file-path {

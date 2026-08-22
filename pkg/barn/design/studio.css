@@ -118,15 +118,29 @@ body {
   /*
    * What to write on a saturated status fill.
    *
-   * The design says white on all of them, and on green and red that is defensible - 4.14:1 and
-   * 3.55:1, which clear AA for large text. On amber it is not: white on #C9A227 is 2.42:1, and
-   * on the lifted dark-theme #E0BC4A it is 1.83:1. Both fail every WCAG threshold there is, and
-   * the amber fill carries a word ("Can't tell") and a count, not decoration.
+   * The design says white on all three, and none of the three survives being checked. WCAG's
+   * relaxed 3:1 threshold is for *large* text - 24px, or 18.66px bold - and every one of these
+   * fills carries a label well under that: the verdict segments are 12px/600, the tab count is
+   * 11px/600, the criterion badge 12px/600. So all of them need 4.5:1, and white gives:
    *
-   * So amber is the one that takes dark ink - 7.59:1 in light, 10.02:1 in dark. This is a
-   * deliberate departure from the frame, on the grounds that the frame is wrong.
+   *     #3E8C4F success  4.14   (the same value in both themes)
+   *     #F64747 error    3.55   light      #FF6B6B error    2.78   dark
+   *     #C9A227 warning  2.42   light      #E0BC4A warning  1.83   dark
+   *
+   * One ink clears all five, so there is one value rather than three. It is a shade under the
+   * body ink (#141419), which is not arbitrary: #141419 reaches 4.43:1 on the green, just below
+   * the line, and green is the tightest of the five because it is the darkest fill.
+   *
+   *     #0E0E12 on success 4.65 · on error 5.42 light / 6.94 dark · on warning 7.96 / 10.51
+   *
+   * The three names are kept so a call site still says which fill it is writing on, and so a
+   * later retheme can pull one hue apart from the others without touching the others' rules.
+   * This is a deliberate departure from the frame, on the grounds that the frame is wrong.
    */
-  --studio-on-warning:  #141419;
+  --studio-on-status:   #0E0E12;
+  --studio-on-success:  var(--studio-on-status);
+  --studio-on-error:    var(--studio-on-status);
+  --studio-on-warning:  var(--studio-on-status);
 
   /* ----------------------------------------------------------------- Diff */
   --studio-diff-added-bg:     #EAF5EC;

@@ -31,21 +31,71 @@ import fullBleed from '../design/full-bleed';
 // Markdown's rule, and the one every editor that wrote one of these briefs assumes: a single
 // newline inside a paragraph is whitespace, a blank line ends it. A list item is its own
 // paragraph too, so a checklist stays a checklist instead of collapsing into one line.
+//
+// Joining takes two decisions, not one, and this used to take only the first. Asking whether a
+// line *opens* a block says whether it may be joined *onto* something; whether the line before
+// it *closed* one says whether there is anything to join onto. Without the second question a
+// heading swallowed the line under it, a `###` subheading was absorbed into the list item above
+// it, the four sentences of a verification block ran together, and a fenced code block or a
+// table came out as one line with its rows spliced end to end.
+//
+// A heading, a table row and a fence line all close: whatever follows starts fresh. Prose does
+// not, which is what keeps a hard-wrapped sentence one sentence.
+const OPENS = /^([-*+]\s|\d+\.\s|>|#{1,6}\s|\|)/;
+const CLOSES = /^(#{1,6}\s|\|)/;
+const FENCE = /^(```|~~~)/;
+
 function paragraphs(body) {
   const out = [];
+  // The marker of the fence we are inside, '' when we are not. Inside one, every line is its
+  // own line: it is code, and joining two lines of code changes what it says.
+  let fence = '';
+  let closed = true;
+  let hardBreak = false;
 
   body.split('\n').forEach((raw) => {
-    const line = raw.trim();
-    const starts = !out.length || !line || /^([-*+]|\d+\.|>|#)\s/.test(line);
+    // trimEnd, not trim. Leading whitespace is a nested list's indentation and the indentation
+    // is what says it is nested; the trailing whitespace is read for the hard break below and
+    // then dropped, because a paragraph break carries it from here on.
+    const line = raw.trimEnd();
+    const bare = line.trim();
+    const fenced = FENCE.test(bare);
 
-    if (starts || !out[out.length - 1]) {
+    if (fence) {
+      out.push(line);
+      fence = fenced && bare.startsWith(fence) ? '' : fence;
+
+      return;
+    }
+
+    if (fenced) {
+      fence = FENCE.exec(bare)[1];
+      out.push(line);
+      closed = true;
+
+      return;
+    }
+
+    if (!bare) {
+      closed = true;
+      hardBreak = false;
+
+      return;
+    }
+
+    if (OPENS.test(bare) || closed || !out.length) {
       out.push(line);
     } else {
-      out[out.length - 1] += ` ${ line }`;
+      // Two trailing spaces are markdown's hard line break, so the wrap was deliberate and the
+      // two lines join with the newline they were written with rather than a space.
+      out[out.length - 1] += `${ hardBreak ? '\n' : ' ' }${ bare }`;
     }
+
+    closed = CLOSES.test(bare);
+    hardBreak = /\s{2}$/.test(raw);
   });
 
-  return out.filter(Boolean);
+  return out;
 }
 
 export default {

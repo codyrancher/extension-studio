@@ -33,15 +33,45 @@ import fullBleed from '../design/full-bleed';
 // bar exists to make, and tells a screen reader that every criterion nobody has read yet is
 // answered "Can't tell, pressed".
 //
-// The design draws three of the four: 39:1233 and 39:1287 are the saturated status fill with
-// inverse text a chosen segment gets, and 39:1330 is the weak wash on the row nobody has
-// looked at. A deliberate "Can't tell" is that same selection rule in the hue this token set
-// already keeps for "we do not know" - warning.
+// The design draws three of the four: 39:1233 and 39:1287 are the saturated status fill a
+// chosen segment gets, and 39:1330 is the weak wash on the row nobody has looked at. A
+// deliberate "Can't tell" is that same selection rule in the hue this token set already keeps
+// for "we do not know" - warning.
 const VERDICTS = [
   { id: 'pass', label: 'Yes' },
   { id: 'fail', label: 'No' },
   { id: 'unsure', label: `Can't tell` },
 ];
+
+/**
+ * How a verdict is written into the `## Verification` block, and read back out of it.
+ *
+ * The checkbox line stays what it has always been: the human-readable record of met / not met,
+ * in the syntax every other tool that opens a markdown checklist understands. It cannot carry
+ * four states though - "No" and "Can't tell" are both an unticked box - so the block underneath
+ * carries the full verdict, keyed by the criterion's own text, and `criteriaFrom` reconciles the
+ * two on load. That is also what removes the index the old save walked, and with it the bug
+ * where a checkbox anywhere else in the brief moved every verdict onto the wrong line.
+ *
+ * `- [?]` was the other way to do this and is not markdown: every renderer, linter and editor
+ * that reads the file would either drop the line or draw it as literal text.
+ */
+const VERDICT_WORDS = {
+  pass:   'Met',
+  fail:   'Not met',
+  unsure: 'Could not tell',
+  '':     'Not looked at',
+};
+
+const WORD_VERDICTS = Object.fromEntries(
+  Object.entries(VERDICT_WORDS).map(([id, word]) => [word.toLowerCase(), id])
+);
+
+/** `- **Met**: the dashboard lists every node`, as written by `verificationBlock`. */
+const VERDICT_LINE = /^-\s+\*\*(.+?)\*\*:\s*(.+)$/;
+
+/** The heading the verdict list sits under, inside `## Verification`. */
+const CRITERIA_HEADING = '### criteria';
 
 /** Just the clock, for the provenance line under a criterion (39:1225). */
 function clock(at) {
@@ -138,22 +168,32 @@ export default {
         return 'Nothing to sign off — this extension has no acceptance criteria.';
       }
 
-      const total = this.criteria.length;
-      const judged = this.unsure ? `, ${ this.unsure } could not be judged` : '';
-
-      if (this.undecided) {
-        return `${ this.passed } of ${ total } met${ judged }, ${ this.undecided } still to look at.`;
+      if (!this.failed && !this.unsure && !this.undecided) {
+        return 'Every criterion met. Recording this ticks them off in the brief.';
       }
 
+      // Every state that is true gets said, rather than the first branch that matches winning.
+      // Ordered branches hid the failures behind the unlooked-at ones: one "No" and three
+      // untouched read "0 of 4 met, 3 still to look at" here while the badge an inch away in
+      // the same masthead read "1 not met".
+      const parts = [`${ this.passed } of ${ this.criteria.length } met`];
+
       if (this.failed) {
-        return `${ this.failed } of ${ total } not met${ judged }. Recording this says so in the brief.`;
+        parts.push(`${ this.failed } not met`);
       }
 
       if (this.unsure) {
-        return `${ this.passed } of ${ total } met, ${ this.unsure } looked at and could not be judged.`;
+        parts.push(`${ this.unsure } could not be judged`);
       }
 
-      return 'Every criterion met. Recording this ticks them off in the brief.';
+      if (this.undecided) {
+        parts.push(`${ this.undecided } still to look at`);
+      }
+
+      // Only once there is nothing left to look at is a failure the thing being signed off.
+      const tail = this.failed && !this.undecided ? ' Recording this says so in the brief.' : '';
+
+      return `${ parts.join(', ') }.${ tail }`;
     },
 
     /**
@@ -194,37 +234,121 @@ export default {
       }
     },
 
-    /** The `- [ ]` lines under "How we will know it worked". */
+    /**
+     * The criteria, with the verdicts the last save recorded already back on them.
+     *
+     * Two sources, reconciled on the criterion's own text: the checkbox says met or not met,
+     * and the `## Verification` block says which kind of not-met it was. Without the second
+     * half a "No" and a "Can't tell" both come back as an unticked box, which is why they used
+     * to disappear the moment the save that recorded them reloaded the file.
+     */
     criteriaFrom(brief) {
-      const body = this.sectionOf(brief, 'How we will know it worked');
+      const recorded = this.recordedVerdicts(brief);
 
-      return body.split('\n')
+      return this.criteriaLines(brief).map(({ text, ticked }) => {
+        const queue = recorded.get(text) || [];
+        const wrote = queue.length ? queue.shift() : '';
+
+        return {
+          text,
+          // The box wins on "met", because the box is the half a person edits by hand. An
+          // unticked box takes whatever the block recorded - unless the block said met, in
+          // which case somebody has since unticked it and the record is stale.
+          verdict: ticked ? 'pass' : (wrote === 'pass' ? '' : wrote),
+          // Provenance for a verdict taken in this session (39:1225). The brief records the
+          // verdict, not who took it or when, so a criterion read back off the file has none -
+          // and the line says nothing rather than making something up.
+          taken:   '',
+        };
+      });
+    },
+
+    /** Every `- [ ]` line under "How we will know it worked", in file order. */
+    criteriaLines(brief) {
+      return this.sectionOf(brief, 'How we will know it worked').split('\n')
         .map((l) => l.trim())
         .filter((l) => /^- \[[ xX]\]/.test(l))
         .map((l) => ({
-          text:    l.replace(/^- \[[ xX]\]\s*/, ''),
-          // A brief written before verification has everything unticked; one verified before
-          // keeps what it was given, so re-opening this screen does not lose the last pass.
-          verdict: /^- \[[xX]\]/.test(l) ? 'pass' : '',
-          // Provenance for a verdict taken in this session (39:1225). The brief records the
-          // tick, not who took it or when, so a criterion read back off the file has none -
-          // and the line says nothing rather than making something up.
-          taken:   '',
+          text:   l.replace(/^- \[[ xX]\]\s*/, '').trim(),
+          ticked: /^- \[[xX]\]/.test(l),
         }));
+    },
+
+    /**
+     * The verdicts the last save wrote, as criterion text to a queue of verdicts.
+     *
+     * A queue rather than a single value so two criteria worded identically still come back in
+     * the order they appear, which is the only ordering left once the index is gone.
+     */
+    recordedVerdicts(brief) {
+      const lines = brief.split('\n');
+      const range = this.sectionRange(lines, 'Verification');
+      const out = new Map();
+
+      if (!range) {
+        return out;
+      }
+
+      // Only under `### Criteria`. Notes are free text in the same section and a person is
+      // perfectly entitled to write a bulleted list in them.
+      let inList = false;
+
+      for (let i = range.at; i < range.end; i++) {
+        const line = lines[i].trim();
+
+        if (/^#{3,}\s/.test(line)) {
+          inList = line.toLowerCase() === CRITERIA_HEADING;
+          continue;
+        }
+
+        const m = inList && VERDICT_LINE.exec(line);
+        const verdict = m && WORD_VERDICTS[m[1].trim().toLowerCase()];
+
+        if (!m || verdict === undefined) {
+          continue;
+        }
+
+        const text = m[2].trim();
+
+        out.set(text, [...(out.get(text) || []), verdict]);
+      }
+
+      return out;
+    },
+
+    /** A `##` heading, or the horizontal rule the brief template ends a block with. */
+    closesSection(line) {
+      const t = line.trim();
+
+      return /^##\s/.test(t) || t === '---';
+    },
+
+    /**
+     * Where one `## ` section lives in the file: its heading, and the half-open range of the
+     * body under it.
+     *
+     * `###` is deliberately not a boundary - the verdict list lives under one - which is also
+     * the difference between rewriting the Verification block and eating whatever a person
+     * chose to put inside it.
+     */
+    sectionRange(lines, title) {
+      const head = lines.findIndex((l) => l.trim().toLowerCase() === `## ${ title.toLowerCase() }`);
+
+      if (head < 0) {
+        return null;
+      }
+
+      const rest = lines.slice(head + 1);
+      const next = rest.findIndex((l) => this.closesSection(l));
+
+      return { head, at: head + 1, end: next < 0 ? lines.length : head + 1 + next };
     },
 
     sectionOf(brief, title) {
       const lines = brief.split('\n');
-      const at = lines.findIndex((l) => l.trim().toLowerCase() === `## ${ title.toLowerCase() }`);
+      const range = this.sectionRange(lines, title);
 
-      if (at < 0) {
-        return '';
-      }
-
-      const rest = lines.slice(at + 1);
-      const end = rest.findIndex((l) => l.trim().startsWith('##') || l.trim() === '---');
-
-      return (end < 0 ? rest : rest.slice(0, end)).join('\n').trim();
+      return range ? lines.slice(range.at, range.end).join('\n').trim() : '';
     },
 
     /**
@@ -250,56 +374,15 @@ export default {
     /**
      * Write the verdict back into the brief.
      *
-     * The ticked boxes go back into the same `- [ ]` lines they came out of, and a Verification
-     * section is appended (or replaced) underneath. That means the record of whether this thing
-     * did its job lives in the repository, in the file that said what the job was.
+     * The boxes go back into the same `- [ ]` lines they came out of, and a Verification section
+     * is written underneath. That means the record of whether this thing did its job lives in
+     * the repository, in the file that said what the job was.
      */
     async save() {
       this.saving = true;
 
       try {
-        let out = this.brief;
-        let i = 0;
-
-        out = out.split('\n').map((line) => {
-          if (!/^\s*- \[[ xX]\]/.test(line)) {
-            return line;
-          }
-
-          const c = this.criteria[i++];
-
-          if (!c) {
-            return line;
-          }
-
-          return line.replace(/- \[[ xX]\]/, c.verdict === 'pass' ? '- [x]' : '- [ ]');
-        }).join('\n');
-
-        // Replace a previous verification block rather than stacking them up.
-        out = out.replace(/\n## Verification[\s\S]*$/, '').trimEnd();
-
-        const block = [
-          '',
-          '',
-          '## Verification',
-          '',
-          `Verdict: **${ this.verdictLabel }**`,
-          `Passed ${ this.passed } of ${ this.criteria.length }.`,
-        ];
-
-        if (this.unsure) {
-          block.push(`Looked at and could not judge ${ this.unsure }.`);
-        }
-
-        if (this.undecided) {
-          block.push(`Not looked at: ${ this.undecided }.`);
-        }
-
-        if (this.notes.trim()) {
-          block.push('', this.notes.trim());
-        }
-
-        await writeExtensionFile(this.extension, 'BRIEF.md', out + block.join('\n') + '\n');
+        await writeExtensionFile(this.extension, 'BRIEF.md', this.record(this.brief));
         toastSuccess(this.$store, 'Verification recorded', 'Written into BRIEF.md.');
         await this.load();
       } catch (e) {
@@ -307,6 +390,100 @@ export default {
       } finally {
         this.saving = false;
       }
+    },
+
+    /**
+     * The brief with this pass recorded in it.
+     *
+     * Both writes are keyed on the criterion's own text and neither on its position. The version
+     * this replaces walked every `- [ ]` in the whole file by index and ticked them in the order
+     * it found them, which is only correct while the criteria section happens to hold the first
+     * checkbox in the brief. "What we are deliberately not doing" is a list people write as
+     * checkboxes, and one of those above the criteria moved every verdict onto somebody else's
+     * line - silently, in a file that lives in git and is meant to be hand-edited.
+     */
+    record(brief) {
+      const out = brief.split('\n');
+      const criteria = this.sectionRange(out, 'How we will know it worked');
+      const queued = new Map();
+
+      this.criteria.forEach((c) => {
+        queued.set(c.text, [...(queued.get(c.text) || []), c.verdict]);
+      });
+
+      // The boxes, inside the criteria section and nowhere else.
+      for (let i = criteria?.at ?? 0; i < (criteria?.end ?? 0); i++) {
+        const m = /^(\s*- )\[[ xX]\](\s*)(.*)$/.exec(out[i]);
+        const queue = m && queued.get(m[3].trim());
+
+        // A line this screen never showed - one added to the file since it loaded - keeps
+        // whatever it says rather than being given some other criterion's answer.
+        if (!m || !queue || !queue.length) {
+          continue;
+        }
+
+        out[i] = `${ m[1] }[${ queue.shift() === 'pass' ? 'x' : ' ' }]${ m[2] }${ m[3] }`;
+      }
+
+      // The block, replaced in place where there is one already, so a section somebody wrote
+      // after it survives - the previous version deleted everything from `## Verification` to
+      // the end of the file.
+      const block = this.verificationBlock();
+      const previous = this.sectionRange(out, 'Verification');
+
+      if (previous) {
+        // The blank line the old block ended on belonged to its range, so put one back when
+        // there is a section under it to be separated from.
+        const gap = previous.end < out.length && out[previous.end].trim() ? [''] : [];
+
+        out.splice(previous.head, previous.end - previous.head, ...block, ...gap);
+      } else {
+        while (out.length && !out[out.length - 1].trim()) {
+          out.pop();
+        }
+
+        out.push('', ...block);
+      }
+
+      return `${ out.join('\n').replace(/\n+$/, '') }\n`;
+    },
+
+    /**
+     * The `## Verification` section, as lines.
+     *
+     * Blank lines between the sentences because they are separate statements, not a wrapped
+     * paragraph: run together they are one run-on line wherever the brief is rendered. The
+     * verdict list under `### Criteria` is the structured half - one line per criterion, keyed
+     * by its text - and it is what `criteriaFrom` reads back.
+     */
+    verificationBlock() {
+      const counts = [`Passed ${ this.passed } of ${ this.criteria.length }.`];
+
+      if (this.unsure) {
+        counts.push(`Looked at and could not judge ${ this.unsure }.`);
+      }
+
+      if (this.undecided) {
+        counts.push(`Not looked at: ${ this.undecided }.`);
+      }
+
+      const block = [
+        '## Verification',
+        '',
+        `Verdict: **${ this.verdictLabel }**`,
+        '',
+        counts.join(' '),
+        '',
+        '### Criteria',
+        '',
+        ...this.criteria.map((c) => `- **${ VERDICT_WORDS[c.verdict] ?? VERDICT_WORDS[''] }**: ${ c.text }`),
+      ];
+
+      if (this.notes.trim()) {
+        block.push('', '### Notes', '', ...this.notes.trim().split('\n'));
+      }
+
+      return block;
     },
 
     notYet(what) {
@@ -413,14 +590,20 @@ export default {
                   </p>
 
                   <!-- where the verdict was taken, and by whom (39:1225) -->
+                  <!--
+                    `c.taken` alone, not `c.taken || route`. A running preview is not evidence
+                    that anybody looked at this criterion, and the old test put the eye icon and
+                    the route on all four rows the moment the preview came up - which invents
+                    the one thing a provenance line exists to record.
+                  -->
                   <div
-                    v-if="c.taken || route"
+                    v-if="c.taken"
                     class="verify__meta"
                   >
                     <SIcon name="eye" :size="12" />
-                    <span v-if="c.taken">{{ c.taken }}</span>
+                    <span>{{ c.taken }}</span>
                     <span
-                      v-if="c.taken && route"
+                      v-if="route"
                       class="verify__meta-sep"
                     >·</span>
                     <span
@@ -692,8 +875,8 @@ $verdicts-edge:   1px;
 
     // One hue per state, the same hue the chosen segment takes, so the badge and the control
     // never disagree about what was answered.
-    &--pass { background: var(--studio-green-500); color: var(--studio-text-inverse); }
-    &--fail { background: var(--studio-error); color: var(--studio-text-inverse); }
+    &--pass { background: var(--studio-green-500); color: var(--studio-on-success); }
+    &--fail { background: var(--studio-error); color: var(--studio-on-error); }
     &--unsure { background: var(--studio-warning); color: var(--studio-on-warning); }
   }
 
@@ -751,7 +934,14 @@ $verdicts-edge:   1px;
     background:    var(--studio-surface);
     border:        $verdicts-edge solid var(--studio-border);
     border-radius: var(--studio-radius);
+    // `clip`, with `hidden` under it for anything that does not know the keyword. They trim
+    // identically - both at the padding box - but `hidden` makes the element a scroll
+    // container that merely refuses a scrollbar, and `clip` makes it one that cannot scroll
+    // at all. That distinction is the whole bug: it was focus scrolling, not painting, that
+    // clipped a segment and ate the right border when the third one was clicked. The segments
+    // no longer overflow, and now nothing they might do could scroll this either.
     overflow:      hidden;
+    overflow:      clip;
 
     // 39:1330: the row nobody has answered wears the weak wash across the whole control,
     // rather than one segment looking chosen.
@@ -762,10 +952,20 @@ $verdicts-edge:   1px;
     display:         inline-flex;
     align-items:     center;
     justify-content: center;
-    // 39:1233: a third of the control, full height. The negative margins put the segment over
-    // the border rather than inside it, which is where the design has it; the control's
-    // overflow trims what hangs past the edge.
-    flex:            0 0 calc(#{ $verdicts-width } / 3);
+    // 39:1233: the segment is layoutSizing FILL on both axes, so it is a share of what the
+    // control has rather than a number of its own.
+    //
+    // `1 1 0`, not `0 0 216/3`. The control is border-box 216 wide with a 1px stroke, so its
+    // content box is 214 and three 72s overflow it by 2. That made the control a scroll
+    // container: clicking the third segment scrolled it 2px to bring focus into view, which
+    // clipped "Yes" and ate the right border, on that row, permanently. A share divides what
+    // is actually there - 71.33 each - and cannot be wrong about the border.
+    //
+    // The negative margins stay, and they are the vertical half of the same problem: the
+    // segment is full height (30) inside a 28px content box, so without them it overflows the
+    // other axis by the same 2px it used to overflow this one. Pulling it over the horizontal
+    // border makes its margin box 28 and the control scrolls in neither direction.
+    flex:            1 1 0;
     height:          $verdicts-height;
     margin:          (-$verdicts-edge) 0;
     padding:         0;
@@ -780,13 +980,15 @@ $verdicts-edge:   1px;
 
     &:hover { background: var(--studio-surface-subtle); }
 
-    // A chosen segment is the status fill with inverse text (39:1233, 39:1287) - one rule,
-    // three hues, including the one the design never had a sample of.
+    // A chosen segment is the status fill with the ink that fill can carry (39:1233, 39:1287)
+    // - one rule, three hues, including the one the design never had a sample of. The frame
+    // draws white on all three and none of the three clears 4.5:1 at 12px/600; see
+    // --studio-on-status for the arithmetic.
     &--on-pass,
-    &--on-pass:hover { background: var(--studio-green-500); color: var(--studio-text-inverse); }
+    &--on-pass:hover { background: var(--studio-green-500); color: var(--studio-on-success); }
 
     &--on-fail,
-    &--on-fail:hover { background: var(--studio-error); color: var(--studio-text-inverse); }
+    &--on-fail:hover { background: var(--studio-error); color: var(--studio-on-error); }
 
     &--on-unsure,
     &--on-unsure:hover { background: var(--studio-warning); color: var(--studio-on-warning); }
