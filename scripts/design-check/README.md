@@ -63,6 +63,25 @@ Worth reading before you trust a clean run.
   flagged it, and two citations pointing at the wrong node. Check the `from` node when a
   disagreement looks surprising; the spec is not the design.
 
+## The runtime error sweep
+
+`probe-errors.mjs` loads every screen and fails on any uncaught error. It exists because of a
+specific failure this project hit twice: a control wired to a symbol that is not there at
+runtime. An import that lands in the wrong block gives you `X is not a function`, thrown
+*synchronously* - so it goes around any `.catch` and aborts the whole load. The screen still
+renders, still measures clean, and is empty. Neither the measuring harness nor a static pass
+found it; watching the browser console did.
+
+Run it after any change that touches imports or adds a control:
+
+```
+node probe-errors.mjs      # ALL CLEAN, or one line per screen with the error
+```
+
+`verify-corruption.mjs` and `probe-defer.mjs` are the two behavioural regression tests: the
+first plants decoy checkboxes in a brief and proves the verification screen writes verdicts to
+the right lines, the second drives a review deferral end to end. Both restore what they touch.
+
 ## What it cannot do
 
 It measures boxes. It cannot tell you a control is a reset button when it should be a verdict,
