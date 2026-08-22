@@ -789,10 +789,10 @@
           "from": "22:965 layout_9U5FMH"
         },
         ".files__loose": {
-          "pad": "5 8 5 8",
+          "pad": "5 8 5 6",
           "radius": 3,
           "align": "center",
-          "from": "22:972 layout_LSS9TB (tree row; nested rows 22:977 differ only in the 20px left indent)"
+          "from": "22:972 layout_LSS9TB, and the loose root rows 22:1015 / 22:1027 / 22:1033 share it - padding 5px 8px 5px 6px. This entry used to say left 8 while .file-tree__dir said left 6 off the same node and the same style id, which one style cannot produce. The 8 was wrong, and it required the 2px misalignment between the loose files and the folders they sit beside - the spec was mandating the defect."
         },
         ".files__code-line": {
           "pad": "2 16 2 0",

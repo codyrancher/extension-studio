@@ -548,7 +548,12 @@ export default {
   &__loose {
     display:       block;
     width:         100%;
-    padding:       5px var(--studio-space-8);
+    // The same box FileTree gives a row, down to the 6px on the left: these are siblings of
+    // the root folders in one list, and 8px put them 2px off the pitch every other row in the
+    // scroller keeps. 22:1015 (CLAUDE.md) and 22:1027 (package.json) are this row in the
+    // frame - loose files at the root of the package - and they are 5px 8px 5px 6px, the same
+    // layout the root folder 22:972 uses.
+    padding:       5px var(--studio-space-8) 5px var(--studio-space-6);
     text-align:    left;
     background:    none;
     border:        none;

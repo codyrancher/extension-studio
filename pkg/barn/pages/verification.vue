@@ -875,7 +875,10 @@ $verdicts-edge:   1px;
 
     // One hue per state, the same hue the chosen segment takes, so the badge and the control
     // never disagree about what was answered.
-    &--pass { background: var(--studio-green-500); color: var(--studio-on-success); }
+    // --studio-success, not --studio-green-500: the two are the same #3E8C4F in light, but
+    // only the status token is lifted for dark, and a pass badge that stayed at the brand
+    // value would sit a tier below the fail and unsure badges beside it.
+    &--pass { background: var(--studio-success); color: var(--studio-on-success); }
     &--fail { background: var(--studio-error); color: var(--studio-on-error); }
     &--unsure { background: var(--studio-warning); color: var(--studio-on-warning); }
   }
@@ -943,9 +946,16 @@ $verdicts-edge:   1px;
     overflow:      hidden;
     overflow:      clip;
 
-    // 39:1330: the row nobody has answered wears the weak wash across the whole control,
-    // rather than one segment looking chosen.
-    &--unanswered { background: var(--studio-surface-nav); }
+    // 39:1330: the row nobody has answered wears the wash across the whole control, rather
+    // than one segment looking chosen. Fill, edge and label all come from the empty-control
+    // tokens, which is what makes the state survive the dark theme - see studio.css: the
+    // frame's three light values leave it reading as a disabled control on a dark panel.
+    &--unanswered {
+      background:   var(--studio-control-empty);
+      border-color: var(--studio-control-empty-border);
+
+      .verify__verdict { color: var(--studio-control-empty-text); }
+    }
   }
 
   &__verdict {
@@ -985,7 +995,7 @@ $verdicts-edge:   1px;
     // draws white on all three and none of the three clears 4.5:1 at 12px/600; see
     // --studio-on-status for the arithmetic.
     &--on-pass,
-    &--on-pass:hover { background: var(--studio-green-500); color: var(--studio-on-success); }
+    &--on-pass:hover { background: var(--studio-success); color: var(--studio-on-success); }
 
     &--on-fail,
     &--on-fail:hover { background: var(--studio-error); color: var(--studio-on-error); }

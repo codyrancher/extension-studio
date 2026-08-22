@@ -92,7 +92,13 @@ export default {
     border:      none;
     background:  none;
     cursor:      pointer;
-    font-size:   12px;
+    // One family for the whole list, which is Lato: 22:965 sets every row of the tree in
+    // Body/13 Regular, folders and files alike, and the loose root files this tree is
+    // interleaved with on screen 05 take Caption/12 from the same family. The files used to
+    // carry `font-family: monospace` on the theory that a file is content and a folder is
+    // structure, and the result was one list of file names in two typefaces - the root-level
+    // ones in Lato, the ones a level down in mono, immediately below them.
+    font:        var(--studio-caption-12);
     // Explicit, and `min-height` with it: the shell gives every button a minimum height for
     // touch targets, which is right for a form and turns a twenty-row tree into a scroll.
     line-height: 16px;
@@ -119,8 +125,6 @@ export default {
   &__file {
     // The colour a link is, which is what these are: the tree is a list of things to open.
     color: var(--link);
-    // Directories are structure and files are content, so the files carry the code font.
-    font-family: monospace;
 
     // A different colour from the selected row below, not the same one. They were both
     // --accent-btn, which meant the row under the pointer and the file actually open looked

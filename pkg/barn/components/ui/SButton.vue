@@ -159,12 +159,30 @@ export default {
   }
 
   // Neutral: cancel/dismiss.
+  //
+  // The quietest of the two bordered variants, and it has to stay quieter than whatever it
+  // sits beside - the set's description makes it the dismissive one, so it is never the thing
+  // a screen is for. It was not: on the border/strong tier with body ink it outweighed the
+  // control it accompanies, worst on 13-verify where "Show me" (a placeholder that raises a
+  // toast) shouted over the verdict segments the whole screen exists to collect. That is our
+  // reading of Button/Neutral rather than the frame's - 3:17 strokes #B4B5BE, and
+  // --studio-border-strong is the tier *past* it: #909199 in Rancher's light theme, and in
+  // dark it mixes toward the near-white body text and comes out at #84878E, 4.1:1 against
+  // the panel - a stronger edge than the design draws anywhere (3:17's own is 2.04:1 on the
+  // page it sits on, and --studio-border is 1.34 light / 1.41 dark).
+  //
+  // So: the default border tier, and secondary ink. Still a bordered button, no longer a loud
+  // one, and the label clears 4.5:1 in both themes (4.86 light, 4.62 dark).
   &--neutral {
     background:   var(--studio-surface);
-    border-color: var(--studio-border-strong);
-    color:        var(--studio-text);
+    border-color: var(--studio-border);
+    color:        var(--studio-text-secondary);
 
-    &:hover:not(:disabled) { background: var(--studio-surface-subtle); }
+    &:hover:not(:disabled) {
+      background:   var(--studio-surface-subtle);
+      border-color: var(--studio-border-strong);
+      color:        var(--studio-text);
+    }
   }
 
   &--danger {

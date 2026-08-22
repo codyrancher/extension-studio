@@ -115,6 +115,24 @@ body {
   --studio-neutral:     #8B8B96;
   --studio-neutral-bg:  #F0F1F4;
 
+  /* ------------------------------------------------------- Empty control --
+   * A control that is waiting to be answered, rather than one that is off.
+   *
+   * 39:1330 draws the unanswered verdict segments as #F2F3F5 on white - the nav wash, a step
+   * down from the page, inside the same #DCDDE3 stroke every other control wears. In light
+   * that is enough on its own: the fill is a step, the stroke is an edge, and the labels sit
+   * on a near-white ground.
+   *
+   * In dark none of the three survives being reused. The wash is +7% white on a #25282F panel
+   * (1.24:1), the stroke is #38404B against that wash (1.14:1 - no edge at all), and the
+   * result reads as a disabled control on the one screen whose whole job is collecting the
+   * answers. So the *relationship* is restated for dark rather than the values, which is why
+   * these are named for the state instead of pointing at surface/border directly.
+   */
+  --studio-control-empty:        var(--studio-surface-nav);
+  --studio-control-empty-border: var(--studio-border);
+  --studio-control-empty-text:   var(--studio-text-secondary);
+
   /*
    * What to write on a saturated status fill.
    *
@@ -262,9 +280,46 @@ body.theme-dark {
   --studio-diff-removed-bg:   rgba(246, 71, 71, 0.18);
   --studio-diff-removed-text: #F08C8C;
 
-  /* Lift the mid-greys so they stay legible against a dark panel. */
+  /*
+   * Lift the status hues so they stay legible against a dark panel - all three of them.
+   *
+   * Success used to be left at its light value while the other two were lifted, and the three
+   * verdicts on 13-verify came out in the wrong order of loudness: amber the brightest thing
+   * on the page, red behind it, and "this passed" the muddiest of the three. Relative
+   * luminance says it plainly - #E0BC4A 0.523, #FF6B6B 0.328, #3E8C4F 0.203 - so the lift is
+   * the same move the other two already made, by the same amount the file uses elsewhere
+   * (+13 lightness, +5 saturation in HSL): #3E8C4F is hsl(133 39% 40%), #52BC69 is
+   * hsl(133 44% 53%), luminance 0.388. That puts green between red and amber instead of
+   * under both.
+   *
+   * The ink on it gets better, not worse: --studio-on-status (#0E0E12) is 4.65:1 on #3E8C4F
+   * and 8.03:1 on #52BC69, because lifting the fill under a dark ink only widens the gap.
+   * The other place the token is text rather than fill - a success badge/banner/chip, which
+   * writes --studio-success on --studio-success-bg - gains as much: 2.89:1 before, 5.0:1
+   * now, so the dark success badge is legible for the first time.
+   */
+  --studio-success: #52BC69;
   --studio-warning: #E0BC4A;
   --studio-error:   #FF6B6B;
+
+  /*
+   * The empty control, restated for dark (see the light block for the three light values).
+   *
+   * Fill goes up rather than down, the same inversion the two surface washes above make, and
+   * further up than the nav wash it borrows in light: +10% white is 1.37:1 against the panel
+   * where +7% was 1.24:1. The border stops borrowing --studio-border, which is invisible
+   * against that fill, and becomes +26% white - 2.17:1 against the fill, about what Rancher's
+   * own dark --input-border (#627084) gets, which is the same job.
+   *
+   * The label has to move with the fill or the fix trades one problem for another: 12px/600
+   * needs 4.5:1, and --studio-text-secondary (#8F8F9C) is 3.73:1 on the old fill and 3.38:1
+   * on the new one. --studio-text is 10.4:1 on it. An unanswered control reading as ready to
+   * answer is the point, so the labels being as present as the criterion beside them is the
+   * behaviour wanted, not a side effect.
+   */
+  --studio-control-empty:        rgba(255, 255, 255, 0.10);
+  --studio-control-empty-border: rgba(255, 255, 255, 0.26);
+  --studio-control-empty-text:   var(--studio-text);
 
   /*
    * The two 050 tints are literals as well, and they are not decoration: they are what marks
