@@ -56,6 +56,9 @@ body {
   /* The terminal keeps its own two greys in both themes: it is a terminal. */
   --studio-surface-terminal:     #1B1C21;
   --studio-surface-terminal-alt: #26272E;
+  /* Paired with the two above, and fixed for the same reason: a terminal is a terminal in
+   * both themes, so its foreground does not follow --body-text either. */
+  --studio-terminal-text:        #D5D6DB;
 
   /* --------------------------------------------------------------- Border */
   --studio-border-subtle: var(--border, #E5E6EB);

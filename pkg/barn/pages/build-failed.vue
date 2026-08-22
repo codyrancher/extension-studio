@@ -269,7 +269,7 @@ export default {
     margin:      0;
     padding:     var(--studio-space-12) var(--studio-space-16);
     background:  var(--studio-surface-terminal);
-    color:       #D5D6DB;
+    color:       var(--studio-terminal-text);
     font:        var(--studio-mono-12);
     white-space: pre-wrap;
     word-break:  break-word;
