@@ -115,6 +115,19 @@ body {
   --studio-neutral:     #8B8B96;
   --studio-neutral-bg:  #F0F1F4;
 
+  /*
+   * What to write on a saturated status fill.
+   *
+   * The design says white on all of them, and on green and red that is defensible - 4.14:1 and
+   * 3.55:1, which clear AA for large text. On amber it is not: white on #C9A227 is 2.42:1, and
+   * on the lifted dark-theme #E0BC4A it is 1.83:1. Both fail every WCAG threshold there is, and
+   * the amber fill carries a word ("Can't tell") and a count, not decoration.
+   *
+   * So amber is the one that takes dark ink - 7.59:1 in light, 10.02:1 in dark. This is a
+   * deliberate departure from the frame, on the grounds that the frame is wrong.
+   */
+  --studio-on-warning:  #141419;
+
   /* ----------------------------------------------------------------- Diff */
   --studio-diff-added-bg:     #EAF5EC;
   --studio-diff-added-text:   #276B33;
@@ -142,6 +155,9 @@ body {
   --studio-caption-12-semi: 600 12px/1.3333 var(--studio-font);
   --studio-caption-11-caps: 600 11px/1.2727 var(--studio-font);
   --studio-mono-12:    400 12px/1.5 var(--studio-font-mono);
+  /* Mono/11, the size the file sets a route or a path at when it is a caption rather than
+   * code - the provenance line under a verification criterion (39:1225). */
+  --studio-mono-11:    400 11px/1.4545 var(--studio-font-mono);
 
   /* Tracking cannot ride in the `font:` shorthand, so the two that have it
    * carry it separately. Display's is negative, the caps label's is wide. */

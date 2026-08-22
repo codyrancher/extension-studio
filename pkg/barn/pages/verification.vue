@@ -26,14 +26,27 @@ import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
 // The three segments of the verdict control (39:1232), in the order the design draws them.
-// "Can't tell" is the resting state rather than a fourth thing: a criterion nobody has
-// looked at yet and one somebody looked at and could not decide are the same criterion as
-// far as the sign-off is concerned, so both are the empty verdict.
+//
+// Four states, not three. "Can't tell" is an answer somebody gives, so it is a verdict of its
+// own; the fourth state is the one before any of them, where nothing is pressed. Folding the
+// two together - which is what an empty "Can't tell" did - loses the distinction the sign-off
+// bar exists to make, and tells a screen reader that every criterion nobody has read yet is
+// answered "Can't tell, pressed".
+//
+// The design draws three of the four: 39:1233 and 39:1287 are the saturated status fill with
+// inverse text a chosen segment gets, and 39:1330 is the weak wash on the row nobody has
+// looked at. A deliberate "Can't tell" is that same selection rule in the hue this token set
+// already keeps for "we do not know" - warning.
 const VERDICTS = [
   { id: 'pass', label: 'Yes' },
   { id: 'fail', label: 'No' },
-  { id: '', label: `Can't tell` },
+  { id: 'unsure', label: `Can't tell` },
 ];
+
+/** Just the clock, for the provenance line under a criterion (39:1225). */
+function clock(at) {
+  return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 export default {
   name: 'BarnVerification',
@@ -53,6 +66,9 @@ export default {
       loading:    true,
       saving:     false,
       notes:      '',
+      // The path the preview is showing, reported by the panel on the right. It is the route
+      // a verdict was taken against, which is the auditable half of a tick.
+      route:      '',
       VERDICTS,
     };
   },
@@ -70,6 +86,12 @@ export default {
       return this.criteria.filter((c) => c.verdict === 'fail').length;
     },
 
+    /** Looked at and could not be judged - which is not the same as not looked at. */
+    unsure() {
+      return this.criteria.filter((c) => c.verdict === 'unsure').length;
+    },
+
+    /** Nobody has answered these. Only the empty verdict counts here. */
     undecided() {
       return this.criteria.filter((c) => !c.verdict).length;
     },
@@ -83,12 +105,16 @@ export default {
         return 'fail';
       }
 
-      return this.undecided ? 'partial' : 'pass';
+      if (this.undecided) {
+        return 'partial';
+      }
+
+      return this.unsure ? 'unsure' : 'pass';
     },
 
     verdictBadge() {
       return {
-        pass: 'live', fail: 'failed', partial: 'building', none: 'draft',
+        pass: 'live', fail: 'failed', partial: 'building', unsure: 'unsaved', none: 'draft',
       }[this.verdict];
     },
 
@@ -97,8 +123,56 @@ export default {
         pass:    'Every criterion checked',
         fail:    `${ this.failed } not met`,
         partial: `${ this.undecided } still to check`,
+        unsure:  `${ this.unsure } could not be judged`,
         none:    'No criteria',
       }[this.verdict];
+    },
+
+    /**
+     * The sign-off sentence, which is where the four states have to be told apart: a criterion
+     * somebody looked at and could not judge is a decision, and one nobody has opened yet is
+     * an outstanding job, so they are counted separately and said separately.
+     */
+    signoffText() {
+      if (!this.criteria.length) {
+        return 'Nothing to sign off — this extension has no acceptance criteria.';
+      }
+
+      const total = this.criteria.length;
+      const judged = this.unsure ? `, ${ this.unsure } could not be judged` : '';
+
+      if (this.undecided) {
+        return `${ this.passed } of ${ total } met${ judged }, ${ this.undecided } still to look at.`;
+      }
+
+      if (this.failed) {
+        return `${ this.failed } of ${ total } not met${ judged }. Recording this says so in the brief.`;
+      }
+
+      if (this.unsure) {
+        return `${ this.passed } of ${ total } met, ${ this.unsure } looked at and could not be judged.`;
+      }
+
+      return 'Every criterion met. Recording this ticks them off in the brief.';
+    },
+
+    /**
+     * Whoever is signed in, for the provenance line. Same getters the assistant panel uses -
+     * the shell has no `auth/principal`, and the named user is not always fetched yet.
+     */
+    signedInAs() {
+      const g = this.$store?.getters || {};
+      const user = g['auth/user'] || g['auth/selfUser'];
+      const named = user?.loginName || user?.username || user?.name;
+
+      if (named) {
+        return named;
+      }
+
+      const id = g['auth/principalId'] || '';
+      const tail = String(id).split('://').pop();
+
+      return tail && tail !== id ? tail : '';
     },
   },
 
@@ -132,6 +206,10 @@ export default {
           // A brief written before verification has everything unticked; one verified before
           // keeps what it was given, so re-opening this screen does not lose the last pass.
           verdict: /^- \[[xX]\]/.test(l) ? 'pass' : '',
+          // Provenance for a verdict taken in this session (39:1225). The brief records the
+          // tick, not who took it or when, so a criterion read back off the file has none -
+          // and the line says nothing rather than making something up.
+          taken:   '',
         }));
     },
 
@@ -149,8 +227,24 @@ export default {
       return (end < 0 ? rest : rest.slice(0, end)).join('\n').trim();
     },
 
+    /**
+     * Answer a criterion, or take the answer back.
+     *
+     * Pressing the segment that is already pressed clears it, which is the toggle button's own
+     * behaviour and the only way back to "nobody has looked at this" after a misclick.
+     */
     set(criterion, verdict) {
-      criterion.verdict = verdict;
+      const off = criterion.verdict === verdict;
+
+      criterion.verdict = off ? '' : verdict;
+      criterion.taken = off ? '' : this.provenance();
+    },
+
+    /** "Checked 12:41 · admin", or just the time when the shell has no name for the user. */
+    provenance() {
+      const at = `Checked ${ clock(new Date()) }`;
+
+      return this.signedInAs ? `${ at } · ${ this.signedInAs }` : at;
     },
 
     /**
@@ -192,6 +286,14 @@ export default {
           `Verdict: **${ this.verdictLabel }**`,
           `Passed ${ this.passed } of ${ this.criteria.length }.`,
         ];
+
+        if (this.unsure) {
+          block.push(`Looked at and could not judge ${ this.unsure }.`);
+        }
+
+        if (this.undecided) {
+          block.push(`Not looked at: ${ this.undecided }.`);
+        }
 
         if (this.notes.trim()) {
           block.push('', this.notes.trim());
@@ -298,33 +400,65 @@ export default {
               >
                 <span
                   class="verify__badge"
-                  :class="{
-                    'verify__badge--pass': c.verdict === 'pass',
-                    'verify__badge--fail': c.verdict === 'fail',
-                  }"
+                  :class="`verify__badge--${ c.verdict || 'unanswered' }`"
                 >
                   <SIcon v-if="c.verdict === 'pass'" name="check" :size="13" />
                   <SIcon v-else-if="c.verdict === 'fail'" name="close" :size="13" />
                   <template v-else>{{ i + 1 }}</template>
                 </span>
 
-                <p class="verify__criterion-text">
-                  {{ c.text }}
-                </p>
+                <div class="verify__criterion-main">
+                  <p class="verify__criterion-text">
+                    {{ c.text }}
+                  </p>
 
-                <div class="verify__verdicts" role="group" :aria-label="`Verdict for criterion ${ i + 1 }`">
+                  <!-- where the verdict was taken, and by whom (39:1225) -->
+                  <div
+                    v-if="c.taken || route"
+                    class="verify__meta"
+                  >
+                    <SIcon name="eye" :size="12" />
+                    <span v-if="c.taken">{{ c.taken }}</span>
+                    <span
+                      v-if="c.taken && route"
+                      class="verify__meta-sep"
+                    >·</span>
+                    <span
+                      v-if="route"
+                      class="verify__meta-route"
+                    >{{ route }}</span>
+                  </div>
+                </div>
+
+                <div
+                  class="verify__verdicts"
+                  :class="{ 'verify__verdicts--unanswered': !c.verdict }"
+                  role="group"
+                  :aria-label="`Verdict for criterion ${ i + 1 }`"
+                >
                   <button
                     v-for="v in VERDICTS"
-                    :key="v.label"
+                    :key="v.id"
                     type="button"
                     class="verify__verdict"
-                    :class="c.verdict === v.id ? `verify__verdict--on-${ v.id || 'unset' }` : ''"
+                    :class="c.verdict === v.id ? `verify__verdict--on-${ v.id }` : ''"
                     :aria-pressed="c.verdict === v.id"
                     @click="set(c, v.id)"
                   >
                     {{ v.label }}
                   </button>
                 </div>
+
+                <!-- 39:1239: the neutral button that puts the criterion on the screen -->
+                <SButton
+                  class="verify__show"
+                  variant="neutral"
+                  size="sm"
+                  icon="play"
+                  @click="notYet('driving the preview to a criterion for you')"
+                >
+                  Show me
+                </SButton>
               </div>
             </div>
 
@@ -367,6 +501,7 @@ export default {
           class="verify__frame"
           :url="previewUrl"
           :extension="extension"
+          @route="route = $event"
         />
         <SEmpty
           v-else
@@ -380,20 +515,7 @@ export default {
     <!-- sign-off bar (39:1391) -->
     <div class="verify__signoff">
       <SIcon name="user" :size="15" />
-      <span class="verify__signoff-text">
-        <template v-if="!criteria.length">
-          Nothing to sign off — this extension has no acceptance criteria.
-        </template>
-        <template v-else-if="undecided">
-          {{ passed }} of {{ criteria.length }} checked, {{ undecided }} still to look at.
-        </template>
-        <template v-else-if="failed">
-          {{ failed }} of {{ criteria.length }} not met. Recording this says so in the brief.
-        </template>
-        <template v-else>
-          Every criterion met. Recording this ticks them off in the brief.
-        </template>
-      </span>
+      <span class="verify__signoff-text">{{ signoffText }}</span>
 
       <span class="verify__grow" />
 
@@ -418,6 +540,13 @@ export default {
 </template>
 
 <style lang="scss" scoped>
+// 39:1232: the control's own box, and the numbers the segments below are cut from. Figma
+// draws a stroke over a frame rather than inside its layout, so its three segments each fill
+// the whole 216x30 - which in CSS means they overlap the border rather than sit inside it.
+$verdicts-width:  216px;
+$verdicts-height: 30px;
+$verdicts-edge:   1px;
+
 .verify {
   display:        flex;
   flex-direction: column;
@@ -494,7 +623,9 @@ export default {
     display:        flex;
     flex-direction: column;
     gap:            var(--studio-space-12);
-    padding:        14px var(--studio-space-16);
+    // 39:1211. The app puts a panel head above this body that the design's frame does not
+    // have, so the frame's top padding lands under that head.
+    padding:        var(--studio-space-16) var(--studio-space-20) var(--studio-space-20);
     overflow-y:     auto;
     min-height:     0;
     flex:           1 1 auto;
@@ -559,8 +690,28 @@ export default {
     color:           var(--studio-neutral);
     font:            var(--studio-caption-12-semi);
 
+    // One hue per state, the same hue the chosen segment takes, so the badge and the control
+    // never disagree about what was answered.
     &--pass { background: var(--studio-green-500); color: var(--studio-text-inverse); }
     &--fail { background: var(--studio-error); color: var(--studio-text-inverse); }
+    &--unsure { background: var(--studio-warning); color: var(--studio-on-warning); }
+  }
+
+  // The criterion and its provenance line - a column between the badge and the controls, so
+  // the meta line sits under the text rather than beside the number.
+  &__criterion-main {
+    display:        flex;
+    flex-direction: column;
+    flex:           1 1 auto;
+    gap:            var(--studio-space-4);
+    min-width:      0;
+  }
+
+  // 39:1239, and the shell's 40px button minimum once more: on a row whose other control is
+  // 30 tall, it is the button that has to give.
+  &__show {
+    flex:       0 0 auto;
+    min-height: 0;
   }
 
   &__criterion-text {
@@ -570,26 +721,58 @@ export default {
     margin: 0;
   }
 
+  // 39:1225: how this criterion can be checked again - where it was looked at, and by whom
+  // when we know. A tick nobody can retrace is not evidence of anything.
+  &__meta {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-tertiary);
+    min-width:   0;
+  }
+
+  &__meta-sep { color: var(--studio-border-strong); }
+
+  &__meta-route {
+    font:          var(--studio-mono-11);
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+  }
+
   // 39:1232: one joined control, not two buttons. Three segments, because "I looked and I
   // cannot tell" is an answer and the screen has to let somebody give it.
   &__verdicts {
     display:       flex;
-    width:         216px;
-    height:        30px;
+    width:         $verdicts-width;
+    height:        $verdicts-height;
     flex:          0 0 auto;
     background:    var(--studio-surface);
-    border:        1px solid var(--studio-border);
+    border:        $verdicts-edge solid var(--studio-border);
     border-radius: var(--studio-radius);
     overflow:      hidden;
+
+    // 39:1330: the row nobody has answered wears the weak wash across the whole control,
+    // rather than one segment looking chosen.
+    &--unanswered { background: var(--studio-surface-nav); }
   }
 
   &__verdict {
     display:         inline-flex;
     align-items:     center;
     justify-content: center;
-    flex:            1 1 0;
+    // 39:1233: a third of the control, full height. The negative margins put the segment over
+    // the border rather than inside it, which is where the design has it; the control's
+    // overflow trims what hangs past the edge.
+    flex:            0 0 calc(#{ $verdicts-width } / 3);
+    height:          $verdicts-height;
+    margin:          (-$verdicts-edge) 0;
     padding:         0;
     border:          none;
+    // The shell's 40px minimum for touch targets, again: on a 30px control it pushes 5px of
+    // segment out through the top and bottom of the border.
+    min-height:      0;
     background:      transparent;
     color:           var(--studio-text-secondary);
     font:            var(--studio-caption-12-semi);
@@ -597,14 +780,16 @@ export default {
 
     &:hover { background: var(--studio-surface-subtle); }
 
+    // A chosen segment is the status fill with inverse text (39:1233, 39:1287) - one rule,
+    // three hues, including the one the design never had a sample of.
     &--on-pass,
     &--on-pass:hover { background: var(--studio-green-500); color: var(--studio-text-inverse); }
 
     &--on-fail,
     &--on-fail:hover { background: var(--studio-error); color: var(--studio-text-inverse); }
 
-    &--on-unset,
-    &--on-unset:hover { background: var(--studio-surface-nav); color: var(--studio-text-secondary); }
+    &--on-unsure,
+    &--on-unsure:hover { background: var(--studio-warning); color: var(--studio-on-warning); }
   }
 
   &__notes {

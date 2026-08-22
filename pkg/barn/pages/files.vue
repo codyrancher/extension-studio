@@ -553,7 +553,7 @@ export default {
     background:    none;
     border:        none;
     // The shell gives every button a 40px minimum for touch targets, which turns the design's
-    // 22px tree row into a scroll. FileTree's rows clear it the same way.
+    // 26px tree row into a scroll. FileTree's rows clear it the same way.
     min-height:    0;
     border-radius: var(--studio-radius-control);
     font:          var(--studio-caption-12);

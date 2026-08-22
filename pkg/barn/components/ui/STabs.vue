@@ -154,9 +154,12 @@ export default {
     font:  var(--studio-heading-14);
 
     .s-tab__indicator { background: var(--studio-green-500); }
+
+    // 36:1060 / 36:1061: the selected tab's count is a solid green pill with inverse text,
+    // not a tint of one. Unselected stays the neutral pill (36:1066).
     .s-tab__count {
-      background: var(--studio-green-050);
-      color:      var(--studio-green-600);
+      background: var(--studio-green-500);
+      color:      var(--studio-text-inverse);
     }
   }
 
@@ -164,5 +167,14 @@ export default {
     opacity: 0.45;
     cursor:  not-allowed;
   }
+}
+
+// 11:212 / 22:916: the panel strip's count is the unsaved-changes count, and amber is what
+// that means everywhere else in the file - so it is amber whether or not its tab is selected.
+// Last in the sheet, because that is what puts it over the selected rule above.
+.s-tabs--panel .s-tab__count {
+  background: var(--studio-warning);
+  // Dark ink on amber, not white: see --studio-on-warning. White here is 2.42:1.
+  color:      var(--studio-on-warning);
 }
 </style>

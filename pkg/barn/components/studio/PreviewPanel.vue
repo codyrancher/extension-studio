@@ -41,6 +41,10 @@ export default {
     },
   },
 
+  // The path inside the frame, for anything outside that needs to say where the preview is
+  // pointed - the verification screen records it against each verdict.
+  emits: ['route'],
+
   data() {
     return {
       // The path inside the framed dashboard. Kept in sync by a poll rather than by the
@@ -107,6 +111,17 @@ export default {
       }
 
       return `Loaded · ${ Math.round(secs / 60) }m ago`;
+    },
+  },
+
+  watch: {
+    // Immediate, because a preview that opens on `/` and never moves still has a route, and a
+    // listener that only hears about changes would never learn what it is.
+    path: {
+      handler(to) {
+        this.$emit('route', to);
+      },
+      immediate: true,
     },
   },
 

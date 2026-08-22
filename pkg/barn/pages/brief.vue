@@ -298,7 +298,7 @@ export default {
                 :key="i"
                 class="brief__ac"
               >
-                <span class="brief__ac-box" />
+                <span class="brief__ac-box">{{ i + 1 }}</span>
                 <input
                   v-model="criteria[i]"
                   class="brief__ac-input"
@@ -539,13 +539,20 @@ export default {
     &:focus-within { border-color: var(--studio-border-focus); }
   }
 
+  // 34:1054, and 34:1055 inside it: the box carries the criterion's number, in Caption/12
+  // SemiBold. Empty it reads as a checkbox somebody forgot to wire up.
   &__ac-box {
-    width:         var(--studio-space-20);
-    height:        var(--studio-space-20);
-    flex:          0 0 var(--studio-space-20);
-    border:        1px solid var(--studio-border-strong);
-    border-radius: var(--studio-radius-control);
-    background:    var(--studio-surface);
+    display:         inline-flex;
+    align-items:     center;
+    justify-content: center;
+    width:           var(--studio-space-20);
+    height:          var(--studio-space-20);
+    flex:            0 0 var(--studio-space-20);
+    border:          1px solid var(--studio-border-strong);
+    border-radius:   var(--studio-radius-control);
+    background:      var(--studio-surface);
+    font:            var(--studio-caption-12-semi);
+    color:           var(--studio-text-secondary);
   }
 
   &__ac-input {

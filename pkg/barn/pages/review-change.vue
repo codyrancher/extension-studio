@@ -26,6 +26,28 @@ import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
+// A markdown block as the paragraphs it is, rather than the lines it was typed as.
+//
+// Markdown's rule, and the one every editor that wrote one of these briefs assumes: a single
+// newline inside a paragraph is whitespace, a blank line ends it. A list item is its own
+// paragraph too, so a checklist stays a checklist instead of collapsing into one line.
+function paragraphs(body) {
+  const out = [];
+
+  body.split('\n').forEach((raw) => {
+    const line = raw.trim();
+    const starts = !out.length || !line || /^([-*+]|\d+\.|>|#)\s/.test(line);
+
+    if (starts || !out[out.length - 1]) {
+      out.push(line);
+    } else {
+      out[out.length - 1] += ` ${ line }`;
+    }
+  });
+
+  return out.filter(Boolean);
+}
+
 export default {
   name: 'BarnReviewChange',
 
@@ -87,7 +109,9 @@ export default {
         if (m) {
           current = { title: m[1], body: [] };
           out.push(current);
-        } else if (current && line.trim() && line.trim() !== '---') {
+        } else if (current && line.trim() !== '---') {
+          // Blank lines are kept, because they are the only thing that says where one
+          // paragraph ends and the next begins.
           current.body.push(line);
         }
       });
@@ -95,9 +119,11 @@ export default {
       return out
         .map((s) => ({ title: s.title, body: s.body.join('\n').trim() }))
         .filter((s) => s.body && s.body !== '_not stated_')
-        // The body is a stack of lines, not one wrapped paragraph (38:1136 is a column of
-        // text nodes), so the section renders them as the lines they were written as.
-        .map((s) => ({ title: s.title, lines: s.body.split('\n') }));
+        // The body is a column of paragraphs (38:1136), not a column of source lines. A
+        // sentence hard-wrapped in the file is one sentence; only a blank line, or the start
+        // of a list item, begins a new one - otherwise a wrapped sentence renders as two
+        // paragraphs with a gap down the middle of it.
+        .map((s) => ({ title: s.title, lines: paragraphs(s.body) }));
     },
   },
 
@@ -450,24 +476,24 @@ export default {
     white-space:   nowrap;
   }
 
+  // Figma has no wrapper here: under 38:1131 a section's head (38:1132, padding 12/16/8) and
+  // its body (38:1136, padding 0/16/12) are siblings. Collapsing that into one padded column
+  // means taking the head's 12 at the top, the body's 12 at the bottom, and the two of them
+  // together - 24 - as the gap between sections.
   &__packet-body {
     display:        flex;
     flex-direction: column;
-    gap:            var(--studio-space-12);
-    padding:        14px var(--studio-space-16);
+    gap:            var(--studio-space-24);
+    padding:        var(--studio-space-12) var(--studio-space-16);
     overflow-y:     auto;
     min-height:     0;
   }
 
+  // The 8px the head leaves under its label (38:1132 padding-bottom).
   &__section {
     display:        flex;
     flex-direction: column;
-    align-items:    center;
     gap:            var(--studio-space-8);
-
-    // 38:1132 centres its children on the cross axis, but every child in it is set to fill,
-    // which in Figma wins over the alignment. Stretching them is that, not an override.
-    > * { align-self: stretch; }
   }
 
   &__section-body {

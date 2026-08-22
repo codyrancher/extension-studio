@@ -84,20 +84,23 @@ export default {
     display:     block;
     width:       100%;
     text-align:  left;
-    padding:     0 6px;
+    // 22:972 / 22:977: the row is 5px above and below, 8px to the right and 6px to the left -
+    // the same box the loose list on this screen draws, so a nested row and a top-level one
+    // are on one pitch rather than two.
+    padding:     5px var(--studio-space-8) 5px var(--studio-space-6);
+    gap:         7px;
     border:      none;
     background:  none;
     cursor:      pointer;
     font-size:   12px;
     // Explicit, and `min-height` with it: the shell gives every button a minimum height for
     // touch targets, which is right for a form and turns a twenty-row tree into a scroll.
-    line-height: 22px;
-    height:      22px;
+    line-height: 16px;
     min-height:  0;
     white-space: nowrap;
     overflow:    hidden;
     text-overflow: ellipsis;
-    border-radius: var(--border-radius);
+    border-radius: var(--studio-radius-control);
   }
 
   // Muted, because a directory is the address of a file rather than a thing to open, and the

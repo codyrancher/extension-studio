@@ -40,7 +40,9 @@ import { recordFailure } from '../publish-failure';
 // How close to an edge the divider can be dragged, in percent of the page.
 const MIN_SPLIT = 10;
 const MAX_SPLIT = 90;
-const DEFAULT_SPLIT = 50;
+
+// Half the divider's own width, which the pane's percentage has to give back.
+const DIVIDER_HALF = 4;
 
 // Where the divider position is remembered between visits. It's stored as a
 // percentage, so the panes keep their proportions when the window is a
@@ -51,20 +53,27 @@ function clampSplit(percent) {
   return Math.min(MAX_SPLIT, Math.max(MIN_SPLIT, percent));
 }
 
+// `null` is the design's default rather than a number: Foundations (28:195) names the
+// assistant panel 520px wide, and 520px is not a percentage until there is a container to
+// measure it against. The pane renders at the token width until somebody drags it.
 function readSplit() {
   try {
     const stored = parseFloat(window.localStorage.getItem(SPLIT_KEY));
 
-    return isNaN(stored) ? DEFAULT_SPLIT : clampSplit(stored);
+    return isNaN(stored) ? null : clampSplit(stored);
   } catch {
     // Storage can be unavailable (private mode, blocked cookies) — not fatal.
-    return DEFAULT_SPLIT;
+    return null;
   }
 }
 
 function writeSplit(percent) {
   try {
-    window.localStorage.setItem(SPLIT_KEY, String(percent));
+    if (percent == null) {
+      window.localStorage.removeItem(SPLIT_KEY);
+    } else {
+      window.localStorage.setItem(SPLIT_KEY, String(percent));
+    }
   } catch { /* see readSplit */ }
 }
 
@@ -87,8 +96,12 @@ export default {
   data() {
     return {
       rightUrl: '',
-      // Width of the left pane, as a percentage of the page.
+      // Width of the left pane, as a percentage of the page. `null` means the design's own
+      // width, which `paneStyle` takes straight off the panel token.
       split:    readSplit(),
+      // What that token width works out to as a percentage, for the divider's aria value and
+      // for the keyboard steps that move off it. Measured once the panes are on the page.
+      tokenSplit: 50,
       dragging: false,
       // Bookkeeping for the dev server poll, so it stops with the page.
       unmounted:    false,
@@ -143,6 +156,25 @@ export default {
   },
 
   computed: {
+    /** The divider's position as a number, which before a drag is the token width's. */
+    percent() {
+      return this.split == null ? this.tokenSplit : this.split;
+    },
+
+    /**
+     * The left pane's width: the design's 520 until somebody drags, then their percentage.
+     *
+     * The token rather than the measured percentage, so the default is exact at any window
+     * size and does not depend on having measured anything first.
+     */
+    paneStyle() {
+      return {
+        width: this.split == null
+          ? 'var(--studio-panel-assistant)'
+          : `calc(${ this.split }% - ${ DIVIDER_HALF }px)`,
+      };
+    },
+
     /**
      * What the far half of the Publish button offers.
      *
@@ -198,6 +230,10 @@ export default {
       if (!dragging) {
         writeSplit(this.split);
       }
+    },
+
+    needsInstall() {
+      this.$nextTick(() => this.measureTokenSplit());
     },
   },
 
@@ -308,12 +344,17 @@ export default {
     },
 
     onKeyDown(event) {
+      // Off the design's width, the first step needs to know what that width currently is.
+      if (this.split == null) {
+        this.measureTokenSplit();
+      }
+
       const step = event.shiftKey ? 10 : 2;
       const moves = {
         ArrowLeft:  -step,
         ArrowRight: step,
-        Home:       MIN_SPLIT - this.split,
-        End:        MAX_SPLIT - this.split,
+        Home:       MIN_SPLIT - this.percent,
+        End:        MAX_SPLIT - this.percent,
       };
 
       if (moves[event.key] === undefined) {
@@ -321,15 +362,37 @@ export default {
       }
 
       event.preventDefault();
-      this.setSplit(this.split + moves[event.key]);
+      this.setSplit(this.percent + moves[event.key]);
     },
 
     reset() {
-      this.split = DEFAULT_SPLIT;
+      this.split = null;
     },
 
     setSplit(percent) {
       this.split = clampSplit(percent);
+    },
+
+    /**
+     * What the panel token's 520px is as a percentage of the panes, right now.
+     *
+     * Read off the token rather than repeated here, and re-read whenever the panes appear, so
+     * the pane the divider takes over from is the pane the design drew. The pane's own width
+     * gives half the divider back (`calc(x% - 4px)`), so the percentage has to include it.
+     */
+    measureTokenSplit() {
+      const panes = this.$refs.panes;
+      const width = panes?.getBoundingClientRect().width;
+
+      if (!width) {
+        return;
+      }
+
+      const panel = parseFloat(getComputedStyle(panes).getPropertyValue('--studio-panel-assistant'));
+
+      if (panel) {
+        this.tokenSplit = clampSplit((panel + DIVIDER_HALF) / width * 100);
+      }
     },
 
     /**
@@ -645,7 +708,7 @@ export default {
     >
       <div
         class="mc-editor__pane mc-editor__left"
-        :style="{ width: `calc(${ split }% - 4px)` }"
+        :style="paneStyle"
       >
         <!--
           The assistant panel owns the tab strip, the session row and the composer; the three
@@ -690,7 +753,7 @@ export default {
         tabindex="0"
         aria-orientation="vertical"
         aria-label="Resize the editor panes"
-        :aria-valuenow="Math.round(split)"
+        :aria-valuenow="Math.round(percent)"
         :aria-valuemin="10"
         :aria-valuemax="90"
         @pointerdown="startDrag"
