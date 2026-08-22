@@ -1530,7 +1530,9 @@ export async function changedFiles(name: string): Promise<ChangedFile[]> {
 export async function fileDiff(name: string, path: string): Promise<string> {
   const quoted = `'${ path.replace(/'/g, `'\\''`) }'`;
 
-  return inPackage(name, `git add -N -- ${ quoted } >/dev/null 2>&1 ; git diff -- ${ quoted } 2>/dev/null`);
+  // `diff HEAD`, for the reason workingDiff gives: a staged change is invisible to a bare
+  // `git diff`, and this product stages.
+  return inPackage(name, `git add -N -- ${ quoted } >/dev/null 2>&1 ; git diff HEAD -- ${ quoted } 2>/dev/null`);
 }
 
 /**
@@ -1612,6 +1614,163 @@ export async function extensionSource(name: string): Promise<string> {
 }
 
 /**
+ * Snapshots: a named point you can put the working tree back to.
+ *
+ * `git stash create` plus a tag, not `git stash push` - push would *remove* the changes from
+ * the tree, which is the opposite of what a snapshot is for. `create` builds the commit object
+ * and leaves the tree alone; tagging it gives it a name and keeps it from being collected.
+ *
+ * Untracked files are included with `-u`, because on this product most of what the assistant
+ * has just written is untracked and a snapshot that silently omits it is a trap.
+ */
+export interface Snapshot {
+  ref:   string;
+  label: string;
+  when:  string;
+}
+
+const SNAP_PREFIX = 'barn-snap';
+
+/**
+ * Take a snapshot: a commit object holding the whole working tree, tagged so it survives.
+ *
+ * Not `git stash create`, which is the obvious tool and does not work here. This product runs
+ * `git add -N` in several places (it is the only way an untracked file appears in `git diff`),
+ * and `stash create` refuses outright when an intent-to-add entry is present - "Entry X not
+ * uptodate. Cannot merge." Swallow that error and you get a snapshot that reports a sha, is
+ * actually just HEAD, and quietly captures nothing.
+ *
+ * So: build a tree from a *scratch index*, commit it, and tag the commit. GIT_INDEX_FILE keeps
+ * the real index untouched, `add -A` picks up untracked files that a stash would have needed
+ * `-u` for, and the result is an ordinary commit any git tool can read.
+ */
+export async function createSnapshot(name: string, label: string): Promise<string> {
+  const stamp = String(Date.now());
+  const safe = label.replace(/[^\w .-]/g, '').slice(0, 60) || 'snapshot';
+  const out = await inPackage(name, [
+    'idx=$(mktemp)',
+    'cp .git/index "$idx" 2>/dev/null || true',
+    'export GIT_INDEX_FILE="$idx"',
+    'git add -A >/dev/null 2>&1',
+    'tree=$(git write-tree 2>/dev/null)',
+    'unset GIT_INDEX_FILE',
+    'rm -f "$idx"',
+    '[ -z "$tree" ] && { echo "SNAPFAIL"; exit 0; }',
+    `sha=$(git -c user.email=barn@rancher.local -c user.name=barn commit-tree "$tree" -p HEAD -m ${ shellQuote(safe) } 2>/dev/null)`,
+    '[ -z "$sha" ] && { echo "SNAPFAIL"; exit 0; }',
+    `git tag -f ${ SNAP_PREFIX }/${ stamp } "$sha" >/dev/null 2>&1`,
+    'echo "SNAP:$sha"',
+  ].join(' ; '));
+
+  const m = /SNAP:([0-9a-f]{7,40})/.exec(out);
+
+  if (!m) {
+    throw new Error(`could not snapshot ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
+  }
+
+  return m[1];
+}
+
+/** The snapshots, newest first. The label is the commit's own subject. */
+export async function listSnapshots(name: string): Promise<Snapshot[]> {
+  const out = await inPackage(
+    name,
+    `git for-each-ref --sort=-creatordate --format='%(refname:short)%09%(creatordate:relative)%09%(contents:subject)' refs/tags/${ SNAP_PREFIX } 2>/dev/null`
+  ).catch(() => '');
+
+  return out.split('\n').map((l) => l.trimEnd()).filter(Boolean).map((line) => {
+    const [ref, when = '', label = ''] = line.split('\t');
+
+    return { ref, when, label: label || 'snapshot' };
+  });
+}
+
+/**
+ * Put the working tree back to a snapshot.
+ *
+ * Destructive, and the caller has to have asked first. It restores every path the snapshot
+ * holds; it does not delete a file created after the snapshot was taken, because a restore
+ * that removes work nobody asked it to remove is a worse surprise than one that leaves a
+ * stray file behind. The screen says so.
+ */
+export async function restoreSnapshot(name: string, ref: string): Promise<void> {
+  const out = await inPackage(name, `git checkout ${ shellQuote(ref) } -- . 2>&1 ; echo "RESTORED"`);
+
+  if (!out.includes('RESTORED')) {
+    throw new Error(`could not restore ${ ref }: ${ out.trim().slice(0, 200) }`);
+  }
+}
+
+/**
+ * Undo the most recent edit to the working tree.
+ *
+ * The most recently modified changed file, restored to HEAD - or deleted, if it is one the
+ * assistant created. Scoped to one file on purpose: "undo" that reverts everything is a
+ * discard, and there is already a Discard all for that.
+ *
+ * Returns the path it undid, or '' if there was nothing to undo.
+ */
+export async function undoLastChange(name: string): Promise<string> {
+  const out = await inPackage(name, [
+    // Newest first among the files git reports as changed.
+    'f=$(git status --porcelain --no-renames 2>/dev/null | sed "s/^...//" | tr -d \'"\' | while read -r p; do [ -e "$p" ] && printf "%s\\t%s\\n" "$(stat -c %Y "$p" 2>/dev/null || echo 0)" "$p"; done | sort -rn | head -1 | cut -f2-)',
+    '[ -z "$f" ] && { echo "NONE"; exit 0; }',
+    // Tracked at HEAD -> restore it. Untracked -> the undo is removing it.
+    'if git cat-file -e HEAD:"$f" 2>/dev/null; then git checkout HEAD -- "$f" 2>/dev/null; else rm -f "$f"; fi',
+    'echo "UNDID:$f"',
+  ].join(' ; ')).catch(() => '');
+
+  const m = /UNDID:(.+)/.exec(out);
+
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * Search every extension in the namespace for a set of terms.
+ *
+ * What the brief's "this already exists, partly" card needs: the same fixed-string grep
+ * findUsages runs, but across all the packages rather than one, so the answer can be "the
+ * longhorn-capacity extension already does part of this".
+ */
+export interface PriorArt {
+  extension: string;
+  path:      string;
+  line:      number;
+  text:      string;
+}
+
+export async function findPriorArt(terms: string[], limit = 24): Promise<PriorArt[]> {
+  const useful = terms
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 4)
+    .slice(0, 6);
+
+  if (!useful.length) {
+    return [];
+  }
+
+  const all = await listExtensions().catch(() => []);
+  const pattern = useful.map((t) => t.replace(/[.[\]*^$(){}|+?\\]/g, '\\$&')).join('|');
+
+  const perExtension = await Promise.all(all.map(async(summary) => {
+    const out = await inPackage(
+      summary.name,
+      `grep -rniE --exclude-dir=node_modules --exclude-dir=.git --include='*.vue' --include='*.ts' --include='*.md' -- ${ shellQuote(pattern) } . 2>/dev/null | head -n 8`
+    ).catch(() => '');
+
+    return out.split('\n').map((l) => l.trim()).filter(Boolean).map((line) => {
+      const m = /^\.?\/?(.+?):(\d+):(.*)$/.exec(line);
+
+      return m ? {
+        extension: summary.name, path: m[1], line: parseInt(m[2], 10), text: m[3].trim().slice(0, 160),
+      } : null;
+    }).filter(Boolean) as PriorArt[];
+  }));
+
+  return perExtension.flat().slice(0, limit);
+}
+
+/**
  * The working tree's diff against HEAD, as a patch.
  *
  * What the Studio's Changes tab shows, and what its "14 changes since v0.1.0" bar is counting.
@@ -1623,7 +1782,159 @@ export async function extensionSource(name: string): Promise<string> {
  * for whatever commits next.
  */
 export async function workingDiff(name: string): Promise<string> {
-  return inPackage(name, 'git add -A -N >/dev/null 2>&1 ; git diff 2>/dev/null');
+  // Against HEAD, not against the index. `git diff` alone shows only what is *unstaged*, so
+  // anything already staged vanishes from the review screens - and this product stages:
+  // commitExtension runs `git add -A`, so a commit that fails part-way, or any hand-run add in
+  // the pod's terminal, leaves the tree looking unchanged on screens 04 and 12 while the file
+  // list beside them still counts it. Found exactly that way, with the index fully staged and
+  // the diff pane empty. "What changed since the last commit" is what those screens mean.
+  return inPackage(name, 'git add -A -N >/dev/null 2>&1 ; git diff HEAD 2>/dev/null');
+}
+
+/**
+ * The tmux session the workspace's terminal attaches to.
+ *
+ * `mc-` is the prefix shell.sh gives every session it opens; `editor` is the session id
+ * PodTerminal defaults to, which is the one the workspace pane is looking at. Anything typed
+ * into it is typed into the claude running in that pane.
+ */
+const ASSISTANT_SESSION = 'mc-editor';
+
+/** Where shell.sh looks for a prompt to open a new conversation with (see pod/shell.sh). */
+const ASSISTANT_QUEUE = '/app/.queue/editor';
+
+/**
+ * Ask the claude running in an extension's pod a question, from a page that is not the
+ * terminal.
+ *
+ * There is one conversation per pod and the workspace's pane is attached to it, so the way to
+ * ask it something from another screen is to type into that pane - which is what `tmux
+ * send-keys` does, and it is the same thing the terminal component does over its websocket. The
+ * answer therefore arrives where the answer always arrives: in the workspace's terminal, in the
+ * conversation that already knows what has been happening to this extension.
+ *
+ * Two outcomes, and the caller has to tell a person which one it was:
+ *
+ *   'sent'   - the session was there and now has the question in it.
+ *   'queued' - nobody has opened the workspace for this pod yet, so there is no session to type
+ *              into. The prompt is written to the file shell.sh reads when it starts a session
+ *              (pod/shell.sh, `MC_QUEUE`), which makes it the first thing that conversation is
+ *              asked. That is a real delivery, not a silent drop, and it is worth saying out
+ *              loud because the answer does not exist until somebody opens the workspace.
+ *
+ * One line, always. The pane is a REPL: a newline in the middle of a prompt submits half a
+ * question, so every caller's text is flattened before it goes anywhere near it.
+ */
+export async function askAssistant(name: string, prompt: string): Promise<'sent' | 'queued'> {
+  const line = prompt.replace(/\s+/g, ' ').trim();
+
+  if (!line) {
+    throw new Error('there is nothing to ask');
+  }
+
+  const pod = await extensionPod(name);
+
+  if (!pod) {
+    throw new Error(`${ name } has no running pod to ask`);
+  }
+
+  const text = shellQuote(line);
+  // The pause between the text and the Return is not superstition: claude's input is a TUI that
+  // redraws as it receives, and a Return in the same burst as a long paste is read before the
+  // paste has finished being taken in.
+  const out = await inPackage(name, [
+    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    `tmux send-keys -t ${ ASSISTANT_SESSION } -l ${ text } && sleep 1 &&`,
+    `tmux send-keys -t ${ ASSISTANT_SESSION } Enter && echo BARN-ASK-SENT ;`,
+    `else mkdir -p "$(dirname ${ ASSISTANT_QUEUE })" && printf %s ${ text } > ${ ASSISTANT_QUEUE } &&`,
+    'echo BARN-ASK-QUEUED ; fi',
+  ].join(' '));
+
+  if (out.includes('BARN-ASK-SENT')) {
+    return 'sent';
+  }
+
+  if (out.includes('BARN-ASK-QUEUED')) {
+    return 'queued';
+  }
+
+  throw new Error(`the question did not reach ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
+}
+
+export interface PullRequest {
+  number: number;
+  title:  string;
+  url:    string;
+  head:   string;
+}
+
+/**
+ * The open pull request whose head branch is this extension's branch, if there is one.
+ *
+ * Asked from inside the pod rather than from the page, for the reason the settings Secret gives
+ * for living in the cluster: the token belongs to the cluster, and the pod is the thing that
+ * already talks to GitHub with it (`publishExtensionToGithub` pushes from there). Keeping both
+ * halves in the same place means one story about where the credential goes, and it works from a
+ * browser that cannot reach github.com.
+ *
+ * The list is filtered on `head.ref` here rather than with the API's `head=owner:branch`
+ * parameter, because that parameter needs the head *owner*, and a branch pushed from a fork has
+ * an owner this product never learns. Null means asked and answered: there is no open PR for
+ * that branch. A failure throws, so the caller can say "could not ask" rather than "there is
+ * none", which are different facts.
+ */
+export async function findOpenPullRequest(name: string, repo: string, branch: string): Promise<PullRequest | null> {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new Error(`"${ repo }" is not owner/name`);
+  }
+
+  if (!branch) {
+    throw new Error('the extension is not on a branch');
+  }
+
+  const token = await readToken();
+
+  if (!token) {
+    throw new Error('no GitHub token is configured');
+  }
+
+  // Double quotes throughout: the whole script is one single-quoted shell word by the time it
+  // reaches the pod, and a single quote inside it would end that word.
+  const script = [
+    'const [repo, branch] = process.argv.slice(1);',
+    'fetch("https://api.github.com/repos/" + repo + "/pulls?state=open&per_page=100", { headers: {',
+    'Authorization: "Bearer " + process.env.BARN_GH_TOKEN,',
+    'Accept: "application/vnd.github+json", "User-Agent": "rancher-extension-studio" } })',
+    '.then((r) => r.ok ? r.json() : r.text().then((t) => { throw new Error(r.status + " " + t.slice(0, 120)); }))',
+    '.then((list) => { const pr = list.find((p) => p.head && p.head.ref === branch);',
+    'console.log("BARN-PR:" + JSON.stringify(pr ? { number: pr.number, title: pr.title, url: pr.html_url, head: pr.head.ref } : null)); })',
+    '.catch((e) => console.log("BARN-PR-ERR:" + e.message));',
+  ].join(' ');
+
+  // The token goes in the environment rather than in argv, so it is not in the pod's process
+  // list for the length of the call.
+  const out = await inPackage(
+    name,
+    `BARN_GH_TOKEN=${ shellQuote(token) } node -e ${ shellQuote(script) } ${ shellQuote(repo) } ${ shellQuote(branch) } 2>&1`
+  );
+
+  const failed = /BARN-PR-ERR:(.*)/.exec(out);
+
+  if (failed) {
+    throw new Error(failed[1].trim() || 'GitHub did not answer');
+  }
+
+  const found = /BARN-PR:(.*)/.exec(out);
+
+  if (!found) {
+    throw new Error(`could not ask GitHub about ${ repo }: ${ out.trim().slice(0, 200) || 'no output' }`);
+  }
+
+  try {
+    return JSON.parse(found[1].trim()) as PullRequest | null;
+  } catch {
+    throw new Error(`GitHub answered with something unreadable for ${ repo }`);
+  }
 }
 
 /**

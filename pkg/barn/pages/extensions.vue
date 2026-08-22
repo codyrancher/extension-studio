@@ -9,31 +9,96 @@
 // annotation recorded when the extension was created, the branch and change count and last
 // commit from one exec per pod, and where it is running from the published UIPlugin.
 //
-// Two things are drawn and not wired, and say so: sorting (the header's carets) and the
-// per-row overflow menu. Search and the two buttons are real.
+// Everything on it works. The header sorts, the per-row menu goes to the places that exist for
+// that row and greys out the ones that do not, and search and the two buttons are real.
 import {
-  SButton, SBadge, SIcon, SEmpty
+  SButton, SBadge, SIcon, SEmpty, SMenu, SModal
 } from '../components/ui';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
+import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import StartingExtensions from '../components/StartingExtensions.vue';
-import { toastNotYet } from '../toast';
+import { toastSuccess, toastError } from '../toast';
 import {
   listExtensions, extensionDetail, extensionSource, parseGithubSource, publishedVersion,
-  ensureExtension
+  ensureExtension, removeLocalInstall
 } from '../extensions';
-import { EDITOR_ROUTE, NEW_EXTENSION_ROUTE } from '../editor-product';
+import {
+  EDITOR_ROUTE, NEW_EXTENSION_ROUTE, REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE
+} from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
 // The columns, at the widths the frame gives them. Name is the one that flexes.
+//
+// `dir` is the direction a column sorts the first time it is clicked, which is not the same for
+// all of them: a name wants A-Z, a timestamp wants the most recent thing at the top. Clicking
+// the column again reverses whichever it started with.
 const COLUMNS = [
-  { id: 'state', label: 'State', width: 128 },
-  { id: 'name', label: 'Name', width: null },
-  { id: 'source', label: 'Source', width: 268 },
-  { id: 'target', label: 'Running on', width: 168 },
-  { id: 'when', label: 'Last change', width: 118 },
+  {
+    id: 'state', label: 'State', width: 128, dir: 'asc'
+  },
+  {
+    id: 'name', label: 'Name', width: null, dir: 'asc'
+  },
+  {
+    id: 'source', label: 'Source', width: 268, dir: 'asc'
+  },
+  {
+    id: 'target', label: 'Running on', width: 168, dir: 'asc'
+  },
+  {
+    id: 'when', label: 'Last change', width: 118, dir: 'desc'
+  },
   { id: 'actions', label: '', width: 104 },
 ];
+
+/**
+ * What "sorted by state" means.
+ *
+ * Not the badge's own word, which would put Building above Failed because B sorts before F and
+ * would tell nobody anything. This is how much of your attention the row wants: a build that
+ * died, then work nobody has looked at, then the ones that are simply fine.
+ */
+const STATE_ORDER = {
+  failed: 0, unsaved: 1, building: 2, live: 3, published: 4, draft: 5,
+};
+
+/**
+ * The value a column sorts on, which is never the string the cell renders.
+ *
+ * "4 min ago" and "2 days ago" are one alphabet apart and four hours apart, and only one of
+ * those is what the column means; the same is true of the badge's word and of a source line
+ * that reads "Created here · no repo yet". Each case below returns the reading the cell was
+ * rendered *from*.
+ */
+function sortValue(row, key) {
+  switch (key) {
+  case 'state':
+    return STATE_ORDER[row.state] ?? STATE_ORDER.draft;
+
+  case 'name':
+    return row.name || '';
+
+  case 'source':
+    // The parsed annotation. Imports order by repository; everything made here has no
+    // repository, sorts as the empty string, and so groups together instead of scattering
+    // under the C of "Created here".
+    return row.github ? `${ row.github.repo } ${ row.github.ref || '' }` : '';
+
+  case 'target':
+    // Installed in this Rancher, then previewing from its pod, then neither - and the
+    // installed ones by version among themselves.
+    return row.version ? `0 ${ row.version }` : (row.ready ? '1' : '2');
+
+  case 'when':
+    // The commit timestamp behind the relative string. 0 for a row that has not answered
+    // yet, which puts it last under the default (newest first).
+    return row.detail?.lastChange ? (Date.parse(row.detail.lastChange) || 0) : 0;
+
+  default:
+    return '';
+  }
+}
 
 function relative(iso) {
   if (!iso) {
@@ -79,7 +144,15 @@ export default {
   name: 'BarnExtensions',
 
   components: {
-    SButton, SBadge, SIcon, SEmpty, ImportExtensionModal, StartingExtensions
+    SButton,
+    SBadge,
+    SIcon,
+    SEmpty,
+    SMenu,
+    SModal,
+    ImportExtensionModal,
+    EditorSettingsModal,
+    StartingExtensions,
   },
 
   mixins: [fullBleed],
@@ -94,7 +167,16 @@ export default {
       // Extensions that have been asked for and are coming up. A list rather than one, because
       // nothing stops you asking for a second while the first is still installing.
       starting:  [],
-      error:     '',
+      // Which column the table is ordered by, and which way. Name ascending is what
+      // listExtensions already hands back, so the first paint is the default rather than a
+      // re-shuffle of it.
+      sortKey:   'name',
+      sortDir:   'asc',
+      showSettings: false,
+      // The row whose local install is being removed, or null. Held rather than acted on: it
+      // changes the Rancher everybody else is looking at, so it asks first.
+      removing:  null,
+      removingBusy: false,
     };
   },
 
@@ -112,6 +194,27 @@ export default {
 
       return this.rows.filter((r) => {
         return r.name.toLowerCase().includes(q) || (r.sourceLabel || '').toLowerCase().includes(q);
+      });
+    },
+
+    /**
+     * What the table draws: the filtered rows in the chosen order.
+     *
+     * A copy, because `rows` is the poll's to replace and sorting it in place would fight the
+     * enrichment writing into it. Name breaks every tie so the order is stable across polls
+     * rather than shuffling whenever two rows compare equal - two Building rows swapping
+     * places every fifteen seconds reads as the page being broken.
+     */
+    sorted() {
+      const key = this.sortKey;
+      const factor = this.sortDir === 'desc' ? -1 : 1;
+
+      return [...this.filtered].sort((a, b) => {
+        const av = sortValue(a, key);
+        const bv = sortValue(b, key);
+        const d = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
+
+        return d ? d * factor : a.name.localeCompare(b.name);
       });
     },
   },
@@ -261,12 +364,140 @@ export default {
       } catch (e) {
         done(false);
         this.starting = this.starting.filter((each) => each !== name);
-        this.error = e.message || String(e);
+        // A toast rather than a field on this component: the modal has closed by now, so
+        // there is nowhere on this page the message would have been rendered.
+        toastError(this.$store, e.message || String(e));
       }
     },
 
-    notYet(what) {
-      toastNotYet(this.$store, what);
+    /**
+     * Order by this column, or reverse it if it is already the one.
+     *
+     * A column arriving fresh takes its own preferred direction rather than always starting
+     * ascending - see `dir` on COLUMNS.
+     */
+    toggleSort(col) {
+      if (!col.label) {
+        return;
+      }
+
+      if (this.sortKey === col.id) {
+        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+
+        return;
+      }
+
+      this.sortKey = col.id;
+      this.sortDir = col.dir || 'asc';
+    },
+
+    sortHint(col) {
+      if (this.sortKey !== col.id) {
+        return `Sort by ${ col.label.toLowerCase() }`;
+      }
+
+      return this.sortDir === 'asc' ? 'Sorted ascending, click to reverse' : 'Sorted descending, click to reverse';
+    },
+
+    /**
+     * The row menu, with the lines that are true of this row enabled and the rest greyed.
+     *
+     * Nothing here is aspirational: each line is a route this extension has or a delete that
+     * has something to delete. Reviewing a tree with nothing in it, reading files out of a pod
+     * that has not started, and removing an install that was never made are all disabled with
+     * the reason on the right, which is more use than hiding them - the shape of the menu then
+     * says the same thing for every row.
+     */
+    rowMenu(row) {
+      const changes = row.detail?.changes || 0;
+
+      return [
+        { id: 'open', label: 'Open in the workspace', icon: 'sparkle' },
+        {
+          id:       'review',
+          label:    'Review changes',
+          icon:     'compare',
+          note:     changes ? `${ changes }` : 'none',
+          disabled: !changes,
+        },
+        {
+          id: 'files', label: 'Open files', icon: 'file', disabled: !row.ready, note: row.ready ? '' : 'still building',
+        },
+        {
+          id: 'brief', label: 'Open the brief', icon: 'book', disabled: !row.ready, note: row.ready ? '' : 'still building',
+        },
+        { divider: true },
+        {
+          id:       'remove',
+          label:    'Remove the local install',
+          icon:     'trash',
+          danger:   true,
+          disabled: !row.version,
+          note:     row.version ? `v${ row.version }` : 'not installed',
+        },
+      ];
+    },
+
+    onRowAction(row, id) {
+      if (id === 'remove') {
+        this.removing = row;
+
+        return;
+      }
+
+      const route = {
+        open: EDITOR_ROUTE, review: REVIEW_ROUTE, files: FILES_ROUTE, brief: BRIEF_ROUTE,
+      }[id];
+
+      if (route) {
+        this.$router.push({ name: route, params: { extension: row.name } });
+      }
+    },
+
+    /**
+     * Delete the UIPlugin this extension was published as.
+     *
+     * The list is re-read afterwards rather than patched, because the row's State, Running on
+     * and subtitle are all readings of what was just deleted and guessing at all three is how
+     * they end up disagreeing with each other.
+     */
+    async removeInstall() {
+      const row = this.removing;
+
+      if (!row || this.removingBusy) {
+        return;
+      }
+
+      this.removingBusy = true;
+
+      try {
+        const plugin = await removeLocalInstall(row.name);
+
+        this.removing = null;
+        toastSuccess(this.$store, `${ plugin } is no longer loaded by this Rancher. The extension itself is untouched.`);
+        await this.load({ quiet: true });
+      } catch (e) {
+        toastError(this.$store, e.message || String(e));
+      } finally {
+        this.removingBusy = false;
+      }
+    },
+
+    /**
+     * Settings, from the import modal that wanted a token it did not have.
+     *
+     * The import modal is closed on the way, because a dialog on top of a dialog has no way
+     * back from either - and closing settings puts it back, so somebody sent here mid-import
+     * lands where they left rather than on an empty page. Same contract as editor.vue.
+     */
+    openSettings() {
+      this.importing = false;
+      this.showSettings = true;
+    },
+
+    closeSettings() {
+      this.showSettings = false;
+      this.importing = true;
     },
   },
 };
@@ -324,11 +555,23 @@ export default {
             type="button"
             class="studio-home__th"
             :style="col.width ? { width: `${ col.width }px`, flex: `0 0 ${ col.width }px` } : {}"
-            :class="{ 'studio-home__th--grow': !col.width, 'studio-home__th--plain': !col.label }"
-            @click="col.label && notYet('sorting the extension list')"
+            :class="{
+              'studio-home__th--grow': !col.width,
+              'studio-home__th--plain': !col.label,
+              'studio-home__th--sorted': col.id === sortKey,
+            }"
+            :aria-sort="col.id === sortKey ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+            :title="col.label ? sortHint(col) : null"
+            @click="toggleSort(col)"
           >
             {{ col.label }}
-            <SIcon v-if="col.label" name="chevronDown" :size="11" class="studio-home__sort" />
+            <SIcon
+              v-if="col.label"
+              :name="col.id === sortKey && sortDir === 'asc' ? 'chevronUp' : 'chevronDown'"
+              :size="11"
+              class="studio-home__sort"
+              :class="{ 'studio-home__sort--on': col.id === sortKey }"
+            />
           </button>
         </div>
 
@@ -351,7 +594,7 @@ export default {
         />
 
         <div
-          v-for="row in filtered"
+          v-for="row in sorted"
           :key="row.name"
           class="studio-home__row"
           @click="open(row.name)"
@@ -393,14 +636,10 @@ export default {
             >
               Review
             </SButton>
-            <SButton
-              v-else
-              variant="ghost"
-              size="sm"
-              icon="more"
-              icon-only
-              aria-label="More"
-              @click.stop="notYet('the row menu')"
+            <SMenu
+              :items="rowMenu(row)"
+              :aria-label="`Actions for ${ row.name }`"
+              @select="onRowAction(row, $event)"
             />
           </div>
         </div>
@@ -417,8 +656,41 @@ export default {
       v-if="importing"
       @close="importing = false"
       @create="onCreate"
-      @settings="notYet('opening settings from here')"
+      @settings="openSettings"
     />
+
+    <EditorSettingsModal v-if="showSettings" @close="closeSettings" />
+
+    <!--
+      Removing the local install changes the Rancher everybody else is signed in to, so it asks
+      - and says exactly how much it takes away, which is less than the word "remove" suggests.
+    -->
+    <SModal
+      v-if="removing"
+      title="Remove the local install?"
+      icon="trash"
+      :width="480"
+      :busy="removingBusy"
+      @close="removing = null"
+    >
+      <p class="studio-home__say">
+        This Rancher stops loading <strong>{{ removing.name }}</strong>: its UIPlugin is deleted
+        and the pages it adds go away for everybody signed in here.
+      </p>
+      <p class="studio-home__say">
+        The extension itself is untouched. Its pod, its files and its history stay exactly as
+        they are, and publishing puts it back.
+      </p>
+
+      <template #footer>
+        <SButton variant="neutral" :disabled="removingBusy" @click="removing = null">
+          Cancel
+        </SButton>
+        <SButton variant="danger" :loading="removingBusy" @click="removeInstall">
+          Remove it
+        </SButton>
+      </template>
+    </SModal>
   </div>
 </template>
 
@@ -548,6 +820,13 @@ export default {
   &__sort {
     color:   var(--studio-text-tertiary);
     opacity: 0.6;
+
+    // The active column's caret is the only one that means anything, so it is the only one
+    // drawn at full strength - the other five stay as the affordance they were.
+    &--on {
+      color:   var(--studio-text-link);
+      opacity: 1;
+    }
   }
 
   &__row {
@@ -577,7 +856,14 @@ export default {
       gap:            var(--studio-space-2);
     }
 
-    &--actions { justify-content: flex-end; }
+    // Review plus the menu inside the frame's 104px column, which they only fit in if the
+    // menu's trigger gives back the padding it carries elsewhere.
+    &--actions {
+      justify-content: flex-end;
+      gap:             var(--studio-space-4);
+
+      :deep(.s-menu__trigger) { padding: var(--studio-space-4); }
+    }
   }
 
   &__name {
@@ -596,5 +882,13 @@ export default {
   }
 
   &__subtitle--error { color: var(--studio-error); }
+
+  &__say {
+    font:   var(--studio-body-13);
+    color:  var(--studio-text-secondary);
+    margin: 0 0 var(--studio-space-8);
+
+    &:last-child { margin-bottom: 0; }
+  }
 }
 </style>

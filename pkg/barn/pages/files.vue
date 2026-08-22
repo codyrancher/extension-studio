@@ -12,14 +12,19 @@
 // Editing is the one thing this screen does not do. The file is shown read-only because the
 // thing that edits files here is the assistant in the pod, and two writers on one tree with no
 // locking between them is a way to lose work rather than a feature.
+//
+// The history under the file is not a list of labels either: picking a commit puts that
+// commit's patch in the middle column, in the same DiffView the review screens use, with the
+// file it replaced named on the way back.
 import {
-  SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel
+  SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu
 } from '../components/ui';
 import FileTree from '../components/FileTree.vue';
-import { toastNotYet } from '../toast';
+import DiffView from '../components/DiffView.vue';
+import { toastSuccess, toastError } from '../toast';
 import {
   listExtensionFiles, readExtensionFile, listCommits, listBranches, countChanges,
-  findUsages, DEFAULT_EXTENSION
+  findUsages, showCommit, DEFAULT_EXTENSION
 } from '../extensions';
 import { EDITOR_ROUTE, STUDIO_ROUTE, REVIEW_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -78,7 +83,7 @@ export default {
   name: 'BarnFiles',
 
   components: {
-    SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, FileTree
+    SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu, FileTree, DiffView
   },
 
   mixins: [fullBleed],
@@ -99,6 +104,12 @@ export default {
       searching: false,
       filter:   '',
       allPaths: [],
+      // The commit the middle column is showing instead of the file, or null. Its patch is
+      // held beside it rather than re-fetched on every render - `git show` is an exec into
+      // the pod, and a computed would run it again on each keystroke in the filter box.
+      commit:   null,
+      patch:    '',
+      loadingPatch: false,
     };
   },
 
@@ -124,6 +135,45 @@ export default {
 
     basename() {
       return this.current.split('/').pop() || '';
+    },
+
+    /**
+     * The route names the template pushes to.
+     *
+     * A plain `<script>` block's module scope is not the render function's scope: the template
+     * compiles to its own module and resolves every bare name off the component instance. So
+     * `$router.push({ name: STUDIO_ROUTE })` written straight into the template pushed
+     * `{ name: undefined }`, which the router drops on the floor without an error - the back
+     * chevron, Review changes and Back to assistant all looked live and did nothing. Exposing
+     * them here is what puts them in the template's scope.
+     */
+    routes() {
+      return { STUDIO_ROUTE, REVIEW_ROUTE, EDITOR_ROUTE };
+    },
+
+    overflowMenu() {
+      return [
+        { id: 'refresh', label: 'Refresh the tree', icon: 'refresh' },
+        {
+          id:       'copy',
+          label:    "Copy this file's path",
+          icon:     'file',
+          disabled: !this.current,
+          note:     this.current ? '' : 'nothing open',
+        },
+        { divider: true },
+        { id: 'workspace', label: 'Open the workspace', icon: 'sparkle' },
+        {
+          // Not disabled when there is nothing to review, unlike the same line on the
+          // extension list: the button two along in this masthead goes to the same screen
+          // unconditionally, and a menu that refuses what the button beside it allows reads
+          // as a bug. The count says what is waiting there.
+          id:    'review',
+          label: 'Review changes',
+          icon:  'compare',
+          note:  this.changes ? `${ this.changes }` : 'nothing yet',
+        },
+      ];
     },
   },
 
@@ -167,6 +217,10 @@ export default {
     },
 
     async openCurrent() {
+      // Picking a file is the way back out of a commit, as well as the way into a file.
+      this.commit = null;
+      this.patch = '';
+
       if (!this.current) {
         this.contents = '';
         this.usages = [];
@@ -182,6 +236,61 @@ export default {
       this.usages = (await findUsages(this.extension, this.basename).catch(() => []))
         .filter((u) => u.path !== this.current);
       this.searching = false;
+    },
+
+    /**
+     * Show one commit's patch where the file was.
+     *
+     * In the middle column rather than a dialog: the tree stays where it is, the history stays
+     * under it, and picking another commit swaps the diff without anything having to be
+     * dismissed first. The file is one click back, named on the button.
+     */
+    async openCommit(c) {
+      this.commit = c;
+      this.patch = '';
+      this.loadingPatch = true;
+      // `git show` writes its errors to the same stream as the patch, and DiffView renders
+      // anything that is not a patch as no files at all - so a failure here is a diff with
+      // nothing in it rather than an exception, and the empty state below says so.
+      this.patch = await showCommit(this.extension, c.sha).catch(() => '');
+      this.loadingPatch = false;
+    },
+
+    backToFile() {
+      this.commit = null;
+      this.patch = '';
+    },
+
+    /**
+     * What the masthead's overflow menu does.
+     *
+     * Four things this screen can actually do. Copying goes through the async clipboard API,
+     * which a browser can refuse - over plain HTTP, or without the permission - so the result
+     * is reported either way rather than assumed.
+     */
+    async onOverflow(id) {
+      if (id === 'refresh') {
+        await this.load();
+        toastSuccess(this.$store, `Re-read the file tree for ${ this.extension }.`);
+
+        return;
+      }
+
+      if (id === 'copy') {
+        try {
+          await navigator.clipboard.writeText(this.current);
+          toastSuccess(this.$store, `Copied ${ this.current }`);
+        } catch (e) {
+          toastError(this.$store, `The browser would not let this page write to the clipboard: ${ e.message || e }`);
+        }
+
+        return;
+      }
+
+      this.$router.push({
+        name:   id === 'review' ? REVIEW_ROUTE : EDITOR_ROUTE,
+        params: { extension: this.extension },
+      });
     },
 
     onTab(tab) {
@@ -201,10 +310,6 @@ export default {
         query:  { tab },
       });
     },
-
-    notYet(what) {
-      toastNotYet(this.$store, what);
-    },
   },
 };
 </script>
@@ -219,7 +324,7 @@ export default {
         icon="chevronLeft"
         icon-only
         aria-label="Back"
-        @click="$router.push({ name: STUDIO_ROUTE })"
+        @click="$router.push({ name: routes.STUDIO_ROUTE })"
       />
 
       <div class="files__name">
@@ -240,7 +345,7 @@ export default {
         variant="secondary"
         size="sm"
         icon="compare"
-        @click="$router.push({ name: REVIEW_ROUTE, params: { extension } })"
+        @click="$router.push({ name: routes.REVIEW_ROUTE, params: { extension } })"
       >
         Review changes
       </SButton>
@@ -248,18 +353,11 @@ export default {
         variant="primary"
         size="sm"
         icon="sparkle"
-        @click="$router.push({ name: EDITOR_ROUTE, params: { extension } })"
+        @click="$router.push({ name: routes.EDITOR_ROUTE, params: { extension } })"
       >
         Back to assistant
       </SButton>
-      <SButton
-        variant="ghost"
-        size="sm"
-        icon="more"
-        icon-only
-        aria-label="More"
-        @click="notYet('the files overflow menu')"
-      />
+      <SMenu :items="overflowMenu" aria-label="More file actions" @select="onOverflow" />
     </div>
 
     <!-- panel tabs (22:892) -->
@@ -319,24 +417,64 @@ export default {
 
       <!-- editor (22:1053) -->
       <div class="files__editor">
+        <!--
+          One head, two subjects. The class stays put in both states because it is the panel's
+          own box; what changes is what the panel is a panel of.
+        -->
         <div class="files__panel-head files__panel-head--wide">
-          <SIcon name="file" :size="14" />
-          <span class="files__panel-title">{{ current || 'No file open' }}</span>
-          <span class="files__grow" />
-          <span class="files__muted">{{ lines.length }} lines</span>
-          <SButton
-            variant="ghost"
-            size="sm"
-            icon="refresh"
-            icon-only
-            title="Re-read this file"
-            @click="openCurrent"
-          />
+          <SIcon :name="commit ? 'compare' : 'file'" :size="14" />
+
+          <template v-if="commit">
+            <code class="files__sha">{{ commit.sha }}</code>
+            <span class="files__panel-title">{{ commit.subject }}</span>
+            <span class="files__grow" />
+            <span class="files__muted">{{ commit.who }} · {{ commit.when }}</span>
+            <SButton
+              variant="secondary"
+              size="sm"
+              icon="chevronLeft"
+              @click="backToFile"
+            >
+              Back to {{ basename || 'the file' }}
+            </SButton>
+          </template>
+
+          <template v-else>
+            <span class="files__panel-title">{{ current || 'No file open' }}</span>
+            <span class="files__grow" />
+            <span class="files__muted">{{ lines.length }} lines</span>
+            <SButton
+              variant="ghost"
+              size="sm"
+              icon="refresh"
+              icon-only
+              title="Re-read this file"
+              @click="openCurrent"
+            />
+          </template>
         </div>
 
         <div class="files__code">
+          <div v-if="loadingPatch" class="files__loading">
+            <SIcon name="spinner" :size="20" class="files__spin" />
+            Reading {{ commit.sha }}
+          </div>
+
           <SEmpty
-            v-if="!current && !loading"
+            v-else-if="commit && !patch.trim()"
+            icon="alert"
+            title="No patch for this commit"
+            :message="`git show ${ commit.sha } came back with nothing. A merge with no changes of its own reads like this, and so does a pod that has stopped answering.`"
+          />
+
+          <DiffView
+            v-else-if="commit"
+            :patch="patch"
+            :subject="commit.subject"
+          />
+
+          <SEmpty
+            v-else-if="!current && !loading"
             icon="file"
             title="Nothing open"
             message="Pick a file from the tree."
@@ -370,7 +508,8 @@ export default {
               v-for="c in commits"
               :key="c.sha"
               class="files__commit"
-              @click="notYet('opening a commit from here')"
+              :class="{ 'files__commit--current': commit && commit.sha === c.sha }"
+              @click="openCommit(c)"
             >
               <code class="files__sha">{{ c.sha }}</code>
               <span class="files__commit-subject">{{ c.subject }}</span>
@@ -649,6 +788,11 @@ export default {
     cursor:        pointer;
 
     &:hover { background: var(--studio-surface-subtle); }
+
+    // Which commit the middle column is showing. Without it, the diff up there belongs to
+    // whichever row you last clicked and nothing on the page says which one that was.
+    &--current,
+    &--current:hover { background: var(--studio-blue-050); }
   }
 
   &__sha {

@@ -20,6 +20,7 @@ export { default as SEmpty } from './SEmpty.vue';
 export { default as SField } from './SField.vue';
 export { default as SIcon } from './SIcon.vue';
 export { default as SLabel } from './SLabel.vue';
+export { default as SMenu } from './SMenu.vue';
 export { default as SModal } from './SModal.vue';
 export { default as SPanel } from './SPanel.vue';
 export { default as SRow } from './SRow.vue';

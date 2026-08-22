@@ -27,7 +27,7 @@ import InstallProgress from '../components/InstallProgress.vue';
 import EditorMasthead from '../components/EditorMasthead.vue';
 import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/studio';
 import { BUILD_FAILED_ROUTE } from '../editor-product';
-import { SButton } from '../components/ui';
+import { SButton, SModal } from '../components/ui';
 import StartingExtensions from '../components/StartingExtensions.vue';
 import fullBleed from '../design/full-bleed';
 import {
@@ -82,13 +82,19 @@ function writeSplit(percent) {
 // seconds, and there's nothing to gain from asking faster.
 const DEV_POLL_MS = 5000;
 
+// Which tmux session in the pod the editor's terminal attaches to. Named once here because two
+// things now depend on it - the terminal itself, and the assistant panel's session menu, which
+// offers the name so it can be attached to from a shell - and they must not drift apart.
+const TERMINAL_SESSION = 'editor';
+
 export default {
   name: 'BarnEditor',
 
   components: {
     PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions,
     PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal,
-    InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton
+    InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton,
+    SModal
   },
 
   mixins: [fullBleed],
@@ -96,6 +102,7 @@ export default {
   data() {
     return {
       rightUrl: '',
+      terminalSession: TERMINAL_SESSION,
       // Width of the left pane, as a percentage of the page. `null` means the design's own
       // width, which `paneStyle` takes straight off the panel token.
       split:    readSplit(),
@@ -109,7 +116,14 @@ export default {
       // Which of the assistant panel's four views is showing. The terminal stays mounted
       // whichever it is (see the template): it is a live session, and unmounting it to look at
       // a file would end whatever claude was in the middle of.
-      leftTab: 'assistant',
+      // Which of the assistant panel's four views is showing. Seeded from `?tab=` so another
+      // screen can send somebody here pointed at the right one - the review and verification
+      // screens ask the pod's assistant a question and then land the user on the terminal,
+      // where the answer actually appears. Without this they arrive on Assistant and have to
+      // find it.
+      leftTab: ['assistant', 'files', 'changes', 'terminal'].includes(this.$route.query.tab)
+        ? this.$route.query.tab
+        : 'assistant',
       // The terminal's websocket state, for the session row's dot.
       terminalState: '',
       // Bumped to make the Changes tab re-read the working tree when it is opened, so it is
@@ -135,6 +149,11 @@ export default {
       // One publish at a time. AsyncButton used to refuse a second press by itself; a split
       // button has two ways in, so the refusal has to be here instead.
       publishing: false,
+      // Whether the "are you sure" for removing the local install is up. Removing is the one
+      // action on this page that takes something away from the Rancher everybody is looking
+      // at, and both ways in - the publish dropdown and the masthead's overflow - go through
+      // it rather than one of them asking and the other not.
+      confirmRemove: false,
       // The name typed into the box that does not exist yet, held while the modal asks what it
       // should be a copy of.
       creating:  '',
@@ -419,6 +438,28 @@ export default {
       this.$refs.terminal?.sendText(text);
     },
 
+    /**
+     * Re-read everything this page reads, from the masthead's overflow.
+     *
+     * The masthead re-reads its own branch and change count; what is left is the page's: is
+     * there still an install to run, is the dev server up, and the Changes tab's diff.
+     */
+    onMastheadRefresh() {
+      this.checkInstall();
+      this.changesRevision++;
+
+      if (!this.rightUrl) {
+        clearTimeout(this.devPollTimer);
+        this.waitForDevServer();
+      }
+    },
+
+    /** Reattach the terminal's websocket to the tmux session, from the session menu. */
+    reconnectTerminal() {
+      this.$refs.terminal?.reconnect();
+      this.leftTab = 'terminal';
+    },
+
     openExtension(name) {
       this.$router.push({ name: this.$route.name, params: { extension: name } });
     },
@@ -464,7 +505,7 @@ export default {
       }
 
       if (id === 'remove') {
-        this.removeInstall();
+        this.confirmRemove = true;
 
         return;
       }
@@ -544,6 +585,8 @@ export default {
      * there is no progress to count - it is one delete.
      */
     async removeInstall() {
+      this.confirmRemove = false;
+
       if (this.publishing) {
         return;
       }
@@ -642,11 +685,16 @@ export default {
       :extension="extension"
       :publish-options="publishOptions"
       :publishing="publishing"
+      :publish-stage="publishStage"
+      :publish-total="publishTotal"
+      :ready="!!rightUrl"
       @back="$router.push({ name: 'home' })"
       @files="onLeftTab('changes')"
       @publish="publishTo('local')"
       @publish-select="onPublishSelect"
       @settings="showSettings = true"
+      @refresh="onMastheadRefresh"
+      @changed="changesRevision++"
     >
       <template #status>
         <PublishStatus
@@ -723,14 +771,18 @@ export default {
           class="mc-editor__left-view"
           :extension="extension"
           :tab="leftTab"
+          :session="terminalSession"
+          :revision="changesRevision"
           :connected="terminalConnected"
           @update:tab="onLeftTab"
           @send="sendToAssistant"
+          @reconnect="reconnectTerminal"
         >
           <template #terminal>
             <PodTerminal
               ref="terminal"
               :extension="extension"
+              :session="terminalSession"
               @state="terminalState = $event"
             />
           </template>
@@ -776,6 +828,44 @@ export default {
         :extension="extension"
       />
     </div>
+
+    <!--
+      Removing the local install is the one thing here that changes the Rancher everybody else
+      is looking at, so it asks - and says exactly how much it takes away, which is less than
+      the words "remove" suggest.
+    -->
+    <SModal
+      v-if="confirmRemove"
+      title="Remove the local install?"
+      icon="trash"
+      :width="480"
+      @close="confirmRemove = false"
+    >
+      <p class="mc-editor__say">
+        This Rancher stops loading <strong>{{ extension }}</strong>: its UIPlugin is deleted and
+        the pages it adds go away for everybody signed in here.
+      </p>
+      <p class="mc-editor__say">
+        The extension itself is untouched. Its pod, its files and its history stay exactly as
+        they are, and Publish puts it back.
+      </p>
+
+      <template #footer>
+        <SButton
+          variant="neutral"
+          @click="confirmRemove = false"
+        >
+          Cancel
+        </SButton>
+        <SButton
+          variant="danger"
+          data-testid="barn-remove-confirm"
+          @click="removeInstall"
+        >
+          Remove it
+        </SButton>
+      </template>
+    </SModal>
 
     <EditorSettingsModal
       v-if="showSettings"
@@ -914,6 +1004,12 @@ $rancher-rail-width: 70px;
   &__install {
     flex:       1 1 auto;
     min-height: 0;
+  }
+
+  &__say {
+    margin: 0 0 var(--studio-space-12);
+    font:   var(--studio-body-13);
+    color:  var(--studio-text-secondary);
   }
 
   &__panes {

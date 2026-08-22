@@ -6,20 +6,27 @@
 // the middle, and the rendered result is on the right - the same live preview the author was
 // looking at, so "does the diff do what the brief says" is one glance rather than two tabs.
 //
-// Real: the packet (the brief, read from the pod), the file list and every diff, the preview,
-// and Request changes / Approve - which are a commit of the working tree either way, because
-// on a single-reviewer Studio "approve" means "this is worth keeping" and that is a commit.
+// Real: the packet (the brief, read from the pod), the file list - grouped by directory, the
+// way the design has it (38:1177, 38:1190, 38:1203) - and every diff, the preview, the pull
+// request chip, and Request changes / Approve, which are a commit of the working tree either
+// way, because on a single-reviewer Studio "approve" means "this is worth keeping" and that is
+// a commit.
 //
-// Placeholder: the sign-off avatars and the PR chip. There is no second reviewer and no pull
-// request until somebody publishes to GitHub, so neither has anything true to say yet.
+// The PR chip is a real reading. With a token and a repository it asks GitHub whether an open
+// pull request has this extension's branch as its head, and says so either way; without one of
+// them it names the one that is missing rather than showing a number nobody can click. There is
+// still no second reviewer, so the sign-off line says that in words instead of drawing avatars
+// for people who do not exist.
 import {
   SButton, SChip, SIcon, SEmpty, SBanner, SLabel
 } from '../components/ui';
 import DiffView from '../components/DiffView.vue';
+import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import PreviewPanel from '../components/studio/PreviewPanel.vue';
 import { toastNotYet, toastSuccess, toastError } from '../toast';
 import {
   changedFiles, fileDiff, readExtensionFile, commitExtension, extensionUrl, extensionReady,
+  listBranches, readSettings, extensionSource, parseGithubSource, findOpenPullRequest,
   DEFAULT_EXTENSION
 } from '../extensions';
 import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE } from '../editor-product';
@@ -102,7 +109,7 @@ export default {
   name: 'BarnReviewChange',
 
   components: {
-    SButton, SChip, SIcon, SEmpty, SBanner, SLabel, DiffView, PreviewPanel
+    SButton, SChip, SIcon, SEmpty, SBanner, SLabel, DiffView, PreviewPanel, EditorSettingsModal
   },
 
   mixins: [fullBleed],
@@ -117,6 +124,19 @@ export default {
       loading:  true,
       diffing:  false,
       deciding: false,
+      // What the masthead's GitHub chip knows. `state` is the whole of it:
+      //   checking  - the question is out
+      //   open      - there is one, and `pr` is it
+      //   none      - asked and answered: no open PR has this branch as its head
+      //   no-token  - nothing was asked, because there is no token to ask with
+      //   no-repo   - nothing was asked, because no repository is known for this extension
+      //   error     - the question failed, and `prError` says how
+      pr:       null,
+      prState:  'checking',
+      prError:  '',
+      repo:     '',
+      branch:   '',
+      showSettings: false,
     };
   },
 
@@ -175,6 +195,74 @@ export default {
         // paragraphs with a gap down the middle of it.
         .map((s) => ({ title: s.title, lines: paragraphs(s.body) }));
     },
+
+    /**
+     * The changed files under a heading per directory (38:1177, 38:1190, 38:1203).
+     *
+     * A flat list of thirty paths is thirty prefixes a reviewer reads and discards; grouped, the
+     * prefix is read once and the rows underneath are file names. The count per group is the
+     * other half of it - "components 6" is the sentence "most of this change is in components",
+     * which is the first thing anybody wants to know about a diff they did not write.
+     *
+     * Groups are ordered by path so the tree reads top-down the way the file browser does, and
+     * a file at the package root goes under its own heading rather than into a group called ''.
+     */
+    fileGroups() {
+      const groups = new Map();
+
+      this.files.forEach((file) => {
+        const cut = file.path.lastIndexOf('/');
+        const dir = cut < 0 ? '.' : file.path.slice(0, cut);
+        const name = cut < 0 ? file.path : file.path.slice(cut + 1);
+
+        groups.set(dir, [...(groups.get(dir) || []), { ...file, name }]);
+      });
+
+      return [...groups.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([dir, files]) => ({
+          dir,
+          // '.' is not a directory anybody typed, so the heading says what it means.
+          label: dir === '.' ? 'the package root' : dir,
+          files: [...files].sort((a, b) => a.name.localeCompare(b.name)),
+        }));
+    },
+
+    /**
+     * What the masthead's GitHub chip says, and what pressing it does.
+     *
+     * One computed rather than six conditionals in the template, because the states differ in
+     * all three of label, tone and action, and the point of the chip is that it never says the
+     * same thing for two different reasons.
+     */
+    prChip() {
+      const chips = {
+        checking: { label: 'Checking GitHub…', tone: 'subtle', action: '' },
+        open:     {
+          label: `PR #${ this.pr?.number } open`, tone: 'success', action: 'open',
+        },
+        none: {
+          label: `No open PR for ${ this.branch || 'this branch' }`, tone: 'default', action: 'list',
+        },
+        'no-token': { label: 'No GitHub token', tone: 'warning', action: 'settings' },
+        'no-repo':  { label: 'No GitHub repository', tone: 'warning', action: '' },
+        error:      { label: 'Could not ask GitHub', tone: 'error', action: 'retry' },
+      };
+
+      return chips[this.prState] || chips.checking;
+    },
+
+    /** The hover text: the whole fact, where the chip only has room for the headline. */
+    prTitle() {
+      return {
+        checking: `Asking GitHub whether ${ this.repo } has an open pull request for ${ this.branch }`,
+        open:     `${ this.pr?.title } — opens on GitHub`,
+        none:     `${ this.repo } has no open pull request whose head branch is ${ this.branch }. Opens the repository's pull requests.`,
+        'no-token': 'No GitHub token is configured, so nothing can be asked. Opens the editor settings.',
+        'no-repo':  `No GitHub repository is remembered for ${ this.extension }. Publishing it to GitHub records one.`,
+        error:      this.prError,
+      }[this.prState] || '';
+    },
   },
 
   watch: {
@@ -201,6 +289,8 @@ export default {
       if (files.length) {
         this.selected = files[0].path;
       }
+
+      this.checkPullRequest();
 
       // The preview is the same dev server the workspace frames. It may still be compiling,
       // which is why this waits rather than framing a connection-refused page.
@@ -252,6 +342,66 @@ export default {
       this.$router.push({ name: EDITOR_ROUTE, params: { extension: this.extension } });
     },
 
+    /**
+     * Whether an open pull request already exists for what is being reviewed.
+     *
+     * Three readings, in the order that lets it stop early: the branch (the head a PR would have
+     * to point at), the token (there is no anonymous way to ask about a private repository), and
+     * the repository - the one remembered when this extension was last published, or the one it
+     * was imported from, because an imported extension knows where it came from before anybody
+     * has published it anywhere.
+     */
+    async checkPullRequest() {
+      this.prState = 'checking';
+      this.pr = null;
+      this.prError = '';
+
+      const [branches, settings, source] = await Promise.all([
+        listBranches(this.extension).catch(() => null),
+        readSettings(this.extension).catch(() => ({ hasToken: false, repo: '' })),
+        extensionSource(this.extension).catch(() => ''),
+      ]);
+
+      this.branch = branches?.current || '';
+      this.repo = settings.repo || parseGithubSource(source)?.repo || '';
+
+      if (!settings.hasToken) {
+        this.prState = 'no-token';
+
+        return;
+      }
+
+      if (!this.repo) {
+        this.prState = 'no-repo';
+
+        return;
+      }
+
+      try {
+        this.pr = await findOpenPullRequest(this.extension, this.repo, this.branch);
+        this.prState = this.pr ? 'open' : 'none';
+      } catch (e) {
+        this.prError = e?.message || String(e);
+        this.prState = 'error';
+      }
+    },
+
+    /** The chip's press, which is a different thing in each state - see `prChip`. */
+    onPrChip() {
+      const action = this.prChip.action;
+
+      if (action === 'open' && this.pr) {
+        window.open(this.pr.url, '_blank', 'noopener');
+      } else if (action === 'list') {
+        window.open(`https://github.com/${ this.repo }/pulls`, '_blank', 'noopener');
+      } else if (action === 'settings') {
+        this.showSettings = true;
+      } else if (action === 'retry') {
+        toastError(this.$store, this.prError, { title: 'GitHub did not answer' });
+        this.checkPullRequest();
+      }
+    },
+
     /** The line under the path (38:1184): what the change is, in the size it is. */
     fileStats(file) {
       const counts = [];
@@ -298,10 +448,12 @@ export default {
 
       <SChip :label="`${ risk } risk`" :tone="riskTone" />
       <SChip
-        label="No pull request yet"
+        :label="prChip.label"
+        :tone="prChip.tone"
+        :title="prTitle"
         icon="github"
-        clickable
-        @click="notYet('linking a review to a pull request')"
+        :clickable="!!prChip.action"
+        @click="onPrChip"
       />
 
       <span class="rc__grow" />
@@ -340,20 +492,31 @@ export default {
 
           <div class="rc__files">
             <SLabel :text="`Changed files (${ count })`" />
-            <button
-              v-for="f in files"
-              :key="f.path"
-              type="button"
-              class="rc__file"
-              :class="{ 'rc__file--selected': f.path === selected }"
-              @click="selected = f.path"
-            >
-              <span class="rc__file-row">
-                <SIcon name="file" :size="13" />
-                <span class="rc__file-path">{{ f.path }}</span>
-              </span>
-              <span class="rc__file-stats">{{ fileStats(f) }}</span>
-            </button>
+
+            <!-- one heading per directory (38:1177, 38:1190, 38:1203) -->
+            <div v-for="g in fileGroups" :key="g.dir" class="rc__group">
+              <div class="rc__group-head">
+                <SIcon name="folder" :size="12" />
+                <span class="rc__group-path">{{ g.label }}</span>
+                <span class="rc__group-count">{{ g.files.length }}</span>
+              </div>
+
+              <button
+                v-for="f in g.files"
+                :key="f.path"
+                type="button"
+                class="rc__file"
+                :class="{ 'rc__file--selected': f.path === selected }"
+                :title="f.path"
+                @click="selected = f.path"
+              >
+                <span class="rc__file-row">
+                  <SIcon name="file" :size="13" />
+                  <span class="rc__file-path">{{ f.name }}</span>
+                </span>
+                <span class="rc__file-stats">{{ fileStats(f) }}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -429,6 +592,13 @@ export default {
         Approve and commit
       </SButton>
     </div>
+
+    <!-- the token the PR chip needs, asked for where it was found to be missing -->
+    <EditorSettingsModal
+      v-if="showSettings"
+      @close="showSettings = false"
+      @saved="checkPullRequest"
+    />
   </div>
 </template>
 
@@ -567,6 +737,44 @@ export default {
     padding-top:    var(--studio-space-12);
   }
 
+  // The directory heading and the rows under it (38:1177). Indented rather than boxed: the
+  // heading is what says where these files are, so the indent is the only thing that has to
+  // keep saying it.
+  &__group {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-2);
+  }
+
+  &__group-head {
+    display:     flex;
+    align-items: center;
+    gap:         6px;
+    padding:     var(--studio-space-6) var(--studio-space-10) var(--studio-space-2);
+    color:       var(--studio-text-tertiary);
+  }
+
+  &__group-path {
+    flex:          1 1 auto;
+    min-width:     0;
+    font:          var(--studio-caption-12-semi);
+    color:         var(--studio-text-secondary);
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+    direction:     rtl;
+    text-align:    left;
+  }
+
+  &__group-count {
+    flex:          0 0 auto;
+    padding:       0 var(--studio-space-6);
+    border-radius: var(--studio-radius-pill);
+    background:    var(--studio-neutral-bg);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
+  }
+
   &__file {
     display:        flex;
     flex-direction: column;
@@ -590,6 +798,9 @@ export default {
       border-color: var(--studio-info);
       color:        var(--studio-text);
     }
+
+    // Under a heading the row is a file name, so it is indented to the heading's icon.
+    .rc__group & { margin-left: var(--studio-space-10); }
   }
 
   &__file-row {

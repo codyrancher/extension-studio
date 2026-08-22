@@ -13,7 +13,9 @@
 //   changes with `git status` in the pod and reads the published version off the UIPlugin, so
 //   "14 changes since v0.1.0" is two live readings rather than a caption. The composer sends
 //   what you type to the claude in the pod, which is the same thing as typing it into the
-//   terminal, and switches to the terminal so the reply is visible.
+//   terminal, and switches to the terminal so the reply is visible. The context chips are the
+//   paths that go with it: whatever is on them is named in the line the assistant receives,
+//   so the word "context" is a description rather than a promise.
 //
 //   Not real. The activity stream itself. The design shows the assistant's work as structured
 //   turns with steps and durations, and what we have is a terminal - claude's output is a
@@ -22,17 +24,38 @@
 //   and otherwise says plainly that the structured view is not wired and offers the terminal,
 //   rather than showing an invented conversation that reads as real.
 //
-//   Not real. The permission chip and the context chips, which toast.
-import { SIcon, SChip, SLabel, SButton, STabs, SEmpty } from '../ui';
+//   Informational. The chip on the status row. The design's version says "Ask before each file
+//   edit", and the pod runs `claude --dangerously-skip-permissions` (see pod/claude-session.sh)
+//   - so the design's chip was the opposite of the truth, and there is no switch behind it to
+//   make it true. It states what the session actually does instead, and is not clickable,
+//   because there is nothing to press it for.
+import {
+  SIcon, SChip, SLabel, SButton, STabs, SEmpty, SMenu, SModal, SField
+} from '../ui';
 import ActivityTurn from './ActivityTurn.vue';
-import { toastNotYet } from '../../toast';
-import { countChanges, publishedVersion } from '../../extensions';
+import { toastSuccess, toastError } from '../../toast';
+import {
+  countChanges, publishedVersion, listExtensionFiles, writePodImage
+} from '../../extensions';
+
+/**
+ * Where an attached file lands in the pod.
+ *
+ * The same trick, and the same directory rules, as the terminal's pasted images: under /app so
+ * it is on the hostPath and survives a pod restart, dotted so it stays out of the extension's
+ * source tree and out of the file browser that lists it. The assistant reads a file from a
+ * path, so putting one there and naming it is what attaching means here.
+ */
+const ATTACH_DIR = '/app/.attachments';
+
+/** Big enough for a screenshot or a log, small enough that the chunked write is not a wait. */
+const MAX_ATTACHMENT = 8 * 1024 * 1024;
 
 export default {
   name: 'AssistantPanel',
 
   components: {
-    SIcon, SChip, SLabel, SButton, STabs, SEmpty, ActivityTurn
+    SIcon, SChip, SLabel, SButton, STabs, SEmpty, SMenu, SModal, SField, ActivityTurn
   },
 
   props: {
@@ -45,6 +68,15 @@ export default {
     tab: {
       type:    String,
       default: 'assistant',
+    },
+
+    /**
+     * The tmux session the terminal is attached to, passed in by the page so this and the
+     * terminal cannot disagree about which conversation is on screen.
+     */
+    session: {
+      type:    String,
+      default: 'editor',
     },
 
     /**
@@ -61,9 +93,21 @@ export default {
       type:    Boolean,
       default: false,
     },
+
+    /**
+     * Bumped by the page whenever something it did changed the working tree.
+     *
+     * The count below is otherwise on a minute's poll, which is right for edits the assistant
+     * makes in the background and wrong for an undo or a restore the person just pressed: the
+     * tab would go on claiming a number that stopped being true while they were watching.
+     */
+    revision: {
+      type:    Number,
+      default: 0,
+    },
   },
 
-  emits: ['update:tab', 'send', 'review'],
+  emits: ['update:tab', 'send', 'review', 'reconnect'],
 
   data() {
     return {
@@ -71,6 +115,21 @@ export default {
       changes:    0,
       version:    '',
       countTimer: null,
+      /**
+       * The paths that go with the next message, as `{ path, icon }`.
+       *
+       * One list for both ways of adding one - picking a file out of the extension, and
+       * attaching a file from this machine - because they end the same way: a path in the pod
+       * that the assistant is told about.
+       */
+      context:    [],
+      // The file picker, and what it has read.
+      picking:    false,
+      files:      [],
+      filesRead:  false,
+      fileFilter: '',
+      // Set while a file is on its way into the pod.
+      attaching:  false,
     };
   },
 
@@ -127,6 +186,63 @@ export default {
 
       return this.version ? `${ what } since v${ this.version }` : what;
     },
+
+    /** The tmux session in the pod, which is the name a shell would attach to. */
+    sessionName() {
+      return `mc-${ this.session }`;
+    },
+
+    /**
+     * What the session menu offers, which is four things that exist plus the composer's own
+     * clear.
+     *
+     * "Start a new conversation" is `/clear`, typed into the session, and it is named for what
+     * that does rather than for restarting anything: the pane runs claude in a loop
+     * (pod/claude-session.sh) and only that pane can restart it, so nothing reachable from a
+     * browser tab can. `/clear` drops the conversation and keeps the process, which is the
+     * half of "start again" that is actually available here.
+     */
+    sessionItems() {
+      return [
+        {
+          id: 'clear', label: 'Clear the composer', icon: 'close', disabled: !this.draft.trim(),
+        },
+        { id: 'terminal', label: 'Open the terminal', icon: 'terminal' },
+        { divider: true },
+        {
+          id: 'new', label: 'Start a new conversation', note: '/clear', icon: 'sparkle',
+        },
+        { id: 'reconnect', label: 'Reattach the terminal', icon: 'refresh' },
+        { divider: true },
+        {
+          id: 'copy', label: 'Copy the session name', note: this.sessionName, icon: 'code',
+        },
+      ];
+    },
+
+    /** The files the picker is showing, filtered by whatever has been typed. */
+    shownFiles() {
+      const term = this.fileFilter.trim().toLowerCase();
+      const already = new Set(this.context.map((item) => item.path));
+      const matching = this.files.filter((path) => !already.has(path) && (!term || path.toLowerCase().includes(term)));
+
+      // A package is a few hundred files and the list is scrolled, not paged; a cap keeps a
+      // pod with a stray build directory in it from rendering ten thousand rows.
+      return matching.slice(0, 300);
+    },
+
+    /** The hint under the composer, which has to say when a message carries more than itself. */
+    hint() {
+      const base = 'Shift + Enter for a new line · the assistant never publishes on its own';
+
+      if (!this.context.length) {
+        return base;
+      }
+
+      const n = this.context.length;
+
+      return `${ base } · ${ n } path${ n === 1 ? '' : 's' } named in the message`;
+    },
   },
 
   mounted() {
@@ -141,9 +257,18 @@ export default {
   },
 
   watch: {
+    revision() {
+      this.refreshChanges();
+    },
+
     extension() {
       this.changes = 0;
       this.version = '';
+      // The paths belonged to the extension that was open; none of them means anything in the
+      // next one's pod.
+      this.context = [];
+      this.files = [];
+      this.filesRead = false;
       this.refreshChanges();
     },
   },
@@ -154,10 +279,6 @@ export default {
       this.version = await publishedVersion(this.extension).catch(() => '');
     },
 
-    notYet(what) {
-      toastNotYet(this.$store, what);
-    },
-
     submit() {
       const text = this.draft.trim();
 
@@ -166,9 +287,22 @@ export default {
       }
 
       this.draft = '';
-      this.$emit('send', text);
+      this.$emit('send', this.withContext(text));
       // The reply arrives in the terminal, so go and look at it.
       this.$emit('update:tab', 'terminal');
+    },
+
+    /**
+     * The line the assistant actually receives.
+     *
+     * One line, because the terminal types this at a prompt and a newline in it would submit
+     * half a sentence. The paths are named in the text rather than attached out of band, which
+     * is the only kind of attaching a terminal has.
+     */
+    withContext(text) {
+      const paths = this.context.map((item) => item.path);
+
+      return paths.length ? `Context: ${ paths.join(', ') }. ${ text }` : text;
     },
 
     onKeydown(e) {
@@ -177,6 +311,125 @@ export default {
         e.preventDefault();
         this.submit();
       }
+    },
+
+    onSessionSelect(id) {
+      if (id === 'clear') {
+        this.draft = '';
+
+        return;
+      }
+
+      if (id === 'terminal') {
+        this.$emit('update:tab', 'terminal');
+
+        return;
+      }
+
+      if (id === 'new') {
+        this.$emit('send', '/clear');
+        this.$emit('update:tab', 'terminal');
+        toastSuccess(
+          this.$store,
+          '/clear went to the session. The conversation starts over; the files in the pod are untouched.',
+          { title: 'New conversation' },
+        );
+
+        return;
+      }
+
+      if (id === 'reconnect') {
+        this.$emit('reconnect');
+
+        return;
+      }
+
+      if (id === 'copy') {
+        this.copySession();
+      }
+    },
+
+    async copySession() {
+      try {
+        await navigator.clipboard.writeText(this.sessionName);
+        toastSuccess(this.$store, `${ this.sessionName } is on the clipboard. \`tmux attach -t ${ this.sessionName }\` in the pod opens the same session.`, { title: 'Copied' });
+      } catch (e) {
+        toastError(this.$store, `The clipboard refused this. The session is called ${ this.sessionName }.`);
+      }
+    },
+
+    /** Open the picker, and read the extension's files the first time it is opened. */
+    async openPicker() {
+      this.picking = true;
+      this.fileFilter = '';
+
+      if (this.filesRead) {
+        return;
+      }
+
+      this.files = await listExtensionFiles(this.extension).catch(() => []);
+      this.filesRead = true;
+    },
+
+    addContext(path, icon = 'file') {
+      if (!this.context.some((item) => item.path === path)) {
+        this.context = [...this.context, { path, icon }];
+      }
+    },
+
+    addFile(path) {
+      this.addContext(path);
+      this.picking = false;
+    },
+
+    removeContext(path) {
+      this.context = this.context.filter((item) => item.path !== path);
+    },
+
+    /** The last two segments, so a chip does not become the whole composer. */
+    shortPath(path) {
+      return path.split('/').slice(-2).join('/');
+    },
+
+    /**
+     * The paperclip: a file from this machine, into the pod, named on the next message.
+     *
+     * The same mechanism the terminal's paste uses - writePodImage is a chunked base64 write
+     * and does not care what the bytes are - so an image attached here is a path the assistant
+     * can read exactly as one pasted into the pane is.
+     */
+    async onAttach(event) {
+      const files = [...(event.target.files || [])];
+
+      // Cleared straight away, so attaching the same file twice in a row still fires a change.
+      event.target.value = '';
+
+      if (!files.length) {
+        return;
+      }
+
+      this.attaching = true;
+
+      for (const file of files) {
+        if (file.size > MAX_ATTACHMENT) {
+          toastError(this.$store, `${ file.name } is ${ Math.round(file.size / 1024 / 1024) }MB. The limit here is 8MB; put a bigger file in the pod from the terminal instead.`);
+          continue;
+        }
+
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const safe = file.name.replace(/[^\w.-]/g, '_') || 'file';
+        const path = `${ ATTACH_DIR }/${ stamp }-${ safe }`;
+
+        try {
+          await writePodImage(this.extension, path, await file.arrayBuffer());
+          this.addContext(path, 'upload');
+          toastSuccess(this.$store, `${ file.name } is in the pod at ${ path }, and is named on the next message.`, { title: 'Attached' });
+        } catch (e) {
+          toastError(this.$store, e.message || String(e));
+        }
+      }
+
+      this.attaching = false;
     },
   },
 };
@@ -200,18 +453,23 @@ export default {
       />
       <span class="assistant-panel__who">{{ connectedLabel }}</span>
       <span class="assistant-panel__grow" />
+      <!--
+        What the session does, rather than the design's "Ask before each file edit", which it
+        does not do. Informational: there is no permission mode to switch to.
+      -->
       <SChip
-        label="Ask before each file edit"
-        icon="lock"
-        clickable
-        @click="notYet('the permission mode chip')"
+        label="Edits apply without asking"
+        icon="alert"
+        tone="warning"
+        title="The assistant runs with --dangerously-skip-permissions in this pod, so its edits land in the working tree as it makes them. Nothing reaches this Rancher until you publish."
+        data-testid="barn-permission-chip"
       />
-      <SButton
-        variant="ghost"
-        size="sm"
+      <SMenu
+        :items="sessionItems"
         icon="chevronDown"
-        icon-only
-        @click="notYet('the session menu')"
+        aria-label="Session actions"
+        data-testid="barn-session-menu"
+        @select="onSessionSelect"
       />
     </div>
 
@@ -280,23 +538,27 @@ export default {
     <div class="assistant-panel__composer">
       <div class="assistant-panel__context">
         <SLabel text="Context" />
+        <!-- Two facts about where the message goes, and neither is a control. -->
+        <SChip :label="extension" icon="puzzle" />
+        <SChip label="cluster: local" icon="server" />
+
+        <!-- The paths that will be named in the message. Removable, because they are a choice. -->
         <SChip
-          :label="extension"
-          icon="puzzle"
-          clickable
-          @click="notYet('the context chips')"
+          v-for="item in context"
+          :key="item.path"
+          :label="shortPath(item.path)"
+          :icon="item.icon"
+          :title="item.path"
+          removable
+          @remove="removeContext(item.path)"
         />
-        <SChip
-          label="cluster: local"
-          icon="server"
-          clickable
-          @click="notYet('the context chips')"
-        />
+
         <SChip
           label="Add"
           icon="plus"
           clickable
-          @click="notYet('adding context')"
+          data-testid="barn-add-context"
+          @click="openPicker"
         />
       </div>
 
@@ -314,9 +576,18 @@ export default {
             size="sm"
             icon="upload"
             icon-only
-            title="Attach a file"
-            @click="notYet('attaching a file to a message')"
+            :loading="attaching"
+            title="Attach a file: it is written into the pod and named on the next message"
+            data-testid="barn-attach-button"
+            @click="$refs.attach.click()"
           />
+          <input
+            ref="attach"
+            class="assistant-panel__file"
+            type="file"
+            multiple
+            @change="onAttach"
+          >
           <span class="assistant-panel__grow" />
           <SButton
             variant="primary"
@@ -331,9 +602,46 @@ export default {
       </div>
 
       <div class="assistant-panel__hint">
-        Shift + Enter for a new line · the assistant never publishes on its own
+        {{ hint }}
       </div>
     </div>
+
+    <!-- Picking a file out of the extension, from the Add chip. -->
+    <SModal
+      v-if="picking"
+      title="Add a file to the context"
+      icon="file"
+      :width="560"
+      @close="picking = false"
+    >
+      <p class="assistant-panel__say">
+        Whatever is on the context chips is named in the line the assistant receives, so it
+        looks at those files first. Paths are relative to the package in the pod.
+      </p>
+      <SField
+        v-model="fileFilter"
+        label="Find a file"
+        placeholder="Part of a path or a name"
+        autofocus
+      />
+
+      <div class="assistant-panel__picker">
+        <button
+          v-for="path in shownFiles"
+          :key="path"
+          type="button"
+          class="assistant-panel__pick"
+          @click="addFile(path)"
+        >
+          <SIcon name="file" :size="13" />
+          <span class="assistant-panel__pick-path">{{ path }}</span>
+        </button>
+
+        <p v-if="!shownFiles.length" class="assistant-panel__say">
+          {{ filesRead ? 'Nothing in the package matches that.' : 'Reading the package.' }}
+        </p>
+      </div>
+    </SModal>
   </div>
 </template>
 
@@ -484,9 +792,50 @@ export default {
     gap:         var(--studio-space-8);
   }
 
+  // The paperclip's actual input. Hidden rather than absent: the button clicks it.
+  &__file { display: none; }
+
   &__hint {
     font:  var(--studio-caption-12);
     color: var(--studio-text-tertiary);
+  }
+
+  &__say {
+    margin: 0 0 var(--studio-space-12);
+    font:   var(--studio-body-13);
+    color:  var(--studio-text-secondary);
+  }
+
+  &__picker {
+    display:        flex;
+    flex-direction: column;
+    margin-top:     var(--studio-space-12);
+    max-height:     320px;
+    overflow-y:     auto;
+    border:         1px solid var(--studio-border-subtle);
+    border-radius:  var(--studio-radius);
+  }
+
+  &__pick {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    padding:     6px var(--studio-space-10);
+    min-height:  0;
+    background:  none;
+    border:      none;
+    text-align:  left;
+    font:        var(--studio-mono-12);
+    color:       var(--studio-text);
+    cursor:      pointer;
+
+    &:hover { background: var(--studio-surface-subtle); }
+  }
+
+  &__pick-path {
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
   }
 }
 </style>

@@ -11,26 +11,48 @@
 // the first heading-free line of BRIEF.md, and a change with no brief says so plainly rather
 // than falling back to a diffstat.
 //
-// Placeholder: "Waiting on others" (nothing here models a second reviewer), the sort control,
-// and Review settings.
+// There used to be a third tab, "Waiting on others". It is gone: nothing in this product models
+// a second reviewer, so it was a filter that could never match, carrying a hardcoded count of
+// zero and an apology where its rows would be. What it was really saying - that you are both
+// author and reviewer here - is a fact about the whole screen rather than about one filter, and
+// the lede and every row's "Your part" column already say it.
 import {
-  SButton, SBadge, SChip, SIcon, SEmpty, STabs
+  SButton, SBadge, SChip, SIcon, SEmpty, STabs, SMenu
 } from '../components/ui';
-import { toastNotYet } from '../toast';
+import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import {
   listExtensions, extensionDetail, readExtensionFile, countChanges
 } from '../extensions';
-import { STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, EDITOR_ROUTE } from '../editor-product';
+import { STUDIO_ROUTE, REVIEW_CHANGE_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * The orders the queue can be read in.
+ *
+ * The two by time say what they are ordered on in their note, and the note is not decoration:
+ * what this screen can actually read is the last *commit*, so "oldest" means the change that
+ * has been diverged from its branch longest, not the moment somebody typed. Calling that
+ * "oldest" without saying so would be inventing a reading the cluster does not offer.
+ */
+const SORTS = [
+  {
+    id: 'oldest', label: 'Oldest first', icon: 'clock', note: 'by last commit'
+  },
+  {
+    id: 'newest', label: 'Newest first', icon: 'clock', note: 'by last commit'
+  },
+  { id: 'most', label: 'Most changes', icon: 'compare' },
+  { id: 'least', label: 'Least changes', icon: 'compare' },
+];
+
 export default {
   name: 'BarnReviewQueue',
 
   components: {
-    SButton, SBadge, SChip, SIcon, SEmpty, STabs
+    SButton, SBadge, SChip, SIcon, SEmpty, STabs, SMenu, EditorSettingsModal
   },
 
   mixins: [fullBleed],
@@ -40,6 +62,8 @@ export default {
       rows:    [],
       tab:     'you',
       loading: true,
+      sort:    'oldest',
+      showSettings: false,
     };
   },
 
@@ -55,17 +79,39 @@ export default {
     tabs() {
       return [
         { id: 'you', label: 'Waiting on you', count: this.waitingOnYou.length },
-        { id: 'others', label: 'Waiting on others', count: 0 },
         { id: 'signed', label: 'Signed off this week', count: this.signedOff.length },
       ];
     },
 
-    shown() {
-      if (this.tab === 'you') {
-        return this.waitingOnYou;
-      }
+    /**
+     * The route names the template pushes to.
+     *
+     * A plain `<script>` block's module scope is not the render function's scope, so a
+     * constant imported above and used bare in the template resolves to `undefined` and the
+     * push is silently dropped. That is what the breadcrumb was doing. See the same computed
+     * in files.vue.
+     */
+    routes() {
+      return { STUDIO_ROUTE };
+    },
 
-      return this.tab === 'signed' ? this.signedOff : [];
+    sortOptions() {
+      // The chosen line is marked rather than hidden, so the menu is the same four lines every
+      // time it opens and the current order is readable without closing it again.
+      return SORTS.map((each) => ({
+        ...each,
+        note: each.id === this.sort ? [each.note, 'current'].filter(Boolean).join(' · ') : each.note,
+      }));
+    },
+
+    sortLabel() {
+      return (SORTS.find((each) => each.id === this.sort) || SORTS[0]).label;
+    },
+
+    shown() {
+      const rows = this.tab === 'signed' ? this.signedOff : this.waitingOnYou;
+
+      return this.inOrder(rows);
     },
   },
 
@@ -160,15 +206,39 @@ export default {
       }[risk] || 'default';
     },
 
+    /**
+     * The chosen order, over a copy.
+     *
+     * A row that has never been committed has no timestamp at all, and it goes last whichever
+     * way the list is pointing - "unknown" is not older than everything or newer than
+     * everything, and putting it at one end or the other depending on the direction would be
+     * claiming one of those. Name breaks ties so the order does not shuffle between loads.
+     */
+    inOrder(rows) {
+      const by = this.sort;
+
+      return [...rows].sort((a, b) => {
+        if (by === 'most' || by === 'least') {
+          const d = (a.changes || 0) - (b.changes || 0);
+
+          return (by === 'most' ? -d : d) || a.name.localeCompare(b.name);
+        }
+
+        if (!a.committedAt || !b.committedAt) {
+          return (a.committedAt ? 0 : 1) - (b.committedAt ? 0 : 1) || a.name.localeCompare(b.name);
+        }
+
+        const d = a.committedAt - b.committedAt;
+
+        return (by === 'newest' ? -d : d) || a.name.localeCompare(b.name);
+      });
+    },
+
     open(row) {
       this.$router.push({
         name:   REVIEW_CHANGE_ROUTE,
         params: { extension: row.name, change: 'working' },
       });
-    },
-
-    notYet(what) {
-      toastNotYet(this.$store, what);
     },
   },
 };
@@ -179,7 +249,7 @@ export default {
     <!-- masthead (36:1035) -->
     <div class="queue__masthead">
       <div class="queue__breadcrumb">
-        <a class="queue__crumb" @click="$router.push({ name: STUDIO_ROUTE })">Extensions</a>
+        <a class="queue__crumb" @click="$router.push({ name: routes.STUDIO_ROUTE })">Extensions</a>
         <SIcon name="chevronRight" :size="12" />
         <span class="queue__crumb-current">Reviews</span>
       </div>
@@ -190,20 +260,25 @@ export default {
         </h1>
         <span class="queue__grow" />
 
-        <SChip
-          label="Oldest first"
-          icon="filter"
-          clickable
-          @click="notYet('sorting the review queue')"
-        />
-        <SButton variant="neutral" icon="gear" @click="notYet('review settings')">
+        <SMenu
+          :items="sortOptions"
+          aria-label="Sort the queue"
+          class="queue__sort"
+          @select="sort = $event"
+        >
+          <template #trigger>
+            <SChip :label="sortLabel" icon="filter" />
+            <SIcon name="chevronDown" :size="11" />
+          </template>
+        </SMenu>
+        <SButton variant="neutral" icon="gear" @click="showSettings = true">
           Review settings
         </SButton>
       </div>
 
       <p class="queue__lede">
         Nothing in this list is live. Everything here is still running only in its author's
-        preview.
+        preview, and you are its only reviewer, so nothing here is waiting on anybody else.
       </p>
     </div>
 
@@ -217,14 +292,7 @@ export default {
     <!-- list (36:1075) -->
     <div class="queue__list">
       <SEmpty
-        v-if="tab === 'others'"
-        icon="user"
-        title="Nothing is waiting on anybody else"
-        message="This Studio has one reviewer — you. When a change can be handed to a second person, the ones you are waiting on appear here."
-      />
-
-      <SEmpty
-        v-else-if="!loading && !shown.length && tab === 'you'"
+        v-if="!loading && !shown.length && tab === 'you'"
         icon="check"
         title="Nothing is waiting on you"
         message="Every extension in this cluster matches its last commit. Changes show up here as soon as the assistant edits something."
@@ -291,6 +359,8 @@ export default {
         </p>
       </div>
     </div>
+
+    <EditorSettingsModal v-if="showSettings" @close="showSettings = false" />
   </div>
 </template>
 
@@ -340,6 +410,15 @@ export default {
   }
 
   &__grow { flex: 1 1 auto; }
+
+  // The chip is the trigger, so the button around it gives back its own padding and lets the
+  // chip's own box be the control - otherwise the drawn chip sits inside a second, larger one.
+  &__sort {
+    :deep(.s-menu__trigger) {
+      padding: 0 var(--studio-space-4) 0 0;
+      gap:     var(--studio-space-4);
+    }
+  }
 
   &__lede {
     font:   var(--studio-body-14);

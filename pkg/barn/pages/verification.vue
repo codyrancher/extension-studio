@@ -11,15 +11,23 @@
 // and a verification block, so it lands in the repository next to the code rather than in a
 // database this product does not have.
 //
-// Placeholder. Anything that would need the assistant to drive the preview itself: there is no
-// automated check here, and the screen does not pretend otherwise - a person looks and says.
+// Real, and worth being exact about, because both of these could be faked convincingly.
+// "Show me" drives the preview on the right to the route the verdict was taken against - a real
+// navigation of the real dev server, and the route is recorded in the brief beside the verdict
+// so it survives a reload. "Ask the assistant to check" puts the outstanding criteria to the
+// claude in this extension's pod; it answers in that conversation, in the workspace's terminal,
+// and this screen says so rather than drawing an answer it does not have.
+//
+// The verdict itself is still a person's. Nothing here marks a criterion met on the assistant's
+// say-so: it is asked, a person reads the answer, and a person presses the button.
 import {
   SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SBadge
 } from '../components/ui';
 import PreviewPanel from '../components/studio/PreviewPanel.vue';
-import { toastNotYet, toastSuccess, toastError } from '../toast';
+import { toastSuccess, toastError } from '../toast';
 import {
-  readExtensionFile, writeExtensionFile, extensionUrl, extensionReady, DEFAULT_EXTENSION
+  readExtensionFile, writeExtensionFile, extensionUrl, extensionReady, changedFiles, workingDiff,
+  askAssistant, DEFAULT_EXTENSION
 } from '../extensions';
 import { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -67,8 +75,34 @@ const WORD_VERDICTS = Object.fromEntries(
   Object.entries(VERDICT_WORDS).map(([id, word]) => [word.toLowerCase(), id])
 );
 
-/** `- **Met**: the dashboard lists every node`, as written by `verificationBlock`. */
-const VERDICT_LINE = /^-\s+\*\*(.+?)\*\*:\s*(.+)$/;
+/**
+ * `- **Met** at `/c/local/explorer`: the dashboard lists every node`, as written by
+ * `verificationBlock`.
+ *
+ * The route is optional in the pattern because it is optional in the fact: a verdict taken
+ * before the preview was up has none, and a block written by the version of this screen that
+ * did not record routes has none either. Everything between the verdict and the colon is the
+ * route, so the criterion's own text - the key everything here reconciles on - is unchanged
+ * either way.
+ */
+const VERDICT_LINE = /^-\s+\*\*(.+?)\*\*(?:\s+at\s+`([^`]*)`)?:\s*(.+)$/;
+
+/**
+ * Words too common to be evidence of anything.
+ *
+ * The scope check below looks for the brief's non-goals in the added lines of the diff, and a
+ * diff of Vue components contains "return", "class" and "value" whatever it is about. Matching
+ * on those would make the card fire on every change, which is the failure mode a warning has:
+ * one that is always on is one nobody reads.
+ */
+const SCOPE_STOP = new Set([
+  'about', 'after', 'again', 'against', 'anything', 'because', 'before', 'being', 'between',
+  'class', 'const', 'could', 'every', 'first', 'function', 'import', 'inside', 'into', 'never',
+  'other', 'return', 'should', 'still', 'their', 'there', 'these', 'thing', 'things', 'those',
+  'value', 'where', 'which', 'while', 'without', 'would', 'yet',
+  'rancher', 'extension', 'extensions', 'cluster', 'clusters', 'dashboard', 'screen', 'screens',
+  'page', 'pages', 'user', 'users', 'anyone', 'nobody', 'doing', 'going',
+]);
 
 /** The heading the verdict list sits under, inside `## Verification`. */
 const CRITERIA_HEADING = '### criteria';
@@ -96,9 +130,14 @@ export default {
       loading:    true,
       saving:     false,
       notes:      '',
-      // The path the preview is showing, reported by the panel on the right. It is the route
-      // a verdict was taken against, which is the auditable half of a tick.
+      // The path the preview is showing, reported by the panel on the right. It is the route a
+      // verdict is taken against, which is the auditable half of a tick - so it is copied onto
+      // the criterion when the verdict is pressed, and lives there rather than here.
       route:      '',
+      asking:     false,
+      // What the change actually touched, for the scope card. Read once with the brief.
+      changed:    [],
+      diff:       '',
       VERDICTS,
     };
   },
@@ -196,6 +235,110 @@ export default {
       return `${ parts.join(', ') }.${ tail }`;
     },
 
+    /** What the brief says this change is deliberately not doing, as written. */
+    nonGoals() {
+      const body = this.sectionOf(this.brief, 'What we are deliberately not doing');
+
+      return body === '_not stated_' ? '' : body;
+    },
+
+    /**
+     * The things the brief ruled out, as terms to look for.
+     *
+     * Backticked spans first, because a person who wrote `metrics-server` in a brief meant that
+     * exact string; then the longest ordinary words, which are the ones carrying the meaning of
+     * the sentence. Six at most - this is a search for evidence, not a dragnet.
+     */
+    nonGoalTerms() {
+      const body = this.nonGoals;
+
+      if (!body) {
+        return [];
+      }
+
+      const spans = [...body.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim().toLowerCase());
+      const words = (body.toLowerCase().match(/[a-z][a-z0-9-]{4,}/g) || [])
+        .filter((w) => !SCOPE_STOP.has(w))
+        .sort((a, b) => b.length - a.length);
+      const seen = new Set();
+
+      return [...spans, ...words]
+        .filter((t) => t.length >= 4 && !seen.has(t) && seen.add(t))
+        .slice(0, 6);
+    },
+
+    /**
+     * The lines this change adds, with the file each one is in.
+     *
+     * Added lines only. A removed line mentioning something the brief ruled out is the change
+     * getting *smaller*, which is the opposite of drift, and counting it would have the card
+     * warn about work being taken out of scope.
+     *
+     * BRIEF.md is skipped, and skipping it is the difference between a check and a joke. The
+     * brief is usually itself a new file in this working tree, so its own "we are not doing X"
+     * sentence is an added line containing X - and every scope check would flag every brief for
+     * saying what it says.
+     */
+    addedLines() {
+      const out = [];
+      let file = '';
+
+      this.diff.split('\n').forEach((line) => {
+        const header = /^\+\+\+ b\/(.+)$/.exec(line);
+
+        if (header) {
+          file = header[1].trim();
+        } else if (line.startsWith('+') && !line.startsWith('+++') && file && file !== 'BRIEF.md') {
+          out.push({ file, text: line.slice(1) });
+        }
+      });
+
+      return out;
+    },
+
+    /**
+     * Where the change touches something the brief said it would not.
+     *
+     * This is the only scope question this screen can answer honestly. "Files no criterion
+     * mentions" was the other candidate and is not one: briefs are written about behaviour and
+     * name no files at all, so every file would be flagged on every change and the card would
+     * say the same thing forever. The non-goals section is different - it is the author's own
+     * list of what is out of scope, in their own words, and a term from it turning up in the
+     * lines this change adds is a real coincidence worth looking at.
+     *
+     * It is a word match and the card says so. It is evidence, not a verdict.
+     */
+    scopeDrift() {
+      return this.nonGoalTerms
+        .map((term) => {
+          const files = [...new Set(this.addedLines
+            .filter((l) => l.text.toLowerCase().includes(term))
+            .map((l) => l.file))];
+
+          return { term, files };
+        })
+        .filter((hit) => hit.files.length);
+    },
+
+    /** Which of the four things the scope card has to say. */
+    scopeState() {
+      if (!this.nonGoals) {
+        return 'unstated';
+      }
+
+      if (!this.addedLines.length) {
+        return 'nothing-changed';
+      }
+
+      return this.scopeDrift.length ? 'drifted' : 'clear';
+    },
+
+    changedLabel() {
+      const n = this.changed.length;
+
+      return `${ n } file${ n === 1 ? '' : 's' } changed`;
+    },
+
     /**
      * Whoever is signed in, for the provenance line. Same getters the assistant panel uses -
      * the shell has no `auth/principal`, and the named user is not always fetched yet.
@@ -224,9 +367,17 @@ export default {
     async load() {
       this.loading = true;
 
-      this.brief = await readExtensionFile(this.extension, 'BRIEF.md').catch(() => '');
+      const [brief, changed, diff] = await Promise.all([
+        readExtensionFile(this.extension, 'BRIEF.md').catch(() => ''),
+        changedFiles(this.extension).catch(() => []),
+        workingDiff(this.extension).catch(() => ''),
+      ]);
+
+      this.brief = brief;
       this.criteria = this.criteriaFrom(this.brief);
       this.problem = this.sectionOf(this.brief, 'The problem');
+      this.changed = changed;
+      this.diff = diff;
       this.loading = false;
 
       if (await extensionReady(this.extension).catch(() => false)) {
@@ -247,18 +398,22 @@ export default {
 
       return this.criteriaLines(brief).map(({ text, ticked }) => {
         const queue = recorded.get(text) || [];
-        const wrote = queue.length ? queue.shift() : '';
+        const wrote = queue.length ? queue.shift() : { verdict: '', route: '' };
 
         return {
           text,
           // The box wins on "met", because the box is the half a person edits by hand. An
           // unticked box takes whatever the block recorded - unless the block said met, in
           // which case somebody has since unticked it and the record is stale.
-          verdict: ticked ? 'pass' : (wrote === 'pass' ? '' : wrote),
+          verdict: ticked ? 'pass' : (wrote.verdict === 'pass' ? '' : wrote.verdict),
           // Provenance for a verdict taken in this session (39:1225). The brief records the
-          // verdict, not who took it or when, so a criterion read back off the file has none -
-          // and the line says nothing rather than making something up.
+          // verdict and the route, not who took it or when, so a criterion read back off the
+          // file has no name and no clock - and the line says nothing rather than making
+          // something up.
           taken:   '',
+          // Where it was checked. Recorded in the file beside the verdict, so "Show me" still
+          // knows where to point the preview a week later.
+          route:   wrote.route || '',
         };
       });
     },
@@ -275,7 +430,7 @@ export default {
     },
 
     /**
-     * The verdicts the last save wrote, as criterion text to a queue of verdicts.
+     * The verdicts the last save wrote, as criterion text to a queue of `{ verdict, route }`.
      *
      * A queue rather than a single value so two criteria worded identically still come back in
      * the order they appear, which is the only ordering left once the index is gone.
@@ -308,9 +463,9 @@ export default {
           continue;
         }
 
-        const text = m[2].trim();
+        const text = m[3].trim();
 
-        out.set(text, [...(out.get(text) || []), verdict]);
+        out.set(text, [...(out.get(text) || []), { verdict, route: (m[2] || '').trim() }]);
       }
 
       return out;
@@ -362,6 +517,10 @@ export default {
 
       criterion.verdict = off ? '' : verdict;
       criterion.taken = off ? '' : this.provenance();
+      // The route the preview is on at the moment of the answer, which is the thing "Show me"
+      // takes you back to. Taking the answer back takes the route with it: a route recorded
+      // against no verdict is a claim that somebody checked something.
+      criterion.route = off ? '' : this.route;
     },
 
     /** "Checked 12:41 · admin", or just the time when the shell has no name for the user. */
@@ -476,7 +635,12 @@ export default {
         '',
         '### Criteria',
         '',
-        ...this.criteria.map((c) => `- **${ VERDICT_WORDS[c.verdict] ?? VERDICT_WORDS[''] }**: ${ c.text }`),
+        ...this.criteria.map((c) => {
+          const word = VERDICT_WORDS[c.verdict] ?? VERDICT_WORDS[''];
+          const where = c.route ? ` at \`${ c.route }\`` : '';
+
+          return `- **${ word }**${ where }: ${ c.text }`;
+        }),
       ];
 
       if (this.notes.trim()) {
@@ -486,8 +650,89 @@ export default {
       return block;
     },
 
-    notYet(what) {
-      toastNotYet(this.$store, what);
+    /**
+     * Put the criterion on the screen: drive the preview to the route it was checked against.
+     *
+     * Through the panel's own address field rather than by changing the `url` prop, because the
+     * prop is the iframe's `src` and re-assigning the same value does not navigate - so the
+     * second press, after you had wandered off somewhere else in the preview, would silently do
+     * nothing. This is the same navigation typing the path into that field performs.
+     *
+     * With no route recorded there is nowhere specific to go, and the honest version of that is
+     * to take the preview back to the extension's own start page and say why - not to disable
+     * the button and leave somebody wondering which of the two of them is broken.
+     */
+    showMe(criterion) {
+      const panel = this.$refs.preview;
+
+      if (!this.previewUrl || !panel) {
+        toastError(
+          this.$store,
+          'The dev server is still compiling, so there is nothing to drive yet.',
+          { title: 'The preview is not up' }
+        );
+
+        return;
+      }
+
+      panel.address = criterion.route || '/';
+      panel.go();
+
+      if (!criterion.route) {
+        toastSuccess(
+          this.$store,
+          'No route was recorded for this one, so the preview is back at the start. Answering a criterion records where you were when you answered it.',
+          { title: 'Nowhere in particular to go' }
+        );
+      }
+    },
+
+    /**
+     * Ask the assistant to check the criteria that are still open.
+     *
+     * The outstanding ones, because those are the question; if there are none left it is a
+     * second opinion on all of them, which is a thing people ask for. Each one goes with the
+     * route it was checked at, when there is one, because that is the difference between "check
+     * the trend renders" and "check the trend renders on /c/local/barn".
+     *
+     * The screen does not move and nothing is ticked here. There are unsaved verdicts and notes
+     * on this page, and an answer is not a verdict: it arrives in the extension's terminal, a
+     * person reads it, and a person presses the button.
+     */
+    async askAssistantToCheck() {
+      if (this.asking || !this.criteria.length) {
+        return;
+      }
+
+      const open = this.criteria.filter((c) => !c.verdict);
+      const asking = open.length ? open : this.criteria;
+      const list = asking
+        .map((c, i) => `(${ i + 1 }) ${ c.text }${ c.route ? ` [checked at ${ c.route }]` : '' }`)
+        .join('; ');
+
+      this.asking = true;
+
+      try {
+        const how = await askAssistant(this.extension, [
+          `Check the ${ this.extension } extension against ${ open.length ? 'these outstanding acceptance criteria' : 'its acceptance criteria' }`,
+          'and tell me, for each one, whether it is met and how you established that:',
+          `${ list }.`,
+          'The dev server for this extension is the one already running. Do not change any code',
+          'and do not edit BRIEF.md - I record the verdicts myself.',
+        ].join(' '));
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? `Asked about ${ asking.length } criteri${ asking.length === 1 ? 'on' : 'a' }. The answer arrives in the workspace terminal.`
+            : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.',
+          { title: 'Asked the assistant' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not ask the assistant' });
+      } finally {
+        this.asking = false;
+      }
     },
   },
 };
@@ -597,19 +842,19 @@ export default {
                     the one thing a provenance line exists to record.
                   -->
                   <div
-                    v-if="c.taken"
+                    v-if="c.taken || c.route"
                     class="verify__meta"
                   >
                     <SIcon name="eye" :size="12" />
-                    <span>{{ c.taken }}</span>
+                    <span v-if="c.taken">{{ c.taken }}</span>
                     <span
-                      v-if="route"
+                      v-if="c.taken && c.route"
                       class="verify__meta-sep"
                     >·</span>
                     <span
-                      v-if="route"
+                      v-if="c.route"
                       class="verify__meta-route"
-                    >{{ route }}</span>
+                    >{{ c.route }}</span>
                   </div>
                 </div>
 
@@ -638,11 +883,55 @@ export default {
                   variant="neutral"
                   size="sm"
                   icon="play"
-                  @click="notYet('driving the preview to a criterion for you')"
+                  :title="c.route
+                    ? `Drive the preview to ${ c.route }`
+                    : 'No route recorded yet — takes the preview back to the start'"
+                  @click="showMe(c)"
                 >
                   Show me
                 </SButton>
               </div>
+            </div>
+
+            <!-- has this grown past what it was for? (39:1336) -->
+            <div class="verify__scope">
+              <div class="verify__scope-head">
+                <SIcon name="compare" :size="13" />
+                <span class="verify__scope-title">Scope</span>
+                <span class="verify__grow" />
+                <SChip :label="changedLabel" tone="subtle" />
+              </div>
+
+              <SBanner v-if="scopeState === 'unstated'" type="info">
+                The brief does not say what this was deliberately <em>not</em> doing, so there is
+                nothing to measure the change against. Filling that section in is what makes this
+                check possible on the next one.
+              </SBanner>
+
+              <SBanner v-else-if="scopeState === 'nothing-changed'" type="info">
+                This change adds no lines outside the brief itself, so there is nothing to
+                compare with what the brief ruled out.
+              </SBanner>
+
+              <SBanner v-else-if="scopeState === 'clear'" type="success">
+                Nothing this change adds mentions
+                <code v-for="t in nonGoalTerms" :key="t" class="verify__term">{{ t }}</code> —
+                the words the brief used to say what it was not doing.
+              </SBanner>
+
+              <template v-else>
+                <SBanner type="warning">
+                  This change adds lines that mention what the brief said it was deliberately not
+                  doing. A word match is not proof of anything — it is a place to look.
+                </SBanner>
+
+                <div class="verify__drift">
+                  <div v-for="hit in scopeDrift" :key="hit.term" class="verify__drift-row">
+                    <code class="verify__term">{{ hit.term }}</code>
+                    <span class="verify__drift-files">{{ hit.files.join(', ') }}</span>
+                  </div>
+                </div>
+              </template>
             </div>
 
             <div class="verify__notes">
@@ -681,6 +970,7 @@ export default {
 
         <PreviewPanel
           v-if="previewUrl"
+          ref="preview"
           class="verify__frame"
           :url="previewUrl"
           :extension="extension"
@@ -705,7 +995,9 @@ export default {
       <SButton
         variant="ghost"
         icon="sparkle"
-        @click="notYet('having the assistant verify a criterion for you')"
+        :loading="asking"
+        :disabled="!criteria.length"
+        @click="askAssistantToCheck"
       >
         Ask the assistant to check
       </SButton>
@@ -1002,6 +1294,59 @@ $verdicts-edge:   1px;
 
     &--on-unsure,
     &--on-unsure:hover { background: var(--studio-warning); color: var(--studio-on-warning); }
+  }
+
+  // 39:1336: the card that asks whether the change is still the change the brief describes.
+  &__scope {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-8);
+    padding:        var(--studio-space-12) 14px 14px;
+    background:     var(--studio-surface);
+    border:         1px solid var(--studio-border);
+    border-radius:  var(--studio-radius);
+  }
+
+  &__scope-head {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    color:       var(--studio-text-tertiary);
+  }
+
+  &__scope-title {
+    font:  var(--studio-heading-14);
+    color: var(--studio-text);
+  }
+
+  &__term {
+    font:          var(--studio-mono-12);
+    background:    var(--studio-surface-subtle);
+    border:        1px solid var(--studio-border-subtle);
+    border-radius: var(--studio-radius-control);
+    padding:       1px 4px;
+    margin:        0 2px;
+  }
+
+  &__drift {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
+  }
+
+  &__drift-row {
+    display:     flex;
+    align-items: baseline;
+    gap:         var(--studio-space-8);
+    min-width:   0;
+  }
+
+  &__drift-files {
+    flex:      1 1 auto;
+    min-width: 0;
+    font:      var(--studio-body-13);
+    color:     var(--studio-text-secondary);
+    word-break: break-word;
   }
 
   &__notes {

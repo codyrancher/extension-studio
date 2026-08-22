@@ -4,20 +4,23 @@
 // The gate in front of publishing: a list of what changed, the diff of whichever file is
 // selected, and a rail explaining it. Three panels and an action bar.
 //
-// Real: the file list (git status in the pod), each file's diff, Discard all (checkout plus
-// clean), Keep and continue building (back to the workspace), and Publish - which is the same
-// publish the workspace's button runs.
+// Real: the file list (git status in the pod, with the same line counts screen 12 shows), each
+// file's diff, Discard all (checkout plus clean), Keep and continue building (back to the
+// workspace), Publish - which is the same publish the workspace's button runs - and the
+// explanation rail's question.
 //
-// Placeholder: the explanation rail. The design has the assistant explain each change in prose
-// beside its diff, and nothing produces that text - so the rail says what it would hold and
-// offers the diff instead of inventing a rationale for code it did not write.
+// The rail is worth being exact about. The design has the assistant explain each change in prose
+// beside its diff, and nothing writes that prose into this page: what the product has is one
+// claude per pod, in a conversation, in the workspace's terminal. So the rail does not pretend
+// to hold an explanation. It asks the real assistant about the file you are looking at and takes
+// you to where it answers, and it says that is what it is doing.
 import {
   SButton, SBadge, SChip, SIcon, SEmpty, SBanner
 } from '../components/ui';
 import DiffView from '../components/DiffView.vue';
-import { toastNotYet, toastSuccess, toastError } from '../toast';
+import { toastSuccess, toastError } from '../toast';
 import {
-  changedFiles, fileDiff, discardChanges, listBranches, DEFAULT_EXTENSION
+  changedFiles, fileDiff, discardChanges, listBranches, askAssistant, DEFAULT_EXTENSION
 } from '../extensions';
 import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -41,6 +44,7 @@ export default {
       loading:  true,
       diffing:  false,
       discarding: false,
+      asking:   false,
       // The paths still ticked in the file list (14:395). Everything is kept until somebody
       // says otherwise, which is what makes the default row of the action bar honest.
       kept:     [],
@@ -86,6 +90,24 @@ export default {
 
     selectedFile() {
       return this.files.find((f) => f.path === this.selected) || null;
+    },
+
+    /**
+     * What the rail asks about the file on screen.
+     *
+     * Named after the file rather than "explain the change", because the conversation in the pod
+     * has been editing this tree all session and "the change" is ambiguous to it in a way a path
+     * is not. The last clause is the one that matters: this is a review screen, and a question
+     * that came back as an edit would change what is being reviewed underneath the reviewer.
+     */
+    explainPrompt() {
+      const file = this.selectedFile;
+
+      if (!file) {
+        return '';
+      }
+
+      return `In the working tree of the ${ this.extension } extension, explain the ${ file.status } file ${ file.path }: what the change does, why it was made, and anything in it a reviewer should question. Explain it here in the terminal and do not edit any files.`;
     },
   },
 
@@ -182,8 +204,66 @@ export default {
       });
     },
 
-    notYet(what) {
-      toastNotYet(this.$store, what);
+    /**
+     * Ask the pod's claude about the selected file, and go and watch it answer.
+     *
+     * The question goes into the one conversation this extension has - the workspace terminal's
+     * - so it arrives with everything that session already knows, and the answer is somewhere a
+     * person can read it and reply to it. Which means leaving this screen, so the toast says
+     * which file was asked about before the route changes.
+     */
+    async askAboutFile() {
+      if (!this.selectedFile || this.asking) {
+        return;
+      }
+
+      const path = this.selected;
+
+      this.asking = true;
+
+      try {
+        const how = await askAssistant(this.extension, this.explainPrompt);
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? `Asked about ${ path }. The answer appears in the workspace terminal.`
+            : `The workspace session is not open yet, so ${ path } is the first thing it will be asked when it opens.`,
+          { title: 'Asked the assistant' }
+        );
+
+        this.$router.push({
+          name:   EDITOR_ROUTE,
+          params: { extension: this.extension },
+          query:  { tab: 'terminal' },
+        });
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not ask the assistant' });
+      } finally {
+        this.asking = false;
+      }
+    },
+
+    /**
+     * The line counts, in the words screen 12's rows use.
+     *
+     * Same reading, same shape, so a file that is `+21 -3` on the review-a-change screen is
+     * `+21 -3` here. Empty for a file git cannot count lines for - an untracked one, which is
+     * every file the assistant has just created - because "+0 -0" reads as "nothing changed"
+     * about a file that is entirely new.
+     */
+    fileCounts(file) {
+      const counts = [];
+
+      if (file.added) {
+        counts.push(`+${ file.added }`);
+      }
+
+      if (file.removed) {
+        counts.push(`-${ file.removed }`);
+      }
+
+      return counts.join(' ');
     },
 
     statusTone(status) {
@@ -264,6 +344,7 @@ export default {
             >
               <SIcon name="file" :size="13" />
               <span class="review__file-path">{{ file.path }}</span>
+              <span v-if="fileCounts(file)" class="review__file-stats">{{ fileCounts(file) }}</span>
               <SChip :label="file.status" :tone="statusTone(file.status)" />
             </button>
           </div>
@@ -327,9 +408,11 @@ export default {
 
         <div class="review__explain-body">
           <SBanner type="info">
-            The assistant does not yet write an explanation for each change. When it does, the
-            reasoning for <strong>{{ selected || 'the selected file' }}</strong> appears here
-            next to its diff.
+            The assistant explains a change in the workspace terminal, not on this rail — it is a
+            conversation, and half of what makes it useful is being able to argue with it. Asking
+            about <strong>{{ selected || 'the selected file' }}</strong> puts the question to the
+            session already editing this extension and takes you to the workspace, where it
+            answers in the Terminal tab.
           </SBanner>
 
           <div v-if="selectedFile" class="review__explain-facts">
@@ -347,8 +430,15 @@ export default {
             </div>
           </div>
 
-          <SButton variant="ghost" size="sm" icon="book" @click="notYet('the change rationale')">
-            Ask the assistant to explain
+          <SButton
+            variant="ghost"
+            size="sm"
+            icon="book"
+            :disabled="!selectedFile"
+            :loading="asking"
+            @click="askAboutFile"
+          >
+            Ask about this file
           </SButton>
         </div>
       </div>
@@ -570,6 +660,16 @@ export default {
     white-space:   nowrap;
     direction:     rtl;
     text-align:    left;
+  }
+
+  // The same reading screen 12 puts under its rows (38:1184), on a row that has no second line
+  // to put it on.
+  &__file-stats {
+    flex:            0 0 auto;
+    font:            var(--studio-caption-12);
+    color:           var(--studio-text-tertiary);
+    font-variant-numeric: tabular-nums;
+    white-space:     nowrap;
   }
 
   &__file-empty {

@@ -9,18 +9,45 @@
 // instruction - so the brief is not a ceremony, it is the prompt. Skip the brief goes straight
 // to the workspace.
 //
-// Placeholder. The two cards on the right. "What the assistant cannot decide" would need the
-// assistant to have read the brief and formed questions about it, and "This already exists,
-// partly" would need a search across the extensions and pages on this instance. Both are drawn
-// with what they would hold and say so, rather than inventing questions nobody asked.
+// Real, and both on the right. "What the assistant cannot decide" hands the brief as it stands
+// to the claude in this extension's pod and asks it what it cannot decide from it; the answer
+// arrives in that conversation, in the workspace's terminal, which the card says in as many
+// words rather than leaving a person watching this page for a list that will never appear here.
+// "This already exists, partly" greps the source of every extension in this Studio for the
+// terms in the brief's own title and problem, and reports the file and line of each hit - or
+// says plainly that there were none, which is a finding rather than an empty state.
+//
+// Gone. The masthead's "Send questions to the requester". There is no requester in this product
+// - no ticket, no reporter, no messaging - and no list of questions to send either, since the
+// answers to the card above arrive in a terminal. A button that cannot name who it sends to is
+// not a feature waiting on plumbing, it is a promise about a workflow this product does not
+// have, so it is removed rather than reinterpreted into something else wearing its label.
 import {
   SButton, SChip, SIcon, SBanner, SField, SLabel
 } from '../components/ui';
-import { toastNotYet, toastError } from '../toast';
-import { writeExtensionFile, DEFAULT_EXTENSION } from '../extensions';
+import { toastSuccess, toastError } from '../toast';
+import {
+  writeExtensionFile, askAssistant, findPriorArt, DEFAULT_EXTENSION
+} from '../extensions';
 import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
+
+/**
+ * Words that match everything, so they find nothing.
+ *
+ * The commonest English on top of the vocabulary this form's own placeholders put in people's
+ * heads - "should", "cannot", "rancher", "extension", "cluster" - which appear in every package
+ * in the namespace and would make every search return the same eight lines of somebody else's
+ * boilerplate.
+ */
+const STOP_WORDS = new Set([
+  'that', 'this', 'with', 'from', 'they', 'them', 'have', 'been', 'when', 'what', 'which',
+  'their', 'there', 'would', 'could', 'should', 'cannot', 'about', 'into', 'only', 'more',
+  'than', 'then', 'some', 'each', 'other', 'because', 'without', 'every', 'where', 'while',
+  'rancher', 'extension', 'extensions', 'cluster', 'clusters', 'dashboard', 'page', 'pages',
+  'user', 'users', 'need', 'needs', 'wants', 'today', 'thing', 'things',
+]);
 
 export default {
   name: 'BarnBrief',
@@ -39,6 +66,15 @@ export default {
       notDoing: '',
       criteria: ['', '', ''],
       saving:   false,
+      asking:   false,
+      // '' until the question has been put to the pod; then what happened to it, so the card
+      // can say where the answer is rather than looking like nothing happened.
+      asked:    '',
+      searching: false,
+      // null is "nobody has looked yet", [] is "looked, found nothing" - and those are
+      // different sentences.
+      priorArt: null,
+      priorArtError: '',
     };
   },
 
@@ -66,6 +102,39 @@ export default {
 
     canAgree() {
       return !!this.problem.trim() && !this.saving;
+    },
+
+    /**
+     * What to search the other extensions for.
+     *
+     * The brief's own vocabulary: the extension's name and the words of the problem statement,
+     * which is the sentence that says what this is for. Words of four letters or more, because
+     * the search is a fixed-string grep and "the" matches everything; the commonest English and
+     * brief-template words on top of that, because "should" and "cannot" match everything too.
+     *
+     * Longest first, then capped: a grep for six terms across every pod is six chances to match
+     * something irrelevant, and the longest words in a sentence are the ones that carry it.
+     */
+    priorArtTerms() {
+      const seen = new Set();
+
+      return `${ this.extension } ${ this.problem }`
+        .toLowerCase()
+        .match(/[a-z][a-z0-9-]{3,}/g)
+        ?.filter((w) => !STOP_WORDS.has(w) && !seen.has(w) && seen.add(w))
+        .sort((a, b) => b.length - a.length)
+        .slice(0, 5) || [];
+    },
+
+    /** The hits under a heading per extension, which is the unit a person would go and look at. */
+    priorArtGroups() {
+      const groups = new Map();
+
+      (this.priorArt || []).forEach((hit) => {
+        groups.set(hit.extension, [...(groups.get(hit.extension) || []), hit]);
+      });
+
+      return [...groups.entries()].map(([extension, hits]) => ({ extension, hits }));
     },
   },
 
@@ -153,8 +222,85 @@ export default {
       this.$router.push({ name: EDITOR_ROUTE, params: { extension: this.extension } });
     },
 
-    notYet(what) {
-      toastNotYet(this.$store, what);
+    /**
+     * Ask the assistant what it cannot decide from this brief.
+     *
+     * The brief goes with the question, as it stands in the form right now - unsaved, because a
+     * question about a draft is about the draft. It goes to the one claude this extension has,
+     * so what it answers it answers in that conversation, in the workspace's terminal. This page
+     * does not move: the form is full of typing nobody has saved yet, and navigating away from
+     * it to show an answer would cost more than the answer is worth. The card says where to
+     * find it and offers the door.
+     */
+    async askWhatIsUnclear() {
+      if (this.asking) {
+        return;
+      }
+
+      this.asking = true;
+
+      try {
+        const how = await askAssistant(this.extension, [
+          `Here is the draft brief for the ${ this.extension } extension, written before any code exists.`,
+          'Read it and tell me only the decisions you cannot make from it - the choices where',
+          'guessing would waste the build: empty states, defaults, whether to replace something',
+          'or sit beside it. List them as questions. Do not write any code yet.',
+          '---',
+          this.briefMarkdown(),
+        ].join(' '));
+
+        this.asked = how;
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? 'The answer arrives in the workspace terminal for this extension.'
+            : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.',
+          { title: 'Asked the assistant' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not ask the assistant' });
+      } finally {
+        this.asking = false;
+      }
+    },
+
+    openWorkspace() {
+      this.$router.push({
+        name:   EDITOR_ROUTE,
+        params: { extension: this.extension },
+        query:  { tab: 'terminal' },
+      });
+    },
+
+    /**
+     * Look for the parts of this that somebody has already built.
+     *
+     * A fixed-string grep over the source of every extension in this Studio, which is what
+     * `findPriorArt` is: not a semantic search, and the card says so, because "no hits" from a
+     * grep means "nobody used these words" and not "nothing like this exists".
+     *
+     * This extension's own BRIEF.md is dropped from the results. It is the document being typed
+     * on this screen - it matches every term by construction, and reporting it as prior art
+     * would be the search finding itself.
+     */
+    async lookForPriorArt() {
+      if (this.searching) {
+        return;
+      }
+
+      this.searching = true;
+      this.priorArtError = '';
+
+      try {
+        const hits = await findPriorArt(this.priorArtTerms);
+
+        this.priorArt = hits.filter((h) => !(h.extension === this.extension && h.path === 'BRIEF.md'));
+      } catch (e) {
+        this.priorArtError = e?.message || String(e);
+        this.priorArt = null;
+      } finally {
+        this.searching = false;
+      }
     },
   },
 };
@@ -188,14 +334,6 @@ export default {
 
       <SButton variant="ghost" size="sm" @click="skip">
         Skip the brief
-      </SButton>
-      <SButton
-        variant="neutral"
-        size="sm"
-        icon="arrowRight"
-        @click="notYet('sending the open questions to the requester')"
-      >
-        Send questions to the requester
       </SButton>
       <SButton
         variant="primary"
@@ -331,24 +469,44 @@ export default {
                 What the assistant cannot decide
               </h2>
               <p class="brief__card-note">
-                The most useful thing on this screen. Send these before you build, not after.
+                The most useful thing on this screen. Ask before you build, not after.
               </p>
             </header>
             <div class="brief__card-body">
               <SBanner type="warning">
-                The assistant does not yet read the brief and come back with questions about it.
-                When it does, the things it cannot decide for you — an empty state, a default
-                window, whether to replace something or sit beside it — are listed here for you
-                to answer or forward.
+                The answer does not appear here. Asking sends this brief, as it stands, to the
+                assistant working on <strong>{{ extension }}</strong>, and it replies in that
+                extension's terminal in the workspace — where you can argue with it, which is
+                the half of this a list on a page cannot do.
               </SBanner>
-              <SButton
-                variant="ghost"
-                size="sm"
-                icon="sparkle"
-                @click="notYet('asking the assistant what it cannot decide')"
-              >
-                Ask what is unclear
-              </SButton>
+
+              <p v-if="asked" class="brief__asked">
+                {{ asked === 'sent'
+                  ? 'Sent. The answer is being written in the workspace terminal.'
+                  : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.' }}
+              </p>
+
+              <div class="brief__card-actions">
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  icon="sparkle"
+                  :loading="asking"
+                  :disabled="!problem.trim()"
+                  @click="askWhatIsUnclear"
+                >
+                  Ask what is unclear
+                </SButton>
+                <SButton
+                  v-if="asked"
+                  variant="ghost"
+                  size="sm"
+                  icon="terminal"
+                  @click="openWorkspace"
+                >
+                  Open the workspace
+                </SButton>
+              </div>
             </div>
           </section>
 
@@ -359,22 +517,56 @@ export default {
                 This already exists, partly
               </h2>
               <p class="brief__card-note">
-                Checked against every extension and Rancher page on this instance.
+                A word search over the source of every extension in this Studio.
               </p>
             </header>
             <div class="brief__card-body">
-              <SBanner type="info">
-                Nothing searches this Rancher for prior art yet. When it does, the pages and
-                extensions that already do part of this appear here, so the brief can say what
-                is genuinely new.
+              <SBanner v-if="priorArtError" type="error">
+                {{ priorArtError }}
               </SBanner>
+
+              <SBanner v-else-if="priorArt === null" type="info">
+                Looks for <template v-if="priorArtTerms.length">
+                  <code v-for="t in priorArtTerms" :key="t" class="brief__term">{{ t }}</code>
+                </template>
+                <template v-else>the words in the title and the problem</template>
+                in every extension's source, and reports the file and line of each hit. It is a
+                word search, not an understanding of them: no hits means nobody used these words.
+              </SBanner>
+
+              <SBanner v-else-if="!priorArt.length" type="success">
+                No extension in this Studio mentions
+                <code v-for="t in priorArtTerms" :key="t" class="brief__term">{{ t }}</code>.
+                Nothing to reuse and nothing to collide with — on these words, at least.
+              </SBanner>
+
+              <div v-else class="brief__art">
+                <div v-for="g in priorArtGroups" :key="g.extension" class="brief__art-group">
+                  <div class="brief__art-head">
+                    <SIcon name="puzzle" :size="13" />
+                    <span class="brief__art-ext">{{ g.extension }}</span>
+                    <span class="brief__art-count">{{ g.hits.length }}</span>
+                  </div>
+                  <div
+                    v-for="(hit, i) in g.hits"
+                    :key="`${ hit.path }:${ hit.line }:${ i }`"
+                    class="brief__art-hit"
+                  >
+                    <span class="brief__art-where">{{ hit.path }}:{{ hit.line }}</span>
+                    <code class="brief__art-text">{{ hit.text }}</code>
+                  </div>
+                </div>
+              </div>
+
               <SButton
                 variant="ghost"
                 size="sm"
                 icon="search"
-                @click="notYet('the prior-art search')"
+                :loading="searching"
+                :disabled="!priorArtTerms.length"
+                @click="lookForPriorArt"
               >
-                Look for prior art
+                {{ priorArt === null ? 'Look for prior art' : 'Look again' }}
               </SButton>
             </div>
           </section>
@@ -566,6 +758,91 @@ export default {
     color:      var(--studio-text);
 
     &::placeholder { color: var(--studio-text-tertiary); }
+  }
+
+  &__card-actions {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    flex-wrap:   wrap;
+  }
+
+  &__asked {
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
+    margin: 0;
+  }
+
+  &__term {
+    font:          var(--studio-mono-12);
+    background:    var(--studio-surface-subtle);
+    border:        1px solid var(--studio-border-subtle);
+    border-radius: var(--studio-radius-control);
+    padding:       1px 4px;
+    margin:        0 2px;
+  }
+
+  // The hits, grouped by the extension they were found in.
+  &__art {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-12);
+  }
+
+  &__art-group {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-4);
+  }
+
+  &__art-head {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+    color:       var(--studio-text-tertiary);
+  }
+
+  &__art-ext {
+    flex:  1 1 auto;
+    font:  var(--studio-caption-12-semi);
+    color: var(--studio-text);
+  }
+
+  &__art-count {
+    padding:       0 var(--studio-space-6);
+    border-radius: var(--studio-radius-pill);
+    background:    var(--studio-neutral-bg);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
+  }
+
+  &__art-hit {
+    display:        flex;
+    flex-direction: column;
+    gap:            1px;
+    padding:        var(--studio-space-6) var(--studio-space-10);
+    background:     var(--studio-surface-subtle);
+    border:         1px solid var(--studio-border-subtle);
+    border-radius:  var(--studio-radius-control);
+    min-width:      0;
+  }
+
+  &__art-where {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-secondary);
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+    direction:     rtl;
+    text-align:    left;
+  }
+
+  &__art-text {
+    font:          var(--studio-mono-12);
+    color:         var(--studio-text);
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
   }
 
   &__footnote {
