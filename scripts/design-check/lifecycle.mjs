@@ -136,7 +136,7 @@ chown 1000:1000 pages/NodeHealth.vue 2>/dev/null || true`);
   await click('[data-testid="barn-publish-button"]');
 
   await waitFor('.publish-status__running', { timeout: 45000 }).catch(() => {});
-  await point('.publish-status', 'A real production build — this takes minutes');
+  await point('.publish-status', 'A real production build - this takes minutes');
 
   // Sit on the progress strip until it finishes. Long, and honest about why.
   await page.waitForSelector('.publish-status__done', { timeout: 600000 })

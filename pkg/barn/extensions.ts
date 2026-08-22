@@ -948,7 +948,7 @@ const CDP_PROXY = String.raw`#!/usr/bin/with-contenv bash
 # s6 service (mounted into /custom-services.d/): exposes Chromium's CDP to the
 # compose network. Headful Chromium only binds 127.0.0.1:9222, so we forward
 # <container-ip>:9222 -> 127.0.0.1:9222. Connect using the IP, not the
-# service name — Chrome rejects non-localhost/non-IP Host headers.
+# service name - Chrome rejects non-localhost/non-IP Host headers.
 exec python3 - <<'PYEOF'
 import asyncio, socket
 
@@ -1013,7 +1013,7 @@ const STREAM_KEEPALIVE = String.raw`#!/usr/bin/with-contenv bash
 # display alive (verified across the teardown window), and streaming would just
 # encode+transmit frames nothing reads. We also don't pin manual-resolution mode,
 # so a real human viewer on :8303 connecting at their own size takes over cleanly.
-# (Holding a client does cost ~8% of one core in the Selkies capture loop — that's
+# (Holding a client does cost ~8% of one core in the Selkies capture loop - that's
 # inherent to this image whenever the display is held full-size for headless
 # screenshots, not the video stream.)
 exec python3 - <<'PYEOF'
@@ -1022,7 +1022,7 @@ import websockets
 
 URI = "ws://127.0.0.1:3000/websocket"
 # Minimal: assert a usable display size (so headless screenshots aren't 1x1),
-# but not manual-resolution mode — a human viewer's own size then wins.
+# but not manual-resolution mode - a human viewer's own size then wins.
 SETTINGS = "SETTINGS," + json.dumps({
     "initialClientWidth": 1280, "initialClientHeight": 800, "displayId": "primary",
 })
@@ -1039,7 +1039,7 @@ async def run():
                 async for _ in ws:  # stay connected; drain any server messages
                     pass
         except Exception as e:
-            # Selkies not up yet (boot) or the connection dropped — back off so we
+            # Selkies not up yet (boot) or the connection dropped - back off so we
             # don't churn/log-spam every 3s indefinitely if it never comes up.
             print(f"stream-keepalive: reconnect in {delay}s ({e})", flush=True)
             await asyncio.sleep(delay)

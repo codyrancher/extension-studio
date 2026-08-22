@@ -1,5 +1,5 @@
 <script>
-// Screen 08 · Build failed — explained, with a way back (Figma node 19:621).
+// Screen 08 · Build failed - explained, with a way back (Figma node 19:621).
 //
 // The screen's whole argument is in its name: a build that failed is not an error dialog, it is
 // a thing that needs explaining and a route out. So this is the message, then the log, then
@@ -149,7 +149,7 @@ export default {
           <SCard v-if="firstError" title="The line that looks like the problem" icon="alert">
             <code class="failed__error-line">{{ firstError }}</code>
             <p class="failed__hint">
-              Picked out of the log by pattern, not by understanding it — the assistant does not
+              Picked out of the log by pattern, not by understanding it - the assistant does not
               yet read a build log and explain it. Treat this as a pointer to where to look.
             </p>
           </SCard>

@@ -1,5 +1,5 @@
 <script>
-// Screen 12 · Review a change — intent, diff and rendered result together (Figma node 38:1030).
+// Screen 12 · Review a change - intent, diff and rendered result together (Figma node 38:1030).
 //
 // The screen the design is named after: three columns so a reviewer never has to hold two of
 // them in their head at once. The packet on the left is what the change is for, the diff is in
@@ -270,7 +270,7 @@ export default {
     prTitle() {
       return {
         checking: `Asking GitHub whether ${ this.repo } has an open pull request for ${ this.branch }`,
-        open:     `${ this.pr?.title } — opens on GitHub`,
+        open:     `${ this.pr?.title } - opens on GitHub`,
         none:     `${ this.repo } has no open pull request whose head branch is ${ this.branch }. Opens the repository's pull requests.`,
         'no-token': 'No GitHub token is configured, so nothing can be asked. Opens the editor settings.',
         'no-repo':  `No GitHub repository is remembered for ${ this.extension }. Publishing it to GitHub records one.`,

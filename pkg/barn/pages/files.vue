@@ -1,5 +1,5 @@
 <script>
-// Screen 05 · Files — history, tree and a readable editor (Figma node 22:784).
+// Screen 05 · Files - history, tree and a readable editor (Figma node 22:784).
 //
 // Masthead, the workspace's tab strip, then three columns: the tree, the file, and a rail
 // showing where the file is used.
@@ -559,7 +559,7 @@ export default {
           </template>
 
           <p class="files__note">
-            A fixed-string search of the package, not a symbol index — it finds imports and
+            A fixed-string search of the package, not a symbol index - it finds imports and
             string references, and will miss anything renamed on the way in.
           </p>
         </div>

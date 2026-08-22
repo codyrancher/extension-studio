@@ -33,7 +33,7 @@ export default {
       default: '',
     },
 
-    /** left | right — which edge of the trigger the panel lines up with. */
+    /** left | right - which edge of the trigger the panel lines up with. */
     align: {
       type:    String,
       default: 'right',

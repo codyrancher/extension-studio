@@ -106,7 +106,7 @@ try {
   failures++;
 } finally {
   write(original);
-  console.log(`\n${ failures === 0 ? 'ALL PASS' : failures + ' FAILED' } — BRIEF.md restored`);
+  console.log(`\n${ failures === 0 ? 'ALL PASS' : failures + ' FAILED' } - BRIEF.md restored`);
   await page.close().catch(() => {});
   process.exit(failures === 0 ? 0 : 1);
 }

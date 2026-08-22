@@ -1,5 +1,5 @@
 <script>
-// Screen 02 · New extension — describe it (Figma node 13:235).
+// Screen 02 · New extension - describe it (Figma node 13:235).
 //
 // A single 820px card on a centred canvas. Everything the card asks for is kept and used:
 //
@@ -94,7 +94,7 @@ export default {
     /**
      * Suggest a name from the description.
      *
-     * The design's field says "Suggested from your description — editable", which is exactly
+     * The design's field says "Suggested from your description - editable", which is exactly
      * this: the first few meaningful words, hyphenated. It is a poor name generator and that is
      * fine - it is a starting point that stops the field being empty, and the moment anybody
      * types in it this stops firing.
@@ -242,7 +242,7 @@ export default {
             <SIcon name="sparkle" :size="13" />
             <span>
               Answer this and the assistant can tell you when your description is a solution
-              rather than a problem — which is most of the time, and is where the rewrites come
+              rather than a problem - which is most of the time, and is where the rewrites come
               from.
             </span>
           </div>
@@ -253,7 +253,7 @@ export default {
           <div class="new-ext__section-head">
             <span class="new-ext__label">Where should it appear?</span>
             <span class="new-ext__hint">
-              This decides the parent route — the single hardest thing to fix later.
+              This decides the parent route - the single hardest thing to fix later.
             </span>
           </div>
           <div class="new-ext__options">
@@ -280,14 +280,14 @@ export default {
             :model-value="name"
             label="Name"
             placeholder="node-health-panel"
-            hint="Suggested from your description — editable"
+            hint="Suggested from your description - editable"
             @update:model-value="onNameInput"
           />
 
           <div class="new-ext__field">
             <div class="new-ext__box new-ext__box--static">
               <span class="new-ext__box-label">Build and preview against</span>
-              <span class="new-ext__box-value">local — this cluster</span>
+              <span class="new-ext__box-value">local - this cluster</span>
             </div>
             <span class="new-ext__hint">Changes only ever run here until you publish</span>
           </div>

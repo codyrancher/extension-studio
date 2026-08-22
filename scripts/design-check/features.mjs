@@ -36,7 +36,7 @@ export default async function ({
   await say('Every control here fired a “not yet” toast an hour ago');
 
   // 1. Sorting, on the reading rather than the string.
-  await say('The columns sort — on the value, not the rendered text');
+  await say('The columns sort - on the value, not the rendered text');
   await click(page.locator('.studio-home__th', { hasText: 'Last change' }));
   await pause(1100);
   await click(page.locator('.studio-home__th', { hasText: 'Last change' }));
@@ -82,7 +82,7 @@ export default async function ({
   await pause(500);
 
   // 5. Context chips are named in the message the assistant receives.
-  await say('Context is real — the paths are named in what the assistant gets');
+  await say('Context is real - the paths are named in what the assistant gets');
   await point('[data-testid="barn-add-context"]', 'Add picks from the pod’s own files');
   await pause(500);
   await point('[data-testid="barn-permission-chip"]', 'And this one now tells the truth');

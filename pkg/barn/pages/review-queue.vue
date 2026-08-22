@@ -1,5 +1,5 @@
 <script>
-// Screen 11 · Review queue — what is waiting on you (Figma node 36:964).
+// Screen 11 · Review queue - what is waiting on you (Figma node 36:964).
 //
 // The queue is built from the cluster rather than from a review service, because there is no
 // review service: an extension with uncommitted changes in its pod is a change waiting on
@@ -163,7 +163,7 @@ export default {
 
       row.changes = changes;
       row.deferred = deferred;
-      row.deferredLabel = deferred ? `Deferred ${ this.ago(deferred.at) }${ deferred.note ? ` — ${ deferred.note }` : '' }` : '';
+      row.deferredLabel = deferred ? `Deferred ${ this.ago(deferred.at) }${ deferred.note ? ` - ${ deferred.note }` : '' }` : '';
       row.branch = detail?.branch || '';
       row.committedAt = detail?.lastChange ? Date.parse(detail.lastChange) || null : null;
       row.intent = this.intentFrom(brief);
@@ -353,7 +353,7 @@ export default {
             </div>
             <div v-else class="queue__no-brief">
               <SIcon name="alert" :size="13" />
-              No brief — nobody wrote down what this is for.
+              No brief - nobody wrote down what this is for.
             </div>
           </div>
 
@@ -369,7 +369,7 @@ export default {
 
           <div class="queue__col queue__col--who">
             <span class="queue__label">Branch</span>
-            <span class="queue__value">{{ row.branch || '—' }}</span>
+            <span class="queue__value">{{ row.branch || '-' }}</span>
           </div>
 
           <div class="queue__action">
@@ -392,7 +392,7 @@ export default {
       <div class="queue__footnote">
         <SIcon name="sparkle" :size="15" />
         <p class="queue__footnote-text">
-          Rows lead with what the change is for, taken from its brief — not with a file count. A
+          Rows lead with what the change is for, taken from its brief - not with a file count. A
           change with no brief says so, which is the point: a reviewer should never have to
           reverse-engineer intent from a diff.
         </p>

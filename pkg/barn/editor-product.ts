@@ -2,7 +2,7 @@ import { IPlugin } from '@shell/core/types';
 
 // A product registered in the 'management' store with no category shows up as a
 // button in the side menu's top (multi-cluster) group, alongside Cluster
-// Management and Continuous Delivery. It owns no resources — `to` points
+// Management and Continuous Delivery. It owns no resources - `to` points
 // straight at the editor page registered in index.ts.
 export const EDITOR_PRODUCT = 'barn-editor';
 export const EDITOR_ROUTE = 'barn-editor';
@@ -56,7 +56,7 @@ export function init($plugin: IPlugin, store: any) {
   const options: Record<string, unknown> = {
     icon:                'flask',
     inStore:             'management',
-    // Nothing to switch between — the page is the whole product.
+    // Nothing to switch between - the page is the whole product.
     showClusterSwitcher: false,
     removable:           false,
     // After Cluster Management (-1) and Continuous Delivery (1).

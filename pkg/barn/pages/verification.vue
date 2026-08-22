@@ -1,5 +1,5 @@
 <script>
-// Screen 13 · Verification — does it actually do the job? (Figma node 39:1109).
+// Screen 13 · Verification - does it actually do the job? (Figma node 39:1109).
 //
 // The last screen in the review sequence, and the one that closes the loop the brief opened:
 // the brief's acceptance criteria on the left, the running extension on the right, and a
@@ -217,7 +217,7 @@ export default {
      */
     signoffText() {
       if (!this.criteria.length) {
-        return 'Nothing to sign off — this extension has no acceptance criteria.';
+        return 'Nothing to sign off - this extension has no acceptance criteria.';
       }
 
       if (!this.failed && !this.unsure && !this.undecided) {
@@ -807,7 +807,7 @@ export default {
             v-if="!loading && !criteria.length"
             icon="book"
             title="No acceptance criteria"
-            message="This extension's brief has no checklist, or has no brief at all. Verification is checking a thing against what somebody said it should do — without that, there is nothing to check against."
+            message="This extension's brief has no checklist, or has no brief at all. Verification is checking a thing against what somebody said it should do - without that, there is nothing to check against."
           >
             <SButton
               variant="secondary"
@@ -903,7 +903,7 @@ export default {
                   icon="play"
                   :title="c.route
                     ? `Drive the preview to ${ c.route }`
-                    : 'No route recorded yet — takes the preview back to the start'"
+                    : 'No route recorded yet - takes the preview back to the start'"
                   @click="showMe(c)"
                 >
                   Show me
@@ -933,14 +933,14 @@ export default {
 
               <SBanner v-else-if="scopeState === 'clear'" type="success">
                 Nothing this change adds mentions
-                <code v-for="t in nonGoalTerms" :key="t" class="verify__term">{{ t }}</code> —
+                <code v-for="t in nonGoalTerms" :key="t" class="verify__term">{{ t }}</code> -
                 the words the brief used to say what it was not doing.
               </SBanner>
 
               <template v-else>
                 <SBanner type="warning">
                   This change adds lines that mention what the brief said it was deliberately not
-                  doing. A word match is not proof of anything — it is a place to look.
+                  doing. A word match is not proof of anything - it is a place to look.
                 </SBanner>
 
                 <div class="verify__drift">
@@ -958,7 +958,7 @@ export default {
                 v-model="notes"
                 class="verify__notes-input"
                 rows="3"
-                placeholder="Anything the checklist does not cover — what you tried, what surprised you."
+                placeholder="Anything the checklist does not cover - what you tried, what surprised you."
               />
             </div>
 

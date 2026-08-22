@@ -1,5 +1,5 @@
 <script>
-// Screen 01 · Extensions — Studio home (Figma node 8:30).
+// Screen 01 · Extensions - Studio home (Figma node 8:30).
 //
 // The frame draws Rancher's nav rail and header around this; we are inside Rancher already, so
 // only its `content` (8:72) is ours - a masthead and a table.
@@ -102,13 +102,13 @@ function sortValue(row, key) {
 
 function relative(iso) {
   if (!iso) {
-    return '—';
+    return '-';
   }
 
   const then = Date.parse(iso);
 
   if (isNaN(then)) {
-    return '—';
+    return '-';
   }
 
   const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
@@ -291,7 +291,7 @@ export default {
       row.state = this.stateOf(row);
       row.subtitle = this.subtitleOf(row);
       row.when = relative(detail?.lastChange);
-      row.target = version ? `catalog · v${ version }` : (row.ready ? 'local (preview)' : '—');
+      row.target = version ? `catalog · v${ version }` : (row.ready ? 'local (preview)' : '-');
     },
 
     /**
@@ -318,7 +318,7 @@ export default {
 
     subtitleOf(row) {
       if (!row.ready) {
-        return 'Compiling — the preview reloads when it finishes';
+        return 'Compiling - the preview reloads when it finishes';
       }
 
       const changes = row.detail?.changes || 0;
@@ -617,11 +617,11 @@ export default {
           </div>
 
           <div class="studio-home__td" :style="{ width: '168px', flex: '0 0 168px' }">
-            <span class="studio-home__muted">{{ row.target || '—' }}</span>
+            <span class="studio-home__muted">{{ row.target || '-' }}</span>
           </div>
 
           <div class="studio-home__td" :style="{ width: '118px', flex: '0 0 118px' }">
-            <span class="studio-home__muted">{{ row.when || '—' }}</span>
+            <span class="studio-home__muted">{{ row.when || '-' }}</span>
           </div>
 
           <div

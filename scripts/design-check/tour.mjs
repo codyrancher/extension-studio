@@ -87,7 +87,7 @@ export default async function ({
   await point('.rc__packet', 'The packet: what the change is for');
   await point('.rc__visual', 'And the extension actually running');
 
-  // 13 gets driven, not just shown — the verdict control is the most reworked thing here.
+  // 13 gets driven, not just shown - the verdict control is the most reworked thing here.
   await visit('/barn/extensions/base/verification', '.verify__body');
   await say('13 · Does it actually do the job?');
   await point('.verify__list', 'The brief’s own criteria, read back');

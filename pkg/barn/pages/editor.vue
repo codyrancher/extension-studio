@@ -4,7 +4,7 @@
 //
 // Left pane: a terminal in the extension's pod, with claude running in it (see
 // components/PodTerminal.vue).
-// Right pane: that extension's dev server (see extensions.ts) — the live, hot-reloading
+// Right pane: that extension's dev server (see extensions.ts) - the live, hot-reloading
 // Rancher the same pod is serving, framed same-origin through the Kubernetes API service
 // proxy, which is what makes framing it possible.
 //
@@ -62,7 +62,7 @@ function readSplit() {
 
     return isNaN(stored) ? null : clampSplit(stored);
   } catch {
-    // Storage can be unavailable (private mode, blocked cookies) — not fatal.
+    // Storage can be unavailable (private mode, blocked cookies) - not fatal.
     return null;
   }
 }
@@ -249,7 +249,7 @@ export default {
       this.waitForDevServer();
     },
 
-    // Persist the divider position, but not on every pointermove — the final
+    // Persist the divider position, but not on every pointermove - the final
     // position of a drag is written when the drag ends.
     split(percent) {
       if (!this.dragging) {
@@ -351,7 +351,7 @@ export default {
     startDrag(event) {
       this.dragging = true;
       // Capture keeps the moves coming to the divider once the pointer is over
-      // an iframe — without it the iframe's document swallows them.
+      // an iframe - without it the iframe's document swallows them.
       event.currentTarget.setPointerCapture(event.pointerId);
     },
 
@@ -1031,7 +1031,7 @@ $rancher-rail-width: 70px;
     display: flex;
     width: 100%;
 
-    // While dragging, the pointer is captured by the divider — but the iframes
+    // While dragging, the pointer is captured by the divider - but the iframes
     // would still take hover/selection, so switch them off for the duration.
     &--dragging .mc-editor__pane {
       pointer-events: none;

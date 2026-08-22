@@ -567,7 +567,7 @@ export default {
           v-model="draft"
           class="assistant-panel__input"
           rows="2"
-          placeholder="Describe the next change — e.g. &quot;colour the bars by severity and add a 7-day toggle&quot;"
+          placeholder="Describe the next change - e.g. &quot;colour the bars by severity and add a 7-day toggle&quot;"
           @keydown="onKeydown"
         />
         <div class="assistant-panel__field-bar">

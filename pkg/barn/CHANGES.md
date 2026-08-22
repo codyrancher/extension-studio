@@ -1,6 +1,6 @@
 # The Extension Studio
 
-Fourteen screens built to the Figma concept ("Rancher Extension Studio — AI Authoring",
+Fourteen screens built to the Figma concept ("Rancher Extension Studio - AI Authoring",
 `Xm3Q6WVin7U3cwMeOdGV6z`), on a design system taken from its Foundations page, verified against
 the running product rather than against the source.
 
@@ -9,9 +9,9 @@ the running product rather than against the source.
 `scripts/design-check/` holds the harness and its README. Three things, in order of how much
 they catch:
 
-1. `probe-errors.mjs` — loads every screen, fails on any uncaught runtime error.
-2. `verify-corruption.mjs` and `probe-defer.mjs` — behavioural regression tests.
-3. `measure.mjs` + `check.mjs` — 450 computed properties against Figma node values.
+1. `probe-errors.mjs` - loads every screen, fails on any uncaught runtime error.
+2. `verify-corruption.mjs` and `probe-defer.mjs` - behavioural regression tests.
+3. `measure.mjs` + `check.mjs` - 450 computed properties against Figma node values.
 
 The order is deliberate. Everything that actually mattered in building this was found by the
 first two; the third finds padding.
@@ -33,10 +33,22 @@ honestly back them:
   `--dangerously-skip-permissions`, so this was the opposite of the truth with no switch behind
   it. It now says edits apply without asking.
 
-Three the design draws that are **documented gaps**, not bugs: file group heads on screen 12
-(a flat list is right at three files), per-file stats on screen 04, and the scope-drift card's
-richer form. The scope-drift card that does exist computes one honest thing — terms from the
-brief's own "what we are deliberately not doing", looked for in the lines the diff adds.
+Two the design draws that are **still gaps**, and they are not the same size.
+
+The **activity stream** on screen 03 is the real one. The design shows the assistant's work as
+turns with steps and durations; what runs in the pod is claude in a terminal, and its output is
+a stream of ANSI, not a structure. `ActivityTurn` is built and the panel renders it the moment
+it is handed turns, so the missing piece is precisely a parser for the CLI's output. Until that
+exists the tab says so and offers the terminal, which is the thing that actually works. This is
+the one surface in the extension whose data never arrives.
+
+The **scope-drift card** is the small one: it exists and computes one honest thing - terms from
+the brief's own "what we are deliberately not doing", looked for in the lines the diff adds -
+where the frame draws a richer form.
+
+Two gaps listed here in an earlier draft have since been closed and the note was left stale:
+screen 12 groups files by directory with a per-group count, and screen 04 shows per-file line
+counts. Both are in the code and in the videos.
 
 ## Where this departs from the frame, deliberately
 

@@ -426,7 +426,7 @@ export default {
 
         <div class="review__explain-body">
           <SBanner type="info">
-            The assistant explains a change in the workspace terminal, not on this rail — it is a
+            The assistant explains a change in the workspace terminal, not on this rail - it is a
             conversation, and half of what makes it useful is being able to argue with it. Asking
             about <strong>{{ selected || 'the selected file' }}</strong> puts the question to the
             session already editing this extension and takes you to the workspace, where it

@@ -1,5 +1,5 @@
 <script>
-// Screen 10 · The brief — what are we actually trying to do? (Figma node 34:894).
+// Screen 10 · The brief - what are we actually trying to do? (Figma node 34:894).
 //
 // The step between describing an extension and building it. Two columns: the brief itself on
 // the left, and on the right what the assistant cannot decide and what already exists.
@@ -340,7 +340,7 @@ export default {
         </div>
       </div>
 
-      <SChip label="Draft — not yet agreed" icon="clock" tone="warning" />
+      <SChip label="Draft - not yet agreed" icon="clock" tone="warning" />
 
       <span class="brief__grow" />
 
@@ -396,7 +396,7 @@ export default {
               </h2>
               <p class="brief__card-note">
                 Drafted from what you typed and from what is already in this Rancher. Edit
-                anything — this is your brief, not its.
+                anything - this is your brief, not its.
               </p>
             </header>
             <div class="brief__card-body">
@@ -488,7 +488,7 @@ export default {
               <SBanner type="warning">
                 The answer does not appear here. Asking sends this brief, as it stands, to the
                 assistant working on <strong>{{ extension }}</strong>, and it replies in that
-                extension's terminal in the workspace — where you can argue with it, which is
+                extension's terminal in the workspace - where you can argue with it, which is
                 the half of this a list on a page cannot do.
               </SBanner>
 
@@ -549,7 +549,7 @@ export default {
               <SBanner v-else-if="!priorArt.length" type="success">
                 No extension in this Studio mentions
                 <code v-for="t in priorArtTerms" :key="t" class="brief__term">{{ t }}</code>.
-                Nothing to reuse and nothing to collide with — on these words, at least.
+                Nothing to reuse and nothing to collide with - on these words, at least.
               </SBanner>
 
               <div v-else class="brief__art">

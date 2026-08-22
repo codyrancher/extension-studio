@@ -1,6 +1,6 @@
 # Checking the Studio against its Figma file
 
-The Extension Studio screens are built to a Figma document ("Rancher Extension Studio — AI
+The Extension Studio screens are built to a Figma document ("Rancher Extension Studio - AI
 Authoring (Concept)", file key `Xm3Q6WVin7U3cwMeOdGV6z`). This directory is how you find out
 whether they still match it.
 
@@ -32,13 +32,13 @@ node check.mjs spec.json measured.json
 `install-barn.mjs` and `serve-pkg.mjs` are how the built bundle gets into a Rancher to be
 measured: serve `dist-pkg` over HTTPS, then register it as a `UIPlugin` pointing at that URL.
 The UIPlugin needs the `catalog.cattle.io/ui-extensions-version` annotation from the package's
-own `rancher.annotations` — without it the dashboard installs the plugin, reports it Ready, and
+own `rancher.annotations` - without it the dashboard installs the plugin, reports it Ready, and
 silently never loads it.
 
 ## Reading the output
 
 Each line names the screen, the selector, the property, expected versus measured, and the Figma
-node behind the expectation — so a disagreement can be settled at the source rather than argued
+node behind the expectation - so a disagreement can be settled at the source rather than argued
 about.
 
 `spec.json` also has an `unexpressible` block at the top. That is for things deliberately not
@@ -88,4 +88,4 @@ It measures boxes. It cannot tell you a control is a reset button when it should
 that a save writes to the wrong lines of a file, or that a label claims somebody looked at
 something nobody looked at. Every one of those was found by driving the UI and reading the
 result, not by measuring it. A clean run means "clean against what we currently know to look
-at" — not "correct".
+at" - not "correct".

@@ -45,7 +45,7 @@ try {
 
   check('the queue shows a Deferred mark', marks.some((m) => m.deferred), JSON.stringify(marks));
 
-  // Answering clears it — use Request changes, which does not commit.
+  // Answering clears it - use Request changes, which does not commit.
   await page.goto(`${ RANCHER }/dashboard/barn/review/base/working`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.rc__body', { timeout: 45000 });
   await page.waitForTimeout(3500);
