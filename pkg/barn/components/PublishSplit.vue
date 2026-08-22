@@ -58,8 +58,16 @@ export default {
 <template>
   <RcDropdown placement="bottom-end">
     <div class="rc-button-split">
+      <!--
+        The test id lives here, on the button, not on the component.
+        A `data-testid` set where this component is used falls through to its root - which is
+        RcDropdown, a component that does not forward it - so it never reached the DOM at all.
+        The publish button was unaddressable by automation, which is how a recording of the
+        publish flow came to click nothing and wait quietly for a build that never started.
+      -->
       <RcButton
         class="rc-button-split-action"
+        data-testid="barn-publish-button"
         variant="primary"
         size="small"
         :disabled="disabled"

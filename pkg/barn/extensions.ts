@@ -266,6 +266,52 @@ function seedFiles(source: string): Record<string, string> {
   return SEEDS[source] || SEEDS[DEFAULT_SEED];
 }
 
+/**
+ * Give a built-in seed the name the person asked for.
+ *
+ * The seeds ship as `pkg/base/...` with `"name": "base"` in their package.json, and nothing
+ * renamed them - so every extension made from the base seed was a package called `base` in a
+ * directory called `base`, whatever the user typed. It mostly did not show, because
+ * PACKAGE_DIR is a glob and the pod only ever holds one package. It showed at publish:
+ * packageIdentity reads that package.json, so publishing an extension called `demo` installed
+ * a UIPlugin called `base`, and a second extension from the same seed would have overwritten
+ * the first.
+ *
+ * Only for the built-in seeds. An imported repository and a copy of another extension both
+ * arrive with a package name of their own, and renaming those would be taking a decision that
+ * is not ours to take.
+ */
+function renameSeedPackage(files: Record<string, string>, seed: string, name: string): Record<string, string> {
+  if (seed === name) {
+    return files;
+  }
+
+  const from = `pkg/${ seed }/`;
+  const to = `pkg/${ name }/`;
+  const out: Record<string, string> = {};
+
+  for (const [filePath, contents] of Object.entries(files)) {
+    const moved = filePath.startsWith(from) ? to + filePath.slice(from.length) : filePath;
+
+    if (moved === `${ to }package.json`) {
+      try {
+        const parsed = JSON.parse(contents);
+
+        parsed.name = name;
+        out[moved] = `${ JSON.stringify(parsed, null, 2) }\n`;
+        continue;
+      } catch {
+        // A seed whose package.json does not parse is a broken seed, and silently shipping
+        // it under the wrong name is worse than shipping it unchanged.
+      }
+    }
+
+    out[moved] = contents;
+  }
+
+  return out;
+}
+
 function seedData(files: Record<string, string>): Record<string, string> {
   // boot.sh is the container's command and is read straight out of /seed, so it
   // keeps its own name; everything else is a path in the tree.
@@ -676,7 +722,7 @@ export function seedConfigMapBody(name: string, source: string = DEFAULT_SEED): 
       labels:      { app: object },
       annotations: { [SOURCE_ANNOTATION]: from },
     },
-    data: seedData(seedFiles(from)),
+    data: seedData(renameSeedPackage(seedFiles(from), from, name)),
   };
 }
 
@@ -780,7 +826,7 @@ export function ensureExtension(name: string, source?: string): Promise<void> {
     let files: Record<string, string>;
 
     if (BUILT_IN_SEEDS.includes(from)) {
-      files = seedFiles(from);
+      files = renameSeedPackage(seedFiles(from), from, name);
     } else if (github) {
       files = await githubFiles(github.repo, github.ref, name);
     } else {

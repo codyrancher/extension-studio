@@ -454,7 +454,6 @@ export default {
       aria-label-trigger="Other ways to publish"
       :items="publishOptions"
       :disabled="publishing"
-      data-testid="barn-publish-button"
       @click="$emit('publish')"
       @select="$emit('publish-select', $event)"
     />
