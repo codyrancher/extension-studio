@@ -22,6 +22,7 @@ import {
 } from '../extensions';
 import { STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, EDITOR_ROUTE } from '../editor-product';
 import '../design/tokens';
+import fullBleed from '../design/full-bleed';
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 
@@ -31,6 +32,8 @@ export default {
   components: {
     SButton, SBadge, SChip, SIcon, SEmpty, STabs
   },
+
+  mixins: [fullBleed],
 
   data() {
     return {
@@ -207,7 +210,7 @@ export default {
     <STabs
       v-model="tab"
       :tabs="tabs"
-      variant="panel"
+      variant="page"
       class="queue__tabs"
     />
 
@@ -343,8 +346,6 @@ export default {
     color:  var(--studio-text-secondary);
     margin: 0;
   }
-
-  &__tabs { padding-top: 14px; }
 
   &__list {
     display:        flex;

@@ -23,6 +23,7 @@ import {
 } from '../extensions';
 import { EDITOR_ROUTE, NEW_EXTENSION_ROUTE } from '../editor-product';
 import '../design/tokens';
+import fullBleed from '../design/full-bleed';
 
 // The columns, at the widths the frame gives them. Name is the one that flexes.
 const COLUMNS = [
@@ -80,6 +81,8 @@ export default {
   components: {
     SButton, SBadge, SIcon, SEmpty, ImportExtensionModal, StartingExtensions
   },
+
+  mixins: [fullBleed],
 
   data() {
     return {

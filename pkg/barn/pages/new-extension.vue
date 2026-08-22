@@ -21,6 +21,7 @@ import { toastError } from '../toast';
 import { ensureExtension, normalizeExtensionName, BUILT_IN_SEEDS, DEFAULT_SEED } from '../extensions';
 import { STUDIO_ROUTE, BRIEF_ROUTE } from '../editor-product';
 import '../design/tokens';
+import fullBleed from '../design/full-bleed';
 
 // The four placements the design offers. `route` is what each would mean in a Rancher
 // extension, and is carried into the brief so the assistant is told rather than guessing.
@@ -51,6 +52,8 @@ export default {
   components: {
     SButton, SField, SIcon, SLabel, ImportExtensionModal, EditorSettingsModal
   },
+
+  mixins: [fullBleed],
 
   data() {
     return {

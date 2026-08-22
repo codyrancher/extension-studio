@@ -20,6 +20,7 @@ import { toastNotYet, toastError } from '../toast';
 import { writeExtensionFile, DEFAULT_EXTENSION } from '../extensions';
 import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import '../design/tokens';
+import fullBleed from '../design/full-bleed';
 
 export default {
   name: 'BarnBrief',
@@ -27,6 +28,8 @@ export default {
   components: {
     SButton, SChip, SIcon, SBanner, SField, SLabel
   },
+
+  mixins: [fullBleed],
 
   data() {
     return {
@@ -426,13 +429,17 @@ export default {
 
   &__grow { flex: 1 1 auto; }
 
+  // A centred column, as node 34:991 has it, rather than a centred row: the 14px gap the node
+  // carries is between stacked children, and a row lays them out along the axis that has none.
   &__scroll {
-    display:         flex;
-    justify-content: center;
-    flex:            1 1 auto;
-    min-height:      0;
-    overflow-y:      auto;
-    padding:         18px var(--studio-space-24) var(--studio-space-24);
+    display:        flex;
+    flex-direction: column;
+    align-items:    center;
+    gap:            14px;
+    flex:           1 1 auto;
+    min-height:     0;
+    overflow-y:     auto;
+    padding:        18px var(--studio-space-24) var(--studio-space-24);
   }
 
   &__columns {

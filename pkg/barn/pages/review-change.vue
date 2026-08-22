@@ -24,6 +24,7 @@ import {
 } from '../extensions';
 import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE } from '../editor-product';
 import '../design/tokens';
+import fullBleed from '../design/full-bleed';
 
 export default {
   name: 'BarnReviewChange',
@@ -31,6 +32,8 @@ export default {
   components: {
     SButton, SChip, SIcon, SEmpty, SBanner, SLabel, DiffView, PreviewPanel
   },
+
+  mixins: [fullBleed],
 
   data() {
     return {
@@ -368,8 +371,8 @@ export default {
   &__packet {
     display:        flex;
     flex-direction: column;
-    width:          var(--studio-panel-rail);
-    flex:           0 0 var(--studio-panel-rail);
+    flex:           0 1 var(--studio-panel-rail);
+    min-width:      var(--studio-panel-rail-min);
     border-right:   1px solid var(--studio-border);
     min-height:     0;
   }
@@ -377,8 +380,8 @@ export default {
   &__visual {
     display:        flex;
     flex-direction: column;
-    width:          var(--studio-panel-assistant);
-    flex:           0 0 var(--studio-panel-assistant);
+    flex:           0 1 var(--studio-panel-assistant);
+    min-width:      var(--studio-panel-assistant-min);
     border-left:    1px solid var(--studio-border);
     background:     var(--studio-surface-subtle);
     min-height:     0;
@@ -386,11 +389,17 @@ export default {
 
   &__preview { flex: 1 1 auto; min-height: 0; }
 
+  // The floor the two rails shrink for. Without it they hold their drawn widths and the diff
+  // - the whole point of the screen - is what gives way.
   &__diff {
     display:        flex;
     flex-direction: column;
-    flex:           1 1 auto;
-    min-width:      0;
+    // Basis 0, not auto: on auto the column asks for its content width - a diff's longest
+    // line, a log's longest line - and the rails next to it spend their whole shrink budget
+    // answering, so they never sit at their drawn width even on a wide screen. Basis 0 makes
+    // it take the space left over, and min-width is what stops that going to nothing.
+    flex:           1 1 0;
+    min-width:      var(--studio-panel-main-min);
     min-height:     0;
   }
 

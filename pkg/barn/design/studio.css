@@ -49,10 +49,22 @@ body {
   --studio-blue-500: #3D98D3;
   --studio-blue-600: #2C7BB0;
 
-  /* ------------------------------------------------------------- Surfaces */
+  /* ------------------------------------------------------------- Surfaces --
+   * Only `surface` has a shell equivalent. The other two are literals under
+   * rule 2, for two reasons that both point the same way:
+   *
+   * 1. Foundations gives them different values - surface/subtle #F7F8FA and
+   *    surface/nav #F2F3F5 - and one shell variable cannot carry two. Routed
+   *    through `--nav-bg` they collapsed onto each other.
+   * 2. `--nav-bg` is not the colour either of them is. In Rancher's light
+   *    theme it is #FFFFFF, so the wash that separates a rail, a panel head
+   *    or a hovered row from the page behind it disappeared entirely.
+   *
+   * Being literals, they need the `body.theme-dark` block at the bottom, the
+   * same as the status and diff tints. */
   --studio-surface:           var(--body-bg, #FFFFFF);
-  --studio-surface-subtle:    var(--nav-bg, #F7F8FA);
-  --studio-surface-nav:       var(--nav-bg, #F2F3F5);
+  --studio-surface-subtle:    #F7F8FA;
+  --studio-surface-nav:       #F2F3F5;
   /* The terminal keeps its own two greys in both themes: it is a terminal. */
   --studio-surface-terminal:     #1B1C21;
   --studio-surface-terminal-alt: #26272E;
@@ -61,15 +73,31 @@ body {
   --studio-terminal-text:        #D5D6DB;
 
   /* --------------------------------------------------------------- Border */
-  --studio-border-subtle: var(--border, #E5E6EB);
+  /*
+   * Three tiers, derived rather than borrowed.
+   *
+   * The design leans on the step between them - node 14:389 puts an #E5E6EB divider directly
+   * under a #DCDDE3 panel edge - but Rancher Prime has no such step to lend: --border and
+   * --input-border are both #dcdee7 in its light theme, so borrowing all three collapsed a
+   * card outline, a row divider and an input outline into one indistinguishable colour.
+   *
+   * So only the middle tier is borrowed, and the other two are mixed off it: subtle toward the
+   * page, strong toward the text. That keeps the design's *relationship* under any theme and
+   * any brand, which is the part that carries meaning - rather than keeping its literal values
+   * and going blind to the theme, or keeping the theme and going flat.
+   */
   --studio-border:        var(--border, #DCDDE3);
-  --studio-border-strong: var(--input-border, #B4B5BE);
+  --studio-border-subtle: color-mix(in srgb, var(--border, #DCDDE3) 55%, var(--body-bg, #FFFFFF));
+  --studio-border-strong: color-mix(in srgb, var(--border, #DCDDE3) 62%, var(--body-text, #141419));
   --studio-border-focus:  var(--outline, #3D98D3);
 
   /* ----------------------------------------------------------------- Text */
   --studio-text:           var(--body-text, #141419);
   --studio-text-secondary: var(--muted, #61616B);
-  --studio-text-tertiary:  var(--muted, #8B8B96);
+  /* Same problem as the borders: Prime has one --muted (#6f6f8b) where the design has two
+   * greys, so secondary and tertiary text read identically. Tertiary is the quieter of the
+   * pair, so it is mixed back toward the page. */
+  --studio-text-tertiary:  color-mix(in srgb, var(--muted, #8B8B96) 74%, var(--body-bg, #FFFFFF));
   --studio-text-link:      var(--link, #3D98D3);
   --studio-text-inverse:   #FFFFFF;
 
@@ -144,10 +172,24 @@ body {
   --studio-row-pad-y: 11px;
   --studio-row-pad-x: 12px;
 
-  /* --------------------------------------------------------- Panel widths */
+  /* --------------------------------------------------------- Panel widths --
+   * The three the file names, and the floors they are allowed down to.
+   *
+   * The widths are what the frames measure at 1440, which is the only viewport the file is
+   * drawn at - they are not minimums. Held as minimums they add up: 340 + 520 on screen 12
+   * left the diff between them 373px at 1440, 229px at 1280 and nothing at all at 1024, so
+   * the one thing the screen is for vanished first. So each rail shrinks past its drawn
+   * width when it has to, down to a floor of its own, and the column between them has a
+   * floor too - the sum of the three is under the ~954px of content a 1024 viewport has, so
+   * a narrow window squeezes every panel rather than dropping one. */
   --studio-panel-assistant: 520px;
   --studio-panel-tree:      288px;
   --studio-panel-rail:      340px;
+
+  --studio-panel-assistant-min: 300px;
+  --studio-panel-tree-min:      200px;
+  --studio-panel-rail-min:      220px;
+  --studio-panel-main-min:      400px;
 
   /* ------------------------------------------------------------- Elevation --
    * Not in the file as a variable; these are the two shadows the screens draw
@@ -165,6 +207,17 @@ body {
  * relationship the light values have without assuming a background colour.
  */
 body.theme-dark {
+  /*
+   * The two surface washes, inverted rather than restated. In light they are steps *down*
+   * from #FFFFFF (3% for subtle, 5% for nav); against a near-black panel the same steps have
+   * to go up, so they are white at the equivalent low alpha over whatever is behind them -
+   * which also keeps them working on the panels that are not --body-bg. The 4/7 split holds
+   * the light theme's ratio, so nav still reads one step further from the surface than
+   * subtle does.
+   */
+  --studio-surface-subtle: rgba(255, 255, 255, 0.04);
+  --studio-surface-nav:    rgba(255, 255, 255, 0.07);
+
   --studio-success-bg: rgba(62, 140, 79, 0.18);
   --studio-info-bg:    rgba(61, 152, 211, 0.18);
   --studio-warning-bg: rgba(201, 162, 39, 0.18);

@@ -29,6 +29,7 @@ import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/stud
 import { BUILD_FAILED_ROUTE } from '../editor-product';
 import { SButton } from '../components/ui';
 import StartingExtensions from '../components/StartingExtensions.vue';
+import fullBleed from '../design/full-bleed';
 import {
   ensureExtension, extensionReady, extensionUrl, publishExtension,
   publishExtensionToGithub, removeLocalInstall, DEFAULT_EXTENSION
@@ -80,6 +81,8 @@ export default {
     PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal,
     InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton
   },
+
+  mixins: [fullBleed],
 
   data() {
     return {
@@ -951,12 +954,6 @@ $rancher-rail-width: 70px;
       > :first-child {
         pointer-events: auto;
       }
-    }
-
-    .main-layout > .indented-panel {
-      width:       100%;
-      margin:      0;
-      padding-top: 0 !important;
     }
   }
 </style>

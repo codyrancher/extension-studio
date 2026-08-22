@@ -1,0 +1,24 @@
+/*
+ * The shell's page inset, taken back off.
+ *
+ * Rancher's 'plain' template wraps every route it renders in
+ * `<IndentedPanel class="pt-20">`, which is `width: 90%; margin-left: 5%` plus 20px of top
+ * padding. That inset is Rancher's, not the design's: every Studio frame in the Figma file
+ * sits flush against the nav rail and carries its own padding, so the wrapper's 20px landed
+ * on top of the masthead's own 20 (40 where node 8:101 says 20) and narrowed the content
+ * from 1370px to 1233px at a 1440 viewport.
+ *
+ * Undone here rather than absorbed into each screen, because the screens cannot see it: the
+ * wrapper is the shell's element, outside the scope of any component stylesheet we write.
+ * Keyed on a class the page puts on <html> for as long as it is mounted (see full-bleed.ts),
+ * so no other Rancher page under the same template is touched.
+ *
+ * The class goes on <html> rather than <body> for the reason the editor found: the shell owns
+ * body's class list and rewrites it whole on navigation.
+ */
+html.barn-full-bleed .main-layout > .indented-panel {
+  width:       100%;
+  margin:      0;
+  /* `.pt-20` is a utility class, and utility classes in the shell are !important. */
+  padding-top: 0 !important;
+}

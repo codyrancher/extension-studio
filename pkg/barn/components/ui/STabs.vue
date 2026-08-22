@@ -6,9 +6,12 @@
 // SemiBold with it. Drawing the unselected indicator rather than hiding it is what keeps the
 // labels from shifting a pixel as selection moves.
 //
-// Two densities, because the file uses two. `default` is the component set's own 8px gap;
+// Three densities, because the file uses three. `default` is the component set's own 8px gap;
 // `panel` is the assistant panel's strip (node 11:188), which sits on a bottom border with a
-// wider 22px gap and 12px of lead-in above each label.
+// wider 22px gap and 12px of lead-in above each label; `page` is the review queue's strip
+// (node 36:1056), which is the same bottom-bordered strip one level out - so it takes the
+// page's 24px gutter and the component set's own 24px gap, and puts its 14px of lead-in on
+// the strip rather than on each label.
 import SIcon from './SIcon.vue';
 
 export default {
@@ -29,11 +32,11 @@ export default {
       default: '',
     },
 
-    /** default | panel */
+    /** default | panel | page */
     variant: {
       type:      String,
       default:   'default',
-      validator: (v) => ['default', 'panel'].includes(v),
+      validator: (v) => ['default', 'panel', 'page'].includes(v),
     },
   },
 
@@ -88,6 +91,12 @@ export default {
     padding:       0 var(--studio-space-16);
     border-bottom: 1px solid var(--studio-border);
   }
+
+  &--page {
+    gap:           var(--studio-space-24);
+    padding:       14px var(--studio-space-24) 0;
+    border-bottom: 1px solid var(--studio-border);
+  }
 }
 
 .s-tab {
@@ -102,10 +111,12 @@ export default {
   color:           var(--studio-text-secondary);
   font:            var(--studio-body-14);
 
-  .s-tabs--panel & {
-    padding: var(--studio-space-12) 0 0;
-    gap:     9px;
-  }
+  // Both bordered strips sit their label 9px off the indicator; only the panel's carries the
+  // lead-in above it, because the page strip's is on the strip (see --page above).
+  .s-tabs--panel &,
+  .s-tabs--page & { gap: 9px; }
+
+  .s-tabs--panel & { padding: var(--studio-space-12) 0 0; }
 
   &__row {
     display:     flex;
