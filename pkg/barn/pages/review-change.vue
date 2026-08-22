@@ -23,11 +23,11 @@ import {
 import DiffView from '../components/DiffView.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import PreviewPanel from '../components/studio/PreviewPanel.vue';
-import { toastNotYet, toastSuccess, toastError } from '../toast';
+import { toastSuccess, toastError } from '../toast';
 import {
   changedFiles, fileDiff, readExtensionFile, commitExtension, extensionUrl, extensionReady,
   listBranches, readSettings, extensionSource, parseGithubSource, findOpenPullRequest,
-  DEFAULT_EXTENSION
+  deferReview, clearDeferral, DEFAULT_EXTENSION
 } from '../extensions';
 import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -123,7 +123,8 @@ export default {
       previewUrl: '',
       loading:  true,
       diffing:  false,
-      deciding: false,
+      deciding:  false,
+      deferring: false,
       // What the masthead's GitHub chip knows. `state` is the whole of it:
       //   checking  - the question is out
       //   open      - there is one, and `pr` is it
@@ -339,6 +340,10 @@ export default {
           `Reviewed: ${ this.count } file${ this.count === 1 ? '' : 's' }`
         );
 
+        // Answering is the end of the deferral, and the toast on "Come back to it" promises
+        // exactly that. Failing to clear it would leave a permanent "Deferred" mark on a
+        // change that has been decided.
+        await clearDeferral(this.extension).catch(() => {});
         toastSuccess(this.$store, 'Approved', `Committed as ${ sha.trim().split('\n').pop() }.`);
         this.$router.push({ name: REVIEW_QUEUE_ROUTE });
       } catch (e) {
@@ -349,6 +354,8 @@ export default {
     },
 
     requestChanges() {
+      // Also an answer, so it also ends the deferral.
+      clearDeferral(this.extension).catch(() => {});
       // Back to the assistant with the review still uncommitted, which is what "request
       // changes" means when the author and the reviewer are the same person.
       this.$router.push({ name: EDITOR_ROUTE, params: { extension: this.extension } });
@@ -429,9 +436,32 @@ export default {
       return counts.length ? `${ file.status } · ${ counts.join(' ') }` : file.status;
     },
 
-    notYet(what) {
-      toastNotYet(this.$store, what);
+    /**
+     * Defer the review, and say so on the queue.
+     *
+     * Not the same as the back button, which is what this used to be worth. Deferring records
+     * that somebody has looked and chosen not to decide, so the queue can mark the row and
+     * stop it reading as untouched - the difference between "nobody has been here" and "I am
+     * not ready", which is the distinction the queue exists to make.
+     */
+    async comeBackToIt() {
+      this.deferring = true;
+
+      try {
+        await deferReview(this.extension, `${ this.count } file${ this.count === 1 ? '' : 's' } unreviewed`);
+        toastSuccess(
+          this.$store,
+          'Come back to it',
+          `${ this.extension } is marked as deferred on the review queue. Answering it clears the mark.`
+        );
+        this.$router.push({ name: this.routes.REVIEW_QUEUE_ROUTE });
+      } catch (e) {
+        toastError(this.$store, 'Could not defer this review', e?.message || String(e));
+      } finally {
+        this.deferring = false;
+      }
     },
+
   },
 };
 </script>
@@ -591,7 +621,12 @@ export default {
       <SButton variant="neutral" icon="undo" :disabled="!count" @click="requestChanges">
         Request changes
       </SButton>
-      <SButton variant="neutral" icon="clock" @click="notYet('deferring a review')">
+      <SButton
+        variant="neutral"
+        icon="clock"
+        :loading="deferring"
+        @click="comeBackToIt"
+      >
         Come back to it
       </SButton>
       <SButton

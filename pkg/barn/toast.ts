@@ -34,19 +34,3 @@ export function toastSuccess(store: Store, message: string, opts: ToastOptions =
 export function toastError(store: Store, message: string, opts: ToastOptions = {}): void {
   growl(store, 'error', opts.title || 'That did not work', message, opts.timeout ?? 6000);
 }
-
-/**
- * This control is drawn but not wired.
- *
- * `what` is named in the message so a report of it is actionable without a screenshot: the
- * person can say which control they pressed and it matches a string in the source.
- */
-export function toastNotYet(store: Store, what: string): void {
-  growl(
-    store,
-    'info',
-    'Not built yet',
-    `"${ what }" is part of the design and has no code behind it. Nothing was changed.`,
-    4000,
-  );
-}

@@ -21,7 +21,7 @@ import {
 } from '../components/ui';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import {
-  listExtensions, extensionDetail, readExtensionFile, countChanges
+  listExtensions, extensionDetail, readExtensionFile, countChanges, readDeferral
 } from '../extensions';
 import { STUDIO_ROUTE, REVIEW_CHANGE_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -148,10 +148,11 @@ export default {
      * only as an orphan, and writes to it go nowhere visible.
      */
     async enrich(name) {
-      const [detail, changes, brief] = await Promise.all([
+      const [detail, changes, brief, deferred] = await Promise.all([
         extensionDetail(name).catch(() => null),
         countChanges(name).catch(() => 0),
         readExtensionFile(name, 'BRIEF.md').catch(() => ''),
+        readDeferral(name).catch(() => null),
       ]);
 
       const row = this.rows.find((r) => r.name === name);
@@ -161,6 +162,8 @@ export default {
       }
 
       row.changes = changes;
+      row.deferred = deferred;
+      row.deferredLabel = deferred ? `Deferred ${ this.ago(deferred.at) }${ deferred.note ? ` — ${ deferred.note }` : '' }` : '';
       row.branch = detail?.branch || '';
       row.committedAt = detail?.lastChange ? Date.parse(detail.lastChange) || null : null;
       row.intent = this.intentFrom(brief);
@@ -173,6 +176,35 @@ export default {
      * Skips the title and the `## The problem` heading and takes the line under it, which is
      * the one sentence the brief exists to make somebody write.
      */
+    /** "8 minutes ago", for the deferral marker's tooltip. */
+    ago(iso) {
+      const then = Date.parse(iso);
+
+      if (isNaN(then)) {
+        return 'at an unknown time';
+      }
+
+      const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+
+      if (mins < 1) {
+        return 'just now';
+      }
+
+      if (mins < 60) {
+        return `${ mins } minute${ mins === 1 ? '' : 's' } ago`;
+      }
+
+      const hours = Math.round(mins / 60);
+
+      if (hours < 24) {
+        return `${ hours } hour${ hours === 1 ? '' : 's' } ago`;
+      }
+
+      const days = Math.round(hours / 24);
+
+      return `${ days } day${ days === 1 ? '' : 's' } ago`;
+    },
+
     intentFrom(brief) {
       if (!brief.trim()) {
         return '';
@@ -341,6 +373,13 @@ export default {
           </div>
 
           <div class="queue__action">
+            <SChip
+              v-if="row.deferred"
+              label="Deferred"
+              icon="clock"
+              tone="warning"
+              :title="row.deferredLabel"
+            />
             <SBadge :status="row.changes ? 'unsaved' : 'live'" />
             <SButton variant="secondary" size="sm" @click.stop="open(row)">
               Review

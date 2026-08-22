@@ -1614,6 +1614,53 @@ export async function extensionSource(name: string): Promise<string> {
 }
 
 /**
+ * Deferring a review: "I have seen this and I am not deciding today."
+ *
+ * Kept in the pod repository's own `git config`, which is the right shape for it three ways
+ * over: it is local to the clone so it never travels to a remote, it is not a file so it never
+ * appears in the working tree the review screens are counting, and it survives a pod restart
+ * because the repository is on the hostPath.
+ *
+ * Deliberately not stored in BRIEF.md. The brief is the record of what a change is *for*, it
+ * is committed, and it is read by a person - a scheduling note about one reviewer's afternoon
+ * does not belong in it.
+ */
+const DEFER_KEY = 'barn.review.deferred';
+
+export interface Deferral {
+  at:   string;
+  note: string;
+}
+
+export async function deferReview(name: string, note = ''): Promise<void> {
+  const stamp = new Date().toISOString();
+
+  await inPackage(name, [
+    `git config --local ${ DEFER_KEY } ${ shellQuote(stamp) }`,
+    `git config --local ${ DEFER_KEY }-note ${ shellQuote(note.slice(0, 200)) }`,
+  ].join(' ; '));
+}
+
+export async function readDeferral(name: string): Promise<Deferral | null> {
+  const out = await inPackage(name, [
+    `echo "AT:$(git config --local --get ${ DEFER_KEY } 2>/dev/null)"`,
+    `echo "NOTE:$(git config --local --get ${ DEFER_KEY }-note 2>/dev/null)"`,
+  ].join(' ; ')).catch(() => '');
+
+  const at = (/^AT:(.*)$/m.exec(out)?.[1] || '').trim();
+
+  return at ? { at, note: (/^NOTE:(.*)$/m.exec(out)?.[1] || '').trim() } : null;
+}
+
+export async function clearDeferral(name: string): Promise<void> {
+  await inPackage(name, [
+    `git config --local --unset ${ DEFER_KEY } 2>/dev/null`,
+    `git config --local --unset ${ DEFER_KEY }-note 2>/dev/null`,
+    'true',
+  ].join(' ; '));
+}
+
+/**
  * Snapshots: a named point you can put the working tree back to.
  *
  * `git stash create` plus a tag, not `git stash push` - push would *remove* the changes from
