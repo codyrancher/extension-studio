@@ -143,6 +143,18 @@ export default {
   },
 
   computed: {
+    /**
+     * The route names, exposed to the template.
+     *
+     * A plain `<script>` block's module scope is not the render function's scope, so an
+     * imported constant named directly in the template resolves to undefined and
+     * `$router.push({ name: undefined })` is dropped without an error. That is a button that
+     * looks live and does nothing, silently - which is exactly how these were found.
+     */
+    routes() {
+      return { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE };
+    },
+
     extension() {
       return this.$route.params.extension || DEFAULT_EXTENSION;
     },
@@ -748,7 +760,7 @@ export default {
         icon="chevronLeft"
         icon-only
         aria-label="Back to the queue"
-        @click="$router.push({ name: REVIEW_QUEUE_ROUTE })"
+        @click="$router.push({ name: routes.REVIEW_QUEUE_ROUTE })"
       />
 
       <div class="verify__name">
@@ -768,7 +780,7 @@ export default {
         variant="ghost"
         size="sm"
         icon="book"
-        @click="$router.push({ name: BRIEF_ROUTE, params: { extension } })"
+        @click="$router.push({ name: routes.BRIEF_ROUTE, params: { extension } })"
       >
         Open the brief
       </SButton>
@@ -794,7 +806,7 @@ export default {
             <SButton
               variant="secondary"
               icon="book"
-              @click="$router.push({ name: BRIEF_ROUTE, params: { extension } })"
+              @click="$router.push({ name: routes.BRIEF_ROUTE, params: { extension } })"
             >
               Write the brief
             </SButton>
@@ -962,7 +974,7 @@ export default {
             variant="ghost"
             size="sm"
             icon="sparkle"
-            @click="$router.push({ name: EDITOR_ROUTE, params: { extension } })"
+            @click="$router.push({ name: routes.EDITOR_ROUTE, params: { extension } })"
           >
             Back to the workspace
           </SButton>

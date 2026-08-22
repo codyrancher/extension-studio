@@ -79,6 +79,18 @@ export default {
   },
 
   computed: {
+    /**
+     * The route names, exposed to the template.
+     *
+     * A plain `<script>` block's module scope is not the render function's scope, so an
+     * imported constant named directly in the template resolves to undefined and
+     * `$router.push({ name: undefined })` is dropped without an error. That is a button that
+     * looks live and does nothing, silently - which is exactly how these were found.
+     */
+    routes() {
+      return { STUDIO_ROUTE };
+    },
+
     extension() {
       return this.$route.params.extension || DEFAULT_EXTENSION;
     },
@@ -316,7 +328,7 @@ export default {
         icon="chevronLeft"
         icon-only
         aria-label="Back"
-        @click="$router.push({ name: STUDIO_ROUTE })"
+        @click="$router.push({ name: routes.STUDIO_ROUTE })"
       />
 
       <div class="brief__name">

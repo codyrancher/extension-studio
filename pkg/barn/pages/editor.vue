@@ -175,6 +175,18 @@ export default {
   },
 
   computed: {
+    /**
+     * The route names, exposed to the template.
+     *
+     * A plain `<script>` block's module scope is not the render function's scope, so an
+     * imported constant named directly in the template resolves to undefined and
+     * `$router.push({ name: undefined })` is dropped without an error. That is a button that
+     * looks live and does nothing, silently - which is exactly how these were found.
+     */
+    routes() {
+      return { BUILD_FAILED_ROUTE };
+    },
+
     /** The divider's position as a number, which before a drag is the token width's. */
     percent() {
       return this.split == null ? this.tokenSplit : this.split;
@@ -714,7 +726,7 @@ export default {
           variant="ghost"
           size="sm"
           icon="alert"
-          @click="$router.push({ name: BUILD_FAILED_ROUTE, params: { extension } })"
+          @click="$router.push({ name: routes.BUILD_FAILED_ROUTE, params: { extension } })"
         >
           See what went wrong
         </SButton>
