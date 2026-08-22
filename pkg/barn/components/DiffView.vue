@@ -11,11 +11,18 @@
 // Unified rather than side by side. Side by side needs twice the width to say the same thing,
 // and this is a pane inside a dialog inside a pane.
 
+// The token sheet, so this file's diff colours resolve whether or not the screen around it
+// happens to have imported it.
+import '../design/tokens';
+
 /**
  * Split a patch into files, and each file into hunks.
  *
- * Deliberately tolerant: anything it does not recognise before the first `diff --git` is skipped,
- * and a line inside a hunk that is none of ' ', '+' or '-' is kept as context. A patch that
+ * Deliberately tolerant about what it skips, and deliberately strict about what it keeps:
+ * anything before the first `diff --git` is ignored, and inside a hunk only ' ', '+', '-' and
+ * '\\' start a row. A line that is none of those is not a line of the diff - most often the
+ * empty string `split('\n')` leaves on the end of every patch, which used to be kept as
+ * context and drawn as a numbered but textless row. A patch that
  * confuses this should render as something slightly wrong rather than as nothing at all.
  */
 function parsePatch(patch) {
@@ -71,11 +78,17 @@ function parsePatch(patch) {
       hunk.lines.push({
         kind: 'note', old: null, new: null, text: line.slice(2)
       });
-    } else {
+    } else if (line.startsWith(' ')) {
       hunk.lines.push({
         kind: 'context', old: oldNo++, new: newNo++, text: line.slice(1)
       });
     }
+
+    // Anything else is not a line of the diff. The one that matters is the empty string
+    // `split('\n')` leaves on the end of every patch: it used to fall into the context branch
+    // and be rendered as a numbered, textless row - and for a newly added file, whose hunk
+    // header is `@@ -0,0 +1,n @@`, its old number was 0. That is the stray "0" that appeared
+    // under the last line of the diff on the review screens.
   }
 
   return files;
@@ -327,12 +340,17 @@ export default {
   }
 
   // The whole row, not just the text: it is the shape of the change that is read first.
+  //
+  // The tokens rather than literals: studio.css already carries diff/added-bg and
+  // diff/removed-bg from Foundations, with dark-theme values, and these two hand-rolled
+  // rgba() greens bypassed both - so the design's diff colours were not the ones on screen
+  // and they did not follow the theme.
   &__row--add {
-    background: rgba(48, 209, 88, 0.12);
+    background: var(--studio-diff-added-bg);
   }
 
   &__row--remove {
-    background: rgba(255, 69, 58, 0.12);
+    background: var(--studio-diff-removed-bg);
   }
 
   &__row--note {
