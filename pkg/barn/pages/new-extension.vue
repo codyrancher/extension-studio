@@ -359,7 +359,7 @@ export default {
   &__wrap {
     display:         flex;
     justify-content: center;
-    padding:         14px var(--studio-space-24) var(--studio-space-40);
+    padding:         14px var(--studio-space-24);
   }
 
   &__card {
@@ -423,6 +423,9 @@ export default {
   // The design draws this field already focused, which is the state it is in when the screen
   // opens - so it keeps the 2px blue border rather than only taking it on focus.
   &__prompt {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
     padding:       var(--studio-space-12) 14px;
     background:    var(--studio-surface);
     border:        2px solid var(--studio-border-focus);
@@ -530,13 +533,15 @@ export default {
 
     &:hover { border-color: var(--studio-border-strong); }
 
-    // The selected card is a 2px green border in the design. An inset ring rather than a
-    // thicker border, so selecting one does not shuffle the row by a pixel.
+    // The selected card is a 2px green border in the design (13:329). The negative margin
+    // is what keeps that from reflowing the row: the extra pixel of border on each side is
+    // taken back off the outer box, so the card grows inward and its neighbours do not move.
     &--selected,
     &--selected:hover {
       background:   var(--studio-green-050);
       border-color: var(--studio-green-500);
-      box-shadow:   inset 0 0 0 1px var(--studio-green-500);
+      border-width: 2px;
+      margin:       -1px;
     }
   }
 

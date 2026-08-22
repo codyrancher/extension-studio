@@ -94,7 +94,10 @@ export default {
 
       return out
         .map((s) => ({ title: s.title, body: s.body.join('\n').trim() }))
-        .filter((s) => s.body && s.body !== '_not stated_');
+        .filter((s) => s.body && s.body !== '_not stated_')
+        // The body is a stack of lines, not one wrapped paragraph (38:1136 is a column of
+        // text nodes), so the section renders them as the lines they were written as.
+        .map((s) => ({ title: s.title, lines: s.body.split('\n') }));
     },
   },
 
@@ -173,6 +176,21 @@ export default {
       this.$router.push({ name: EDITOR_ROUTE, params: { extension: this.extension } });
     },
 
+    /** The line under the path (38:1184): what the change is, in the size it is. */
+    fileStats(file) {
+      const counts = [];
+
+      if (file.added) {
+        counts.push(`+${ file.added }`);
+      }
+
+      if (file.removed) {
+        counts.push(`-${ file.removed }`);
+      }
+
+      return counts.length ? `${ file.status } · ${ counts.join(' ') }` : file.status;
+    },
+
     notYet(what) {
       toastNotYet(this.$store, what);
     },
@@ -231,9 +249,11 @@ export default {
           <template v-if="briefSections.length">
             <div v-for="s in briefSections" :key="s.title" class="rc__section">
               <SLabel :text="s.title" />
-              <p class="rc__section-body">
-                {{ s.body }}
-              </p>
+              <div class="rc__section-body">
+                <p v-for="(line, i) in s.lines" :key="i" class="rc__section-line">
+                  {{ line }}
+                </p>
+              </div>
             </div>
           </template>
 
@@ -252,8 +272,11 @@ export default {
               :class="{ 'rc__file--selected': f.path === selected }"
               @click="selected = f.path"
             >
-              <SIcon name="file" :size="13" />
-              <span class="rc__file-path">{{ f.path }}</span>
+              <span class="rc__file-row">
+                <SIcon name="file" :size="13" />
+                <span class="rc__file-path">{{ f.path }}</span>
+              </span>
+              <span class="rc__file-stats">{{ fileStats(f) }}</span>
             </button>
           </div>
         </div>
@@ -413,7 +436,10 @@ export default {
     color:         var(--studio-text-secondary);
     flex:          0 0 auto;
 
-    &--wide { padding: 10px var(--studio-space-16); }
+    &--wide { padding: var(--studio-space-10) var(--studio-space-16); }
+
+    // The preview rail's head is the wider one (38:1348); the packet's is not.
+    .rc__visual & { padding: var(--studio-space-12) var(--studio-space-16); }
   }
 
   &__panel-title {
@@ -436,10 +462,21 @@ export default {
   &__section {
     display:        flex;
     flex-direction: column;
-    gap:            var(--studio-space-4);
+    align-items:    center;
+    gap:            var(--studio-space-8);
+
+    // 38:1132 centres its children on the cross axis, but every child in it is set to fill,
+    // which in Figma wins over the alignment. Stretching them is that, not an override.
+    > * { align-self: stretch; }
   }
 
   &__section-body {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
+  }
+
+  &__section-line {
     font:        var(--studio-body-13);
     color:       var(--studio-text);
     margin:      0;
@@ -455,10 +492,13 @@ export default {
   }
 
   &__file {
-    display:       flex;
-    align-items:   center;
-    gap:           7px;
-    padding:       6px var(--studio-space-8);
+    display:        flex;
+    flex-direction: column;
+    // Explicit, because the shell centres every button's contents and in a column that
+    // centres them horizontally - a left-aligned path drawn down the middle of the row.
+    align-items:    stretch;
+    gap:            var(--studio-space-2);
+    padding:        7px var(--studio-space-10);
     background:    none;
     border:        1px solid transparent;
     border-radius: var(--studio-radius-control);
@@ -476,13 +516,26 @@ export default {
     }
   }
 
+  &__file-row {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    min-width:   0;
+  }
+
   &__file-path {
     flex:          1 1 auto;
     min-width:     0;
-    font:          var(--studio-caption-12);
+    font:          var(--studio-body-13-semi);
+    color:         var(--studio-text);
     overflow:      hidden;
     text-overflow: ellipsis;
     white-space:   nowrap;
+  }
+
+  &__file-stats {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-secondary);
   }
 
   &__code {
@@ -519,7 +572,7 @@ export default {
   &__signoffs {
     display:     flex;
     align-items: center;
-    gap:         var(--studio-space-8);
+    gap:         var(--studio-space-16);
     color:       var(--studio-text-tertiary);
   }
 

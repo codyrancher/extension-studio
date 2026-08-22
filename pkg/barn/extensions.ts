@@ -1469,12 +1469,33 @@ export interface ChangedFile {
   path:   string;
   /** added | modified | deleted */
   status: string;
+  /** Lines added and removed, for the tracked files git can count them for. */
+  added:   number;
+  removed: number;
 }
 
 export async function changedFiles(name: string): Promise<ChangedFile[]> {
-  const out = await inPackage(name, 'git status --porcelain --no-renames 2>/dev/null').catch(() => '');
+  // Two commands in one exec, because the status alone cannot say how big a change is and a
+  // second shell into the pod per screen is a second the reviewer waits. `--numstat` covers
+  // the tracked files only - an untracked file is not in `git diff` and is not worth an
+  // `add -N` over, which would stage intent-to-add for everything the tree is not ignoring.
+  const out = await inPackage(
+    name,
+    'git status --porcelain --no-renames 2>/dev/null ; echo "--numstat--" ; git diff --numstat HEAD 2>/dev/null'
+  ).catch(() => '');
 
-  return out.split('\n')
+  const [statusOut, numstatOut = ''] = out.split('--numstat--');
+  const stats: Record<string, { added: number; removed: number }> = {};
+
+  numstatOut.split('\n').forEach((line) => {
+    const [added, removed, ...rest] = line.trim().split(/\t/);
+
+    if (rest.length) {
+      stats[rest.join('\t')] = { added: parseInt(added, 10) || 0, removed: parseInt(removed, 10) || 0 };
+    }
+  });
+
+  return statusOut.split('\n')
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map((line) => {
@@ -1490,7 +1511,11 @@ export async function changedFiles(name: string): Promise<ChangedFile[]> {
         status = 'deleted';
       }
 
-      return { path, status };
+      const { added = 0, removed = 0 } = stats[path] || {};
+
+      return {
+        path, status, added, removed
+      };
     })
     .filter((f) => !!f.path);
 }

@@ -25,6 +25,16 @@ import { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE } from '../editor-product
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
+// The three segments of the verdict control (39:1232), in the order the design draws them.
+// "Can't tell" is the resting state rather than a fourth thing: a criterion nobody has
+// looked at yet and one somebody looked at and could not decide are the same criterion as
+// far as the sign-off is concerned, so both are the empty verdict.
+const VERDICTS = [
+  { id: 'pass', label: 'Yes' },
+  { id: 'fail', label: 'No' },
+  { id: '', label: `Can't tell` },
+];
+
 export default {
   name: 'BarnVerification',
 
@@ -43,6 +53,7 @@ export default {
       loading:    true,
       saving:     false,
       notes:      '',
+      VERDICTS,
     };
   },
 
@@ -139,7 +150,7 @@ export default {
     },
 
     set(criterion, verdict) {
-      criterion.verdict = criterion.verdict === verdict ? '' : verdict;
+      criterion.verdict = verdict;
     },
 
     /**
@@ -266,42 +277,54 @@ export default {
           </SEmpty>
 
           <template v-else>
-            <div v-if="problem" class="verify__problem">
-              <SLabel text="The problem this was for" />
-              <p class="verify__problem-text">
+            <!-- what this pass is for, and what it is not (39:1212) -->
+            <SBanner v-if="problem" type="success" class="verify__framing">
+              <span class="verify__framing-lead">The problem this was for</span>
+              <p class="verify__framing-text">
                 {{ problem }}
               </p>
-            </div>
+            </SBanner>
 
-            <div
-              v-for="(c, i) in criteria"
-              :key="i"
-              class="verify__criterion"
-              :class="{
-                'verify__criterion--pass': c.verdict === 'pass',
-                'verify__criterion--fail': c.verdict === 'fail',
-              }"
-            >
-              <p class="verify__criterion-text">
-                {{ c.text }}
-              </p>
-              <div class="verify__verdicts">
-                <SButton
-                  :variant="c.verdict === 'pass' ? 'primary' : 'neutral'"
-                  size="sm"
-                  icon="check"
-                  @click="set(c, 'pass')"
+            <!-- one card, one row per criterion (39:1217) -->
+            <div class="verify__criteria">
+              <div
+                v-for="(c, i) in criteria"
+                :key="i"
+                class="verify__criterion"
+                :class="{
+                  'verify__criterion--pass': c.verdict === 'pass',
+                  'verify__criterion--fail': c.verdict === 'fail',
+                }"
+              >
+                <span
+                  class="verify__badge"
+                  :class="{
+                    'verify__badge--pass': c.verdict === 'pass',
+                    'verify__badge--fail': c.verdict === 'fail',
+                  }"
                 >
-                  Yes
-                </SButton>
-                <SButton
-                  :variant="c.verdict === 'fail' ? 'danger' : 'neutral'"
-                  size="sm"
-                  icon="close"
-                  @click="set(c, 'fail')"
-                >
-                  No
-                </SButton>
+                  <SIcon v-if="c.verdict === 'pass'" name="check" :size="13" />
+                  <SIcon v-else-if="c.verdict === 'fail'" name="close" :size="13" />
+                  <template v-else>{{ i + 1 }}</template>
+                </span>
+
+                <p class="verify__criterion-text">
+                  {{ c.text }}
+                </p>
+
+                <div class="verify__verdicts" role="group" :aria-label="`Verdict for criterion ${ i + 1 }`">
+                  <button
+                    v-for="v in VERDICTS"
+                    :key="v.label"
+                    type="button"
+                    class="verify__verdict"
+                    :class="c.verdict === v.id ? `verify__verdict--on-${ v.id || 'unset' }` : ''"
+                    :aria-pressed="c.verdict === v.id"
+                    @click="set(c, v.id)"
+                  >
+                    {{ v.label }}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -429,24 +452,26 @@ export default {
     min-height: 0;
   }
 
+  // The criteria fill and the preview is the fixed one (39:1211 fill, 39:1355 fixed) - the
+  // way round the design has it, and the way round the screen needs: pinning the criteria
+  // wrapped every one of them onto two lines while the preview sat on spare width.
   &__list {
     display:        flex;
     flex-direction: column;
-    flex:           0 1 var(--studio-panel-assistant);
-    min-width:      var(--studio-panel-assistant-min);
-    border-right:   1px solid var(--studio-border);
+    // Basis 0, not auto: on auto the column asks for its content width and the pinned
+    // preview next to it spends its whole shrink budget answering.
+    flex:           1 1 0;
+    min-width:      var(--studio-panel-main-min);
     min-height:     0;
   }
 
   &__preview {
     display:        flex;
     flex-direction: column;
-    // Basis 0, not auto: on auto the column asks for its content width - a diff's longest
-    // line, a log's longest line - and the rails next to it spend their whole shrink budget
-    // answering, so they never sit at their drawn width even on a wide screen. Basis 0 makes
-    // it take the space left over, and min-width is what stops that going to nothing.
-    flex:           1 1 0;
-    min-width:      var(--studio-panel-main-min);
+    flex:           0 1 var(--studio-panel-assistant);
+    min-width:      var(--studio-panel-assistant-min);
+    border-left:    1px solid var(--studio-border);
+    background:     var(--studio-surface-subtle);
     min-height:     0;
   }
 
@@ -475,38 +500,67 @@ export default {
     flex:           1 1 auto;
   }
 
-  &__problem {
-    display:        flex;
-    flex-direction: column;
-    gap:            var(--studio-space-4);
-    padding-bottom: var(--studio-space-12);
-    border-bottom:  1px solid var(--studio-border-subtle);
+  // 39:1212: the green block that says what this pass is and is not. It is the Banner
+  // component - a status wash behind a 4px bar - so it is drawn with one rather than
+  // re-cut here.
+  &__framing {
+    :deep(.s-banner__body) {
+      display:        flex;
+      flex-direction: column;
+      gap:            3px;
+    }
   }
 
-  &__problem-text {
-    font:   var(--studio-body-14);
-    color:  var(--studio-text);
+  &__framing-lead {
+    font:  var(--studio-body-13-semi);
+    color: var(--studio-text);
+  }
+
+  &__framing-text {
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
     margin: 0;
+  }
+
+  // One card, its rows divided (39:1217) - not four cards. A checklist is one list.
+  &__criteria {
+    display:        flex;
+    flex-direction: column;
+    background:     var(--studio-surface);
+    border:         1px solid var(--studio-border);
+    border-radius:  var(--studio-radius);
+    overflow:       hidden;
   }
 
   &__criterion {
     display:        flex;
-    align-items:    center;
-    gap:            10px;
-    padding:        10px var(--studio-space-12);
-    background:     var(--studio-surface-subtle);
-    border:         1px solid var(--studio-border-subtle);
-    border-radius:  var(--studio-radius);
+    align-items:    flex-start;
+    gap:            var(--studio-space-12);
+    padding:        13px var(--studio-space-16);
+    border-bottom:  1px solid var(--studio-border-subtle);
 
-    &--pass {
-      background:   var(--studio-success-bg);
-      border-color: var(--studio-success);
-    }
+    &:last-child { border-bottom: none; }
 
-    &--fail {
-      background:   var(--studio-error-bg);
-      border-color: var(--studio-error);
-    }
+    // Only the failing row is washed. A met criterion is marked by its badge going green;
+    // tinting it as well makes a checklist that is mostly done unreadably loud.
+    &--fail { background: var(--studio-error-bg); }
+  }
+
+  // 39:1220: the criterion's number, and where the answer shows up.
+  &__badge {
+    display:         inline-flex;
+    align-items:     center;
+    justify-content: center;
+    width:           22px;
+    height:          22px;
+    flex:            0 0 22px;
+    border-radius:   var(--studio-radius-pill);
+    background:      var(--studio-surface-nav);
+    color:           var(--studio-neutral);
+    font:            var(--studio-caption-12-semi);
+
+    &--pass { background: var(--studio-green-500); color: var(--studio-text-inverse); }
+    &--fail { background: var(--studio-error); color: var(--studio-text-inverse); }
   }
 
   &__criterion-text {
@@ -516,10 +570,41 @@ export default {
     margin: 0;
   }
 
+  // 39:1232: one joined control, not two buttons. Three segments, because "I looked and I
+  // cannot tell" is an answer and the screen has to let somebody give it.
   &__verdicts {
-    display: flex;
-    gap:     6px;
-    flex:    0 0 auto;
+    display:       flex;
+    width:         216px;
+    height:        30px;
+    flex:          0 0 auto;
+    background:    var(--studio-surface);
+    border:        1px solid var(--studio-border);
+    border-radius: var(--studio-radius);
+    overflow:      hidden;
+  }
+
+  &__verdict {
+    display:         inline-flex;
+    align-items:     center;
+    justify-content: center;
+    flex:            1 1 0;
+    padding:         0;
+    border:          none;
+    background:      transparent;
+    color:           var(--studio-text-secondary);
+    font:            var(--studio-caption-12-semi);
+    cursor:          pointer;
+
+    &:hover { background: var(--studio-surface-subtle); }
+
+    &--on-pass,
+    &--on-pass:hover { background: var(--studio-green-500); color: var(--studio-text-inverse); }
+
+    &--on-fail,
+    &--on-fail:hover { background: var(--studio-error); color: var(--studio-text-inverse); }
+
+    &--on-unset,
+    &--on-unset:hover { background: var(--studio-surface-nav); color: var(--studio-text-secondary); }
   }
 
   &__notes {

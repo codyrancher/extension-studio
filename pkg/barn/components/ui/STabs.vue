@@ -125,12 +125,18 @@ export default {
     padding:     0 var(--studio-space-4);
   }
 
+  // Caption/11 SemiBold Caps, the style the count carries in every strip in the file
+  // (22:917, 36:1061). The page strip's pill is a pixel wider each side (36:1060).
   &__count {
-    padding:       0 5px;
-    border-radius: var(--studio-radius-pill);
-    background:    var(--studio-neutral-bg);
-    color:         var(--studio-text-secondary);
-    font:          var(--studio-caption-12);
+    padding:        1px var(--studio-space-6);
+    border-radius:  var(--studio-radius-pill);
+    background:     var(--studio-neutral-bg);
+    color:          var(--studio-text-secondary);
+    font:           var(--studio-caption-11-caps);
+    letter-spacing: var(--studio-tracking-caps);
+    text-transform: uppercase;
+
+    .s-tabs--page & { padding: 1px 7px; }
   }
 
   &__indicator {

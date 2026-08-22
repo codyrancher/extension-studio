@@ -217,8 +217,8 @@ export default {
 .studio-masthead {
   display:       flex;
   align-items:   center;
-  gap:           var(--studio-space-8);
-  padding:       var(--studio-space-8) var(--studio-space-16);
+  gap:           var(--studio-space-10);
+  padding:       var(--studio-space-10) var(--studio-space-16);
   border-bottom: 1px solid var(--studio-border);
   background:    var(--studio-surface);
   flex:          0 0 auto;

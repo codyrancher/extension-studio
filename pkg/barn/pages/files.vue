@@ -505,7 +505,10 @@ export default {
     color:         var(--studio-text-secondary);
     flex:          0 0 auto;
 
-    &--wide  { padding: 10px var(--studio-space-16); }
+    &--wide  {
+      padding: var(--studio-space-10) var(--studio-space-16);
+      gap:     var(--studio-space-10);
+    }
     &--tight { padding: var(--studio-space-8) var(--studio-space-16); }
   }
 
@@ -545,10 +548,13 @@ export default {
   &__loose {
     display:       block;
     width:         100%;
-    padding:       3px var(--studio-space-8);
+    padding:       5px var(--studio-space-8);
     text-align:    left;
     background:    none;
     border:        none;
+    // The shell gives every button a 40px minimum for touch targets, which turns the design's
+    // 22px tree row into a scroll. FileTree's rows clear it the same way.
+    min-height:    0;
     border-radius: var(--studio-radius-control);
     font:          var(--studio-caption-12);
     color:         var(--studio-text-link);
@@ -564,10 +570,17 @@ export default {
   }
 
   &__tree-scroll {
-    flex:       1 1 auto;
-    min-height: 0;
-    overflow:   auto;
-    padding:    0 var(--studio-space-4) var(--studio-space-8);
+    flex:           1 1 auto;
+    min-height:     0;
+    overflow:       auto;
+    display:        flex;
+    flex-direction: column;
+    gap:            1px;
+    padding:        var(--studio-space-10) var(--studio-space-6) var(--studio-space-12);
+
+    // A scroller's children keep their own height; letting them shrink to fit would
+    // collapse the tree instead of scrolling it.
+    > * { flex: 0 0 auto; }
   }
 
   &__code {
@@ -575,6 +588,7 @@ export default {
     min-height: 0;
     overflow:   auto;
     display:    flex;
+    padding:    var(--studio-space-8) 0;
 
     :deep(> *) { flex: 1 1 auto; }
   }
@@ -583,11 +597,16 @@ export default {
     width:           100%;
     border-collapse: collapse;
     font:            var(--studio-mono-12);
+
+    // The table is a flex item, so the default cross-axis stretch grew it to the
+    // scroller's height and the rows shared out the slack - a 22px line rendering 42px
+    // tall. Its height is the sum of its rows; nothing else.
+    align-self:      flex-start;
   }
 
   &__ln {
     width:         1%;
-    padding:       0 10px 0 var(--studio-space-16);
+    padding:       var(--studio-space-2) var(--studio-space-10) var(--studio-space-2) var(--studio-space-16);
     text-align:    right;
     color:         var(--studio-text-tertiary);
     user-select:   none;
@@ -596,7 +615,7 @@ export default {
   }
 
   &__code-line {
-    padding:     0 var(--studio-space-16) 0 0;
+    padding:     var(--studio-space-2) var(--studio-space-16) var(--studio-space-2) 0;
     color:       var(--studio-text);
     white-space: pre-wrap;
     word-break:  break-word;

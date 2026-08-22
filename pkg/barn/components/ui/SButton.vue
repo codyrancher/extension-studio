@@ -124,7 +124,7 @@ export default {
 
   &--sm {
     padding: 5px 11px;
-    gap:     6px;
+    gap:     7px;
   }
 
   &--icon-only {

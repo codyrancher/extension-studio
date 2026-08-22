@@ -401,6 +401,9 @@ export default {
     border-bottom: 1px solid var(--studio-border-subtle);
     color:         var(--studio-text-secondary);
     flex:          0 0 auto;
+
+    // The explanation rail's head is the wider one (14:510); the file list's is 12/14.
+    .review__explain & { padding: var(--studio-space-12) var(--studio-space-16); }
   }
 
   &__panel-title {
@@ -447,7 +450,7 @@ export default {
   &__file-path {
     flex:          1 1 auto;
     min-width:     0;
-    font:          var(--studio-caption-12);
+    font:          var(--studio-body-13-semi);
     color:         var(--studio-text);
     overflow:      hidden;
     text-overflow: ellipsis;
@@ -463,9 +466,12 @@ export default {
   }
 
   &__note {
-    padding:    var(--studio-space-12) 14px;
-    border-top: 1px solid var(--studio-border-subtle);
-    flex:       0 0 auto;
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-4);
+    padding:        var(--studio-space-12) 14px;
+    border-top:     1px solid var(--studio-border-subtle);
+    flex:           0 0 auto;
   }
 
   &__note-text {
@@ -534,7 +540,7 @@ export default {
   &__fact {
     display:        flex;
     flex-direction: column;
-    gap:            var(--studio-space-2);
+    gap:            var(--studio-space-4);
   }
 
   &__fact-label {

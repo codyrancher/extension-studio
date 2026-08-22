@@ -540,11 +540,11 @@ export default {
   }
 
   &__ac-box {
-    width:         13px;
-    height:        13px;
-    flex:          0 0 13px;
+    width:         var(--studio-space-20);
+    height:        var(--studio-space-20);
+    flex:          0 0 var(--studio-space-20);
     border:        1px solid var(--studio-border-strong);
-    border-radius: 2px;
+    border-radius: var(--studio-radius-control);
     background:    var(--studio-surface);
   }
 
@@ -565,7 +565,6 @@ export default {
     display:        flex;
     flex-direction: column;
     gap:            var(--studio-space-4);
-    padding:        0 var(--studio-space-4);
   }
 
   &__footnote-text {

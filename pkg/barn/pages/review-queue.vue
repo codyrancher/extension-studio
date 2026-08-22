@@ -399,12 +399,22 @@ export default {
   &__col {
     display:        flex;
     flex-direction: column;
+    align-items:    flex-start;
+    // The three columns share one baseline for their caps labels, which centring each
+    // column in the row cannot give: the risk pill is taller than the text the other two
+    // carry, so a centred RISK column sits its label above the other two.
+    align-self:     flex-start;
     gap:            5px;
     flex:           0 0 auto;
 
     &--part { width: 150px; }
     &--risk { width: 200px; }
     &--who  { width: 110px; gap: var(--studio-space-4); }
+
+    // The risk pill hugs its label (36:1096). Left to stretch it became a 200px green band
+    // across the column, and the extra height pushed the column's caps label off the
+    // baseline it shares with YOUR PART and BRANCH.
+    :deep(.s-chip) { padding: 3px var(--studio-space-8); }
   }
 
   &__label {

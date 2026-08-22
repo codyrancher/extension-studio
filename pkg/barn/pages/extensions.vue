@@ -474,7 +474,7 @@ export default {
     padding:       var(--studio-space-2) var(--studio-space-8);
     background:    var(--studio-surface-nav);
     border-radius: var(--studio-radius-control);
-    font:          var(--studio-caption-12);
+    font:          var(--studio-caption-12-semi);
     color:         var(--studio-text-secondary);
   }
 

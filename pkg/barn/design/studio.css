@@ -137,6 +137,7 @@ body {
   --studio-body-16:    400 16px/1.5 var(--studio-font);
   --studio-body-14:    400 14px/1.4286 var(--studio-font);
   --studio-body-13:    400 13px/1.3846 var(--studio-font);
+  --studio-body-13-semi: 600 13px/1.3846 var(--studio-font);
   --studio-caption-12: 400 12px/1.3333 var(--studio-font);
   --studio-caption-12-semi: 600 12px/1.3333 var(--studio-font);
   --studio-caption-11-caps: 600 11px/1.2727 var(--studio-font);
@@ -152,7 +153,9 @@ body {
    * The file's scale, named by value so a gap here is the gap in Figma. */
   --studio-space-2:  2px;
   --studio-space-4:  4px;
+  --studio-space-6:  6px;
   --studio-space-8:  8px;
+  --studio-space-10: 10px;
   --studio-space-12: 12px;
   --studio-space-16: 16px;
   --studio-space-20: 20px;
