@@ -23,7 +23,20 @@
  *    #FDF6E3 warning wash on a near-black panel is a lamp, not a background.
  */
 
-:root {
+/*
+ * Declared on `body`, not `:root`, and that is the difference between this following
+ * Rancher's theme and never following it.
+ *
+ * A custom property's value is substituted in the scope it is *declared* in. Rancher defines
+ * --body-bg, --body-text and the rest on `body` - they are unset on `:root` - so a token
+ * written `var(--body-bg, #FFFFFF)` on `:root` resolves against an element where that variable
+ * does not exist and takes the fallback. Permanently. The computed result then inherits down,
+ * so every descendant sees the light value even in dark mode: the shell went dark around an
+ * extension that stayed white, and the diff view rendered white text on a pale green ground.
+ *
+ * Declaring them here puts the substitution in the same scope as the variables they read.
+ */
+body {
   /* ---------------------------------------------------------------- Brand */
   --studio-green-050: #EEF5EF;
   --studio-green-100: #D2E5D5;
@@ -163,6 +176,15 @@ body.theme-dark {
   /* Lift the mid-greys so they stay legible against a dark panel. */
   --studio-warning: #E0BC4A;
   --studio-error:   #FF6B6B;
+
+  /*
+   * The two 050 tints are literals as well, and they are not decoration: they are what marks
+   * the selected row in the file lists and the selected card on the new-extension form. Left
+   * light they put pale blue behind light text, which is the selected row being the one row
+   * you cannot read.
+   */
+  --studio-blue-050:  rgba(61, 152, 211, 0.22);
+  --studio-green-050: rgba(62, 140, 79, 0.22);
 }
 
 /*
@@ -172,7 +194,7 @@ body.theme-dark {
  * compiling while it is migrated onto the names above; delete the block once nothing
  * matches `grep -r 'studio-line\|studio-surface-sunken\|studio-text-muted'`.
  */
-:root {
+body {
   --studio-line:           var(--studio-border);
   --studio-line-soft:      var(--studio-border-subtle);
   --studio-surface-sunken: var(--studio-surface-subtle);
