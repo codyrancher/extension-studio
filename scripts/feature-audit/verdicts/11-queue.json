@@ -1,0 +1,125 @@
+{
+  "screen": "11-queue",
+  "verdicts": [
+    {
+      "id": "11-queue-breadcrumb",
+      "status": "pass",
+      "evidence": "Clicked '.queue__crumb' (\"Extensions\") on /barn/review. URL became https://magic-closet-rancher/dashboard/barn/extensions and '.studio-home__table' rendered, so the push resolved to a real route rather than dropping silently.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-footnote",
+      "status": "pass",
+      "evidence": "'.queue__footnote' is rendered as the last child of '.queue__list' with the sparkle icon and the text \"Rows lead with what the change is for, taken from its brief - not with a file count. A change with no brief says so...\". Present on every load of the queue.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-header-actions",
+      "status": "pass",
+      "evidence": "Drove all three Rancher product-header controls on /barn/review. The hamburger ('[aria-label=\"Main menu\"]') expands the app-collection rail (Home, local, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About). '[data-testid=\"notifications-center\"]' goes aria-expanded=true and opens the notification centre listing real entries (\"Verification recorded\", \"Come back to it\", with timestamps). '[data-testid=\"nav_header_showUserMenu\"]' goes aria-expanded=true and opens admin / Default Admin / Preferences / Account & API Keys / Log Out. The screen itself adds no header of its own; these are Rancher's, and they work on this route.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-nav-rail",
+      "status": "fail",
+      "evidence": "The rail renders (70px collapsed, expands on the hamburger) and navigation works: clicking Cluster Management from /barn/review went to /dashboard/c/_/manager/provisioning.cattle.io.cluster. But the Studio entry is not marked selected on this route. Read the class list of every '.side-menu .option' on three URLs: on /barn/review the Editor (Studio) item is plain 'option'; on /c/local/settings the Global Settings item is 'option active-menu-link'; on /barn/extensions the Editor item is 'router-link-active router-link-exact-active option'. There is also no docs entry anywhere in the rail or the header, and no cluster chips beyond the single 'local' selector.",
+      "defect": "The Studio/Editor rail item loses its selected state on every barn route that is not exactly /barn/extensions, because the product's nav entry is an exact router-link to STUDIO_ROUTE (editor-product.ts line 64, `to: { name: STUDIO_ROUTE }`) and Rancher marks it with router-link-exact-active only. The queue, the review-change screen and the rest of the Studio therefore render with no rail item highlighted, so the user cannot see which product they are in. Rancher's own 'active-menu-link' mechanism does the right thing for Global Settings, so the fix is a route-prefix match rather than an exact-link match. The design's docs icon and the LT1/CD2/AFT cluster chips have no counterpart in the rail at all."
+    },
+    {
+      "id": "11-queue-open-brief",
+      "status": "not-implemented",
+      "evidence": "No row on /barn/review offers 'Open the brief'. Every '.queue__action' contains only an optional Deferred chip, an SBadge and one 'Review' button (dumped the action cell of all rows). `grep -rin 'Open the brief' pkg/barn/pages/review-queue.vue` is empty; the only occurrences in the product are pages/verification.vue:791 and the extensions-list row menu at pages/extensions.vue:427. There is also no notion of a blocked row here: the queue has no state other than 'has uncommitted changes' and 'does not', and no harvester-vm-quickstart-style row exists.",
+      "defect": "The queue has no blocked state and no brief action. A row whose brief is missing is rendered with a warning line ('No brief - nobody wrote down what this is for.', review-queue.vue:354-357) but still gets the ordinary 'Review' button, so the one case where the design sends the user to the brief instead sends them into the diff."
+    },
+    {
+      "id": "11-queue-open-review",
+      "status": "pass",
+      "evidence": "Clicked the 'Review' button on the first row (base, default 'Oldest first' order). URL became /dashboard/barn/review/base/working, '.rc__body' rendered, and the packet shown was base's own brief (\"Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.\"), which matches base/BRIEF.md read out of the pod.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-preview-only-notice",
+      "status": "pass",
+      "evidence": "'.queue__lede' renders under the title row: \"Nothing in this list is live. Everything here is still running only in its author's preview, and you are its only reviewer, so nothing here is waiting on anybody else.\"",
+      "defect": null
+    },
+    {
+      "id": "11-queue-review-settings",
+      "status": "fail",
+      "evidence": "Clicked the 'Review settings' button in the queue masthead. A modal opens, but it is the editor's settings modal: title \"Editor settings\", body \"Used to import and publish extensions to GitHub.\", one 'GitHub token' field, Cancel/Save. Escape closes it. Nothing in it concerns review.",
+      "defect": "review-queue.vue:306 wires the 'Review settings' button to `showSettings = true`, which renders components/EditorSettingsModal.vue - the GitHub-token form used by the editor and the publish flow. There are no review settings in the product; the button is a relabelled shortcut to a different screen's configuration, so a user who clicks it to change how reviews behave is shown a credential field instead."
+    },
+    {
+      "id": "11-queue-row-intent",
+      "status": "fail",
+      "evidence": "Every row's FIRST line is '.queue__row-title' = the extension name (base, nodehealth), and the brief sentence is the SECOND line ('.queue__intent'). The design has these the other way round. There is no version and no file/criteria count anywhere in the row: the second half of the row is YOUR PART / RISK / BRANCH columns. The intent text itself is also cut: base's row reads \"Mid-incident an operator cannot tell a spike in node pressure apart from a slow\" - the sentence stops mid-clause because base/BRIEF.md hard-wraps that paragraph across two lines.",
+      "defect": "Two problems. (1) review-queue.vue:348-357 renders '.queue__row-title' (name) above '.queue__intent' (purpose), inverting the design, and drops the 'name . version' + file/criteria-count line entirely. (2) intentFrom() (review-queue.vue:208-225) splits the brief on '\\n' and returns a single LINE, so any hard-wrapped paragraph is truncated at the wrap: base shows '...apart from a slow' and loses 'degradation, so they open Grafana or guess.'. It should join the lines of the paragraph until the next blank line or heading."
+    },
+    {
+      "id": "11-queue-row-open",
+      "status": "pass",
+      "evidence": "With the default 'Oldest first' order the rows were [base, nodehealth]. Clicked '.queue__card:nth-child(2) .queue__main' - the row body, well away from the button. URL became /dashboard/barn/review/nodehealth/working and the change that opened was nodehealth's (its packet text matched nodehealth/BRIEF.md), so the row that opens is the row that was clicked. '@click' is on '.queue__card' (review-queue.vue:344) and the button uses '@click.stop', so the two do not double-fire.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-risk",
+      "status": "fail",
+      "evidence": "Every row does show a risk pill, and it is computed from real data, not constant: riskOf(changes) (review-queue.vue:227-233) buckets `git status --porcelain | wc -l`. Proved it by driving the count - a probe extension I created with a clean tree showed 'none', and after I wrote 10 files into its working tree the same row showed 'high'; base (1 changed file) and nodehealth (2) both showed 'low'. What is missing is the reason: the RISK column contains only the pill, no rationale string anywhere in the row's DOM. And there is no blocked state, so no em-dash placeholder case exists.",
+      "defect": "The rating has no explanation. review-queue.vue:365-368 renders the SChip alone; the design pairs the rating with a one-line reason. The rating is also only a file count - it does not distinguish a 10-file docs change from a 10-file change to the extension's entry point - so a reason line would have to be derived from something more than `changes` to be worth printing."
+    },
+    {
+      "id": "11-queue-row-waiting",
+      "status": "not-implemented",
+      "evidence": "No row shows a waiting duration or a person. The three columns are 'YOUR PART', 'RISK' and 'BRANCH' (BRANCH shows 'main' for every row). `grep -in 'Waiting' pkg/barn/pages/review-queue.vue` matches only the tab label 'Waiting on you' and the computed `waitingOnYou`; there is no 'requester', no author and no age rendered on a card. The screen does read a real timestamp (detail.lastChange -> row.committedAt) but only uses it to sort, never to display. The one relative time it prints is the Deferred chip's tooltip, which is not this.",
+      "defect": "row.committedAt is already available on every row and the component already has an ago() helper (review-queue.vue:180-206), so a real 'Waiting <duration>' cell is a few lines away. A requester is genuinely not available - nothing in the pod records who asked for the change, and the last commit is authored by 'barn' - so the person half of this should say so rather than be invented."
+    },
+    {
+      "id": "11-queue-row-your-part",
+      "status": "fail",
+      "evidence": "The 'YOUR PART' pill is present on every row but is a hardcoded string. review-queue.vue:360-363 is `<span class=\"queue__value\">Author and reviewer</span>` with no binding. Dumped all rows in both tabs, across a clean row, a 1-file row, a 2-file row and a 10-file row: every one reads 'Author and reviewer'. None of the design's three values ('Code review', 'Outcome sign-off', 'Blocked') can ever appear, and the action button is likewise always 'Review'.",
+      "defect": "The column is a constant, so it carries no information and cannot match the action button in any meaningful sense. The screen's own header comment (review-queue.vue:14-18) argues this is honest because the product has one reviewer - if that is the position, the column should be dropped or moved into the lede rather than rendered per row as though it varied."
+    },
+    {
+      "id": "11-queue-sign-off",
+      "status": "not-implemented",
+      "evidence": "No row ever shows a 'Sign off' action. `grep -in 'Sign off' pkg/barn/pages/review-queue.vue` is empty. The action cell (review-queue.vue:375-387) hardcodes one SButton labelled 'Review' that always pushes REVIEW_CHANGE_ROUTE with change: 'working'. There is no route to the verification screen from this page, no obs-alert-triage row, and no 'Outcome sign-off' value for 'Your part' that could select it.",
+      "defect": "The queue cannot distinguish a code review from an outcome sign-off, so the verification screen (/barn/extensions/<id>/verification) is unreachable from the review queue."
+    },
+    {
+      "id": "11-queue-since-banner",
+      "status": "not-implemented",
+      "evidence": "No row carries a re-review banner. Every '.queue__card' contains exactly one '.queue__card-body' and nothing above it (dumped card innerHTML for all rows). `grep -in 'since' pkg/barn/pages/review-queue.vue` returns nothing, and there is no longhorn-capacity row. Nothing in extensions.ts records an approval, so there is no 'last approved' point to count changes from.",
+      "defect": "The product has no record of an approval - the closest stored review state is the deferral in git config `barn.review.deferred` - so there is nothing to anchor 'changes since you last approved' to."
+    },
+    {
+      "id": "11-queue-since-filter",
+      "status": "not-implemented",
+      "evidence": "Follows from 11-queue-since-banner: the banner the link would live in does not exist, so there is no link. No anchor or button in any row navigates with a scope parameter; the only navigation the row does is open(row) -> REVIEW_CHANGE_ROUTE with params { extension, change: 'working' } (review-queue.vue:269-274), which carries no scope or filter.",
+      "defect": "No way to open a change scoped to 'Since my last look' from the queue, because the queue passes only the extension name and the literal change id 'working'."
+    },
+    {
+      "id": "11-queue-sort",
+      "status": "pass",
+      "evidence": "The 'Oldest first' chip opens a menu with four items: 'Oldest first | by last commit . current', 'Newest first | by last commit', 'Most changes', 'Least changes'. Drove all four and read '.queue__row-title' out of the DOM each time, against pods whose real git state I checked with kubectl (base last commit 2026-08-21T22:37, 1 changed file; nodehealth 2026-08-22T22:25, 2 changed files). Oldest first -> [base, nodehealth]; Newest first -> [nodehealth, base]; Most changes -> [nodehealth, base]; Least changes -> [base, nodehealth]. The trigger label updates to the chosen order and the menu marks it 'current'. So it sorts on the real `git log -1 --format=%cI` timestamp and the real porcelain count, not on rendered strings.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-signed-off",
+      "status": "pass",
+      "evidence": "The predicate (review-queue.vue:75-77: changes === 0 && committedAt && now - committedAt < 7 days) is satisfiable and I made it fire. Created my own probe deployment barn-q11probe-extension with a git repo holding one commit and a clean tree; the tab count went 0 -> 1 and switching to it showed exactly [q11probe] while 'Waiting on you' held [base, nodehealth] - genuinely disjoint sets. aria-selected and the s-tab--selected class moved to the second tab and back. I then wrote 10 files into the probe's tree: the count went back to 0, the tab showed the SEmpty state 'Nothing signed off this week / Extensions committed in the last seven days appear here.', and the probe moved into 'Waiting on you'. Probe deleted afterwards. Count is live, not the design's hardcoded 7.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-waiting-on-others",
+      "status": "not-implemented",
+      "evidence": "There are two tabs, not three: '.queue__tabs' renders exactly 'Waiting on you' and 'Signed off this week'. The tab was removed on purpose and the reason is written at review-queue.vue:14-18 - nothing in the product models a second reviewer, so the filter could never match and the tab carried a hardcoded zero. `grep -in 'Waiting on others' pkg/barn/pages/review-queue.vue` matches only that comment.",
+      "defect": "Deliberately deleted rather than missed. Recording it as not-implemented because the design promises the tab and a count of 2, but the deletion looks like the right call: with one reviewer the predicate has no truth condition. Worth noting the queue does drop rows on the floor in one case - an extension whose pod is not running (barn-demo-extension, scaled to 0) reports changes 0 and no commit timestamp, so it appears in neither tab and vanishes from the screen entirely."
+    },
+    {
+      "id": "11-queue-tab-waiting-on-you",
+      "status": "pass",
+      "evidence": "Loaded /barn/review: the first tab has aria-selected=\"true\" and class 's-tab s-tab--selected', so it is the default. Its count matched the list exactly on every read - badge 2 with rows [base, nodehealth], and badge 3 with rows [base, nodehealth, q11probe] after I added a dirty probe extension. The predicate is real (changes > 0, from `git status --porcelain | wc -l` in the pod): making the probe's tree dirty moved it into this tab and cleaning it moved it out. Count is live, not the design's hardcoded 4.",
+      "defect": null
+    }
+  ]
+}

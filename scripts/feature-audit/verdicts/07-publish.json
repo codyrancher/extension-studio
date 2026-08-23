@@ -1,0 +1,504 @@
+{
+  "screen": "07-publish",
+  "note": "Figma 16:459 draws a publish modal with four independently tickable destinations, a version field, a release summary, sign-offs and pre-flight checks. No such modal exists in the product. The masthead Publish button (PublishSplit.vue) is wired straight to publishTo('local') in pages/editor.vue, and the split button's caret offers three lines: Publish to GitHub (PublishGithubModal.vue), Import from GitHub, Remove local install. Greps over pkg/barn (excluding node_modules and extension-seed.generated.ts) for OCI, destination, sign-off/signoff, pre-flight/preflight, kubeconfig, release summary, rollback, reversible, 'Requires approval', 'No sign-off' return nothing outside pages/verification.vue and pages/review-change.vue, which are other screens. I deliberately did not run a publish: it is a production build inside the shared base pod and installs a UIPlugin into the running Rancher.",
+  "verdicts": [
+    {
+      "id": "07-publish-autosave",
+      "status": "fail",
+      "evidence": "The masthead carries a clock-icon 'Snapshots' menu, not a time-since readout. Opening it (data-testid barn-snapshots-menu) listed 'Take a snapshot' and one existing snapshot, 'probe point A / 8 hours ago'. Nothing on the bar reports when the last snapshot was taken, and nothing takes one automatically.",
+      "defect": "Snapshots are manual (EditorMasthead.takeSnapshot, extensions.createSnapshot). There is no autosave and no 'Snapshot saved Ns ago' string on the masthead; the relative time only exists inside the menu, once opened."
+    },
+    {
+      "id": "07-publish-back",
+      "status": "fail",
+      "evidence": "Clicked the back chevron left of 'base' on /barn/editor. Landed on https://magic-closet-rancher/dashboard/home (Rancher's home page, 'Welcome to Rancher Prime'), not the extension list.",
+      "defect": "pages/editor.vue binds the masthead's back event to $router.push({ name: 'home' }), which is Rancher's home route. The extension list is STUDIO_ROUTE ('barn-studio', /barn/extensions) in editor-product.ts. One-word fix: push { name: STUDIO_ROUTE }."
+    },
+    {
+      "id": "07-publish-branch-chip",
+      "status": "fail",
+      "evidence": "The chip reads 'main', which is the real branch (kubectl exec into barn-base-extension: /app/pkg/base is on main at 8a704fb). Clicking it does nothing: it renders as <span class=\"s-chip s-chip--default\"> with no click handler and no menu appears.",
+      "defect": "EditorMasthead renders the branch as a non-interactive SChip. There is no branch picker anywhere in pkg/barn (listBranches is read-only, and nothing calls a checkout). The value shown is correct; the menu the design draws does not exist."
+    },
+    {
+      "id": "07-publish-cancel",
+      "status": "not-implemented",
+      "evidence": "There is no destination dialog to cancel. Searched pkg/barn for a publish modal with destinations (grep -ri 'destination|OCI|sign-off|preflight'): nothing. The nearest thing, PublishGithubModal, does have a ghost Cancel in its footer, and clicking it closed the modal (document.querySelectorAll('.s-modal').length went 1 -> 0) with nothing pushed.",
+      "defect": "The designed publish dialog and therefore its Cancel do not exist. Only the GitHub push modal has one."
+    },
+    {
+      "id": "07-publish-changes-summary-review",
+      "status": "pass",
+      "evidence": "The strip above the composer read '2 changes / Only you can see them. Nothing is asked of you until you publish.' with a Review button. Clicking it moved the selected tab to Changes and the panel rendered the diff: 'Uncommitted changes | 1 file +34-0 | BRIEF.md | +34 | -0' followed by the added lines. Note it switches the left panel's tab rather than routing to the review screen at /barn/extensions/base/review.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-changeset",
+      "status": "not-implemented",
+      "evidence": "No publish dialog exists, so nothing summarises the changeset at publish time. The comparable reading lives in the Changes tab, which does show '1 file +34-0' and names BRIEF.md, and which matched `git status --porcelain` in the pod. Nothing anywhere records when the change was last reviewed.",
+      "defect": "A publish is committed to from the masthead button with no summary of what is in it. File count and line counts exist in components/studio/WorkingChanges.vue and could be reused; 'last reviewed' has no source at all."
+    },
+    {
+      "id": "07-publish-check-build",
+      "status": "not-implemented",
+      "evidence": "grep -ri 'pre-flight|preflight' over pkg/barn (excluding node_modules): 0 hits. There is no check list before a publish; publishExtension in extensions.ts runs build-pkg as step 2 of the publish itself and only reports failure afterwards, through PublishStatus.",
+      "defect": "No pre-flight compile check. The build only happens as part of the publish, so there is nothing to tick before committing to it and no compile time recorded."
+    },
+    {
+      "id": "07-publish-check-credentials",
+      "status": "not-implemented",
+      "evidence": "grep -ri 'kubeconfig' over pkg/barn: 0 hits; grep -i 'credential' hits only comment text about the GitHub token and the pod's claude login. No secret scanning of the diff exists anywhere in the codebase.",
+      "defect": "Nothing scans the changeset for tokens, keys or kubeconfigs before a publish."
+    },
+    {
+      "id": "07-publish-check-unstable-api",
+      "status": "not-implemented",
+      "evidence": "No pre-flight rows exist at all (see 07-publish-check-build), so there is no warning row and no dependency analysis. grep for 'unstable' over pkg/barn: 0 hits.",
+      "defect": "No dependency risk check, and no non-blocking warning state in the publish path."
+    },
+    {
+      "id": "07-publish-composer",
+      "status": "pass",
+      "evidence": "Typed into .assistant-panel__input: the text appeared and the Send button went from disabled to enabled (disabled again when I cleared it). Sending 'verify-07-publish probe: reply with the single word ok and change no files' cleared the draft and the exact line appeared in claude's prompt in the pod terminal (screenshot). Multi-line: it is a <textarea rows=2>.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-composer-keyboard",
+      "status": "pass",
+      "evidence": "Focused the composer, typed 'line one', pressed Shift+Enter, typed 'line two'. The textarea value read 'line one\\nline two' and nothing was sent (draft still populated, tab did not switch). AssistantPanel.onKeydown only submits on Enter without shift.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-add",
+      "status": "pass",
+      "evidence": "Clicked the '+ Add' chip (data-testid barn-add-context). A modal 'Add a file to the context' opened listing 12 files read out of the pod (.gitignore, BRIEF.md, CLAUDE.md, babel.config.js, index.ts, l10n/en-us.yaml, package.json, pages/Home.vue ...). Typing 'package' in the find field narrowed it to package.json alone; clicking it added a 'package.json' chip to the composer and the hint became '... 1 path named in the message'. Only files are offered, not cluster resources.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-chip-cluster",
+      "status": "pass",
+      "evidence": "The composer's context row shows a 'cluster: local' chip beside a 'base' chip. It is a hardcoded label in AssistantPanel's template rather than a reading, but it is true: the extension pod runs in the local cluster (namespace barn on this Rancher), which is the same cluster EXT_CLUSTER names.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-chip-file",
+      "status": "pass",
+      "evidence": "Added package.json through the Add picker and a removable 'package.json' chip appeared in the context row; clicking its remove control took it away again and the hint's path count went back to zero. The chips are the paths that get named in the line the assistant receives (AssistantPanel.withContext), not a reading of what claude has open, and there are none by default.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-dialog-close",
+      "status": "not-implemented",
+      "evidence": "There is no destination dialog to close. The shared SModal chrome does draw an X in its head, and on PublishGithubModal clicking it closed the modal (.s-modal count 1 -> 0) with nothing published.",
+      "defect": "The designed dialog does not exist; its close affordance therefore does not either."
+    },
+    {
+      "id": "07-publish-dialog-subtitle",
+      "status": "not-implemented",
+      "evidence": "No publish dialog, so no subtitle. Nothing in pkg/barn mentions independent or reversible destinations (grep for 'reversible', 'destination': 0 hits).",
+      "defect": "Publishing is a single immediate action from the split button, so the idea of picking several destinations is not expressed anywhere in the UI."
+    },
+    {
+      "id": "07-publish-dialog-title",
+      "status": "not-implemented",
+      "evidence": "No publish dialog exists. The only modal reachable from the split button is the GitHub one, whose head reads 'Publish base to GitHub' and does name the extension.",
+      "defect": "No 'Publish <extension>' dialog."
+    },
+    {
+      "id": "07-publish-header-app-collection",
+      "status": "fail",
+      "evidence": "There is no app-collection glyph on this screen. The editor hides Rancher's header: the unscoped block at the end of pages/editor.vue puts html.barn-editor-page on the document and sets --header-height:0 plus height:0, pointer-events:none on header[data-testid=header], with 'header > *:not(:first-child) { display: none }'. Measured live: header height 0px, 4 of its 5 children display:none. The grid glyph visible in a screenshot of this screen is inside the preview iframe (the framed dev dashboard), not the Studio's own chrome.",
+      "defect": "The design draws the full Rancher header over the publish screen; the editor deliberately collapses it and keeps only the nav rail."
+    },
+    {
+      "id": "07-publish-header-logo",
+      "status": "fail",
+      "evidence": "Same as the app-collection glyph: the Studio's own header row is collapsed to 0px with everything but the rail display:none, so no SUSE chameleon and no 'Rancher Prime' wordmark is rendered by this page. The 'SUSE Rancher Prime' wordmark visible in the screenshot belongs to the dashboard inside the preview iframe.",
+      "defect": "No product wordmark on the editor/publish screen."
+    },
+    {
+      "id": "07-publish-header-more",
+      "status": "fail",
+      "evidence": "No header three-dot glyph on this screen: header[data-testid=header] is height 0 with pointer-events:none and .rd-header-right (which holds it) is display:none. The masthead has its own three-dot overflow, which is a different menu (see 07-publish-masthead-more).",
+      "defect": "The global header overflow is hidden on the editor page."
+    },
+    {
+      "id": "07-publish-header-notifications",
+      "status": "fail",
+      "evidence": "No bell on this screen. Rancher's notification centre button (data-testid notifications-center) lives in .rd-header-right, which the editor page sets to display:none; I found that testid only inside the preview iframe's own dashboard, not in the Studio's document.",
+      "defect": "The notification tray is unreachable from the editor/publish screen."
+    },
+    {
+      "id": "07-publish-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked the three-dot glyph at the end of the masthead (data-testid barn-masthead-overflow). It opened with six lines. Clicking each route line landed correctly: Files and history -> /barn/extensions/base/files, Review changes -> /barn/extensions/base/review, Verification -> /barn/extensions/base/verification, The brief -> /barn/extensions/base/brief. 'Re-read this extension' re-ran the masthead's reads and stayed on the editor. 'Remove the local install' opened the confirm dialog ('This Rancher stops loading base ...'), which I cancelled rather than confirming.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-model-picker",
+      "status": "not-implemented",
+      "evidence": "No model chip exists. The composer bar holds only the attach (paperclip) button and Send; the context row holds the extension chip, 'cluster: local' and Add. grep -i 'opus|sonnet|model' over components/studio, EditorMasthead.vue and pages/editor.vue returns nothing but v-model.",
+      "defect": "There is no model selection: the pod runs whatever claude the terminal session started with (pod/claude-session.sh), and nothing in the UI reads or sets it."
+    },
+    {
+      "id": "07-publish-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the bottom of the left rail (a[href=\"/dashboard/about\"]). Landed on https://magic-closet-rancher/dashboard/about with h1 'About'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "The rail renders one cluster chip per cluster this Rancher has. There is no AFT cluster here (the design's three chips are placeholder names); the only chip is 'local'. Clicked it and landed on /dashboard/c/local/explorer with h1 'Cluster Dashboard', so the pinned-cluster chip mechanism the design draws does work, verified on the one cluster that exists.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same control as the AFT chip. This Rancher has one cluster, so the rail draws one chip ('local'); clicking it navigated to /dashboard/c/local/explorer ('Cluster Dashboard'). No CD2 cluster exists to click.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "Same control as the AFT chip. Verified against the only cluster present, 'local': clicking its rail chip landed on /dashboard/c/local/explorer ('Cluster Dashboard'). No LT1 cluster exists to click.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked the rail's Cluster Management entry (a[href$=provisioning.cattle.io.cluster]). Landed on /dashboard/c/_/manager/provisioning.cattle.io.cluster with h1 'Clusters'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-docs",
+      "status": "not-implemented",
+      "evidence": "Enumerated every link in the rail on this screen: Home, local, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. There is no book icon and no documentation entry.",
+      "defect": "Rancher's rail has no docs link; the docs link lives in the header help menu, which this page hides (header collapsed to 0px). So there is no way to documentation from the publish screen."
+    },
+    {
+      "id": "07-publish-nav-extensions",
+      "status": "fail",
+      "evidence": "The rail's puzzle icon is Rancher's own Extensions page: clicking it landed on /dashboard/c/local/uiplugins#installed, not the Studio. The Studio's rail entry is the flask icon labelled 'Editor', which does land on /dashboard/barn/extensions (h1 'Extension Studio'). Neither carries an active or router-link-active class while the editor is open: a DOM query for rail links with an 'active' class returned an empty list.",
+      "defect": "Two problems. The icon that matches the design (puzzle) goes to Rancher's uiplugins list rather than the extension list, and no rail item is highlighted as the current section while you are on /barn/editor."
+    },
+    {
+      "id": "07-publish-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house at the top of the rail (a.option.cluster.selector.home). Landed on https://magic-closet-rancher/dashboard/home, h1 'Welcome to Rancher Prime'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-menu",
+      "status": "pass",
+      "evidence": "The hamburger at the top of the rail is visible and clickable on this page even though the header around it is collapsed (the CSS re-enables pointer-events on the rail). First click: .side-menu class went from 'side-menu menu-close' to 'side-menu menu-open' and the rail widened into the labelled menu. Second click: back to 'side-menu menu-close'. Escape also closes it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked the rail's Global Settings entry (a[href=\"/dashboard/c/local/settings\"], drawn with the globe glyph). Landed on /dashboard/c/local/settings/management.cattle.io.setting, h1 'Settings'. Note the rail's gear glyph is the 'Base' extension entry, not settings.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-user",
+      "status": "fail",
+      "evidence": "The rail's person glyph is 'Users & Authentication': clicking it navigated to /dashboard/c/local/auth/management.cattle.io.user (h1 'Users'), a management page, not an account menu. Rancher's real account menu (data-testid nav_header_showUserMenu) is in the header, which this page collapses to 0px and hides; I found that testid only inside the preview iframe.",
+      "defect": "There is no account menu reachable from the editor/publish screen. The person icon that looks like one opens the Users list instead."
+    },
+    {
+      "id": "07-publish-open-dialog",
+      "status": "fail",
+      "evidence": "The masthead's primary Publish button (data-testid barn-publish-button, in PublishSplit.vue) is bound in pages/editor.vue as @publish=\"publishTo('local')\": it starts the local publish immediately, with no dialog and no confirmation. There is no dialog component of the designed shape in pkg/barn. I deliberately did not click it, because publishTo('local') runs build-pkg inside the shared base pod for several minutes and then upserts a UIPlugin into this running Rancher.",
+      "defect": "Publish is an immediate destructive-ish action rather than the opening of a chooser. Everything the design puts in the dialog (destinations, version, summary, sign-offs, checks) has no home."
+    },
+    {
+      "id": "07-publish-permission-chip",
+      "status": "fail",
+      "evidence": "The chip on the session strip (data-testid barn-permission-chip) is a <span class=\"s-chip s-chip--warning\"> reading 'Edits apply without asking', with a title tooltip explaining that the pod runs claude with --dangerously-skip-permissions. It has no chevron and clicking it opens nothing.",
+      "defect": "No permission-level menu exists, and no permission mode is settable: the pod's claude is started with --dangerously-skip-permissions in pod/claude-session.sh. The component's own comment says this was a deliberate substitution for the design's 'Ask before each file edit' chip."
+    },
+    {
+      "id": "07-publish-preview-back",
+      "status": "pass",
+      "evidence": "Navigated the preview from /home to /c/local/explorer via the route field, then clicked the back chevron: the route field returned to /home and the framed document's location went back with it (iframe contentWindow.history.go(-1)).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-chart",
+      "status": "not-implemented",
+      "evidence": "The preview frames the base extension's own dev dashboard (proxy path .../barn-base-extension:8005/proxy/). Read the framed document's body text on both /home and /c/local/explorer: no 'Node condition trend' heading and no such panel (body.innerText.includes('Node condition trend') === false). Nothing in pkg/barn or the base extension generates one.",
+      "defect": "The designed generated panel is Figma content for a fictional node-health-panel extension. The preview shows whatever the pod's dev server serves, which here is a stock Rancher dashboard."
+    },
+    {
+      "id": "07-publish-preview-existing",
+      "status": "not-implemented",
+      "evidence": "The framed page is a real Rancher cluster dashboard and its own content does render intact (Cluster Dashboard with its counts, Cluster Tools, K3s / v1.36.1+k3s1 / amd64), but the design's Nodes, Pods, CPU and Memory cards belong to the fictional node-health-panel page and are not there, and there is no generated panel above them to leave them untouched.",
+      "defect": "Nothing to verify: the previewed page has no change applied to it by the Studio in this state."
+    },
+    {
+      "id": "07-publish-preview-forward",
+      "status": "pass",
+      "evidence": "After going back to /home, clicked the forward chevron: the route field returned to /c/local/explorer#cluster-events and the frame advanced with it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-live-state",
+      "status": "pass",
+      "evidence": "The toolbar shows a green dot and 'Loaded * Ns ago', and the number counts up (watched it go 5s, 8s, 32s). Clicking reload reset it to 'Loaded * just now'. The label times the last navigation of the frame rather than a compile, which the component says in its own comment; the design's 'hot reload' claim is deliberately not made.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-new-marker",
+      "status": "not-implemented",
+      "evidence": "grep over components/studio for 'highlight', 'marker' or anything outlining a region: 0 hits. PreviewPanel renders a plain iframe with no overlay, so nothing marks which parts of the previewed page this session added.",
+      "defect": "No mapping exists between the changed files and regions of the rendered page, so nothing can be outlined."
+    },
+    {
+      "id": "07-publish-preview-open-external",
+      "status": "pass",
+      "evidence": "Clicked the external-link glyph (an <a target=_blank> whose href is built from extensionProxyPath plus the current path). A new browser tab opened on https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/home, the same route the preview was on. I closed the tab afterwards.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-page-more",
+      "status": "pass",
+      "evidence": "The rendered page inside the preview has its own three-dot menu (Rancher's page actions button, data-testid page-actions-menu-action-button). Clicked it inside the frame and the framed page's menu opened, reading 'Set as login page / Show/Hide Banner'. This is the previewed page's own chrome, which works because the preview is a real same-origin dashboard.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-page-tabs",
+      "status": "fail",
+      "evidence": "The previewed cluster page does have a real tab strip and it works: on /c/local/explorer the tabs were Events and Certificates, and clicking Certificates inside the frame moved the selected tab and the framed location hash to #cluster-certs. There is no 'Node health' tab and no sparkle marker anywhere in the framed document (body text search for 'Node health' returned false).",
+      "defect": "The tab strip is the framed dashboard's, not something the Studio adds. The design's new 'Node health' tab would have to be produced by the extension being previewed, and the base extension adds none."
+    },
+    {
+      "id": "07-publish-preview-panel-collapse",
+      "status": "not-implemented",
+      "evidence": "There is no generated panel in the preview to collapse (see 07-publish-preview-chart), and PreviewPanel adds no chrome of its own inside the frame.",
+      "defect": "No collapsible generated panel exists."
+    },
+    {
+      "id": "07-publish-preview-reload",
+      "status": "pass",
+      "evidence": "Clicked the refresh glyph in the preview toolbar. The live label reset from 'Loaded * 5s ago' to 'Loaded * just now' and the frame re-rendered, which is PreviewPanel.reload calling contentWindow.location.reload with an src reassignment as fallback.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-route",
+      "status": "pass",
+      "evidence": "The route field showed the live path '/home'. Clicked into it, typed /c/local/explorer and pressed Enter: the framed document navigated to .../proxy/c/local/explorer and the field then re-read '/c/local/explorer#cluster-events' back off the frame (it is kept in sync by a 1s poll, so it follows in-frame navigation too).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-target-chip",
+      "status": "fail",
+      "evidence": "The 'Preview on: local' chip is in the masthead and is a non-interactive <span class=\"s-chip\">. Clicking it opens nothing. Its value is hardcoded: EditorMasthead's previewOn computed simply returns 'local'.",
+      "defect": "No cluster picker for the preview, and the value is a constant rather than a reading. It happens to be true (the extension pod runs in the local cluster) but it would keep saying 'local' if that stopped being so."
+    },
+    {
+      "id": "07-publish-preview-viewport",
+      "status": "fail",
+      "evidence": "The chip cycles Desktop -> Tablet -> Mobile -> Desktop and sets the iframe's inline style to width:834px and width:390px, but the preview does not actually resize. Measured the iframe in all three states: getBoundingClientRect().width stayed 970px and getComputedStyle(...).width stayed '970px' in Desktop, Tablet and Mobile.",
+      "defect": "PreviewPanel's frameStyle sets an inline width, but .preview-panel__frame also has flex: 1 1 auto, so flex-grow expands the frame back to the full canvas and the width is ignored. Setting flex-grow: 0 (or flex: 0 0 auto) when currentViewport.width is non-null would make the chip do what it says."
+    },
+    {
+      "id": "07-publish-raw-output",
+      "status": "not-implemented",
+      "evidence": "There is no raw output panel on this screen. The activity stream is never populated (see 07-publish-step-status), so ActivityTurn's collapsed raw strip never renders, and that strip only emits 'raw' to switch to the Terminal tab anyway. The only build output in the product is PublishStatus's modal, which shows the last 400 lines of the finished build log after a publish has run, not a live stream. I did not run a publish.",
+      "defect": "No line-by-line build log in the panel. The terminal is the live stream, and the build log is a post-hoc modal."
+    },
+    {
+      "id": "07-publish-raw-output-hide",
+      "status": "not-implemented",
+      "evidence": "No black raw-output panel exists to hide (see 07-publish-raw-output), so there is no Hide control. PublishStatus's log modal has a Close button instead, and only appears once a publish has succeeded or failed.",
+      "defect": "No expandable/collapsible raw output under the step list."
+    },
+    {
+      "id": "07-publish-release-summary",
+      "status": "not-implemented",
+      "evidence": "No publish dialog and no summary field anywhere. grep -i 'release summary|release notes' over pkg/barn: 0 hits. The GitHub push writes a commit message that is not editable: extensions.ts commits with -m `${plugin} ${version}`, e.g. 'base 0.1.0'.",
+      "defect": "There is nowhere to write a human summary of a release, and nothing that would carry one into release notes or a PR body (no PR is opened at all, see 07-publish-target-github)."
+    },
+    {
+      "id": "07-publish-review-changes",
+      "status": "fail",
+      "evidence": "The masthead's secondary button reads 'See what changed' with no count. Clicking it selected the Changes tab in the left panel, which showed the real diff ('Uncommitted changes | 1 file +34-0 | BRIEF.md'). It does not open the review screen; that lives at /barn/extensions/base/review and is only reachable from the masthead overflow ('Review changes').",
+      "defect": "The count the design puts in the label ('Review 3 changes') is missing from this button, although the count does exist: it is on the Changes tab badge and in the changes strip. pages/editor.vue binds @files to onLeftTab('changes')."
+    },
+    {
+      "id": "07-publish-rollback-note",
+      "status": "not-implemented",
+      "evidence": "No publish dialog, therefore no footer note about what is reversible. The one place the product does explain reversibility is the 'Remove the local install?' confirm dialog reached from the split button, which says the UIPlugin is deleted, the pod and its files are untouched, and Publish puts it back.",
+      "defect": "Nothing tells you before publishing which parts of it can be undone."
+    },
+    {
+      "id": "07-publish-scrim",
+      "status": "not-implemented",
+      "evidence": "No destination dialog exists to dismiss. The shared SModal is itself the scrim (position:fixed, inset:0, rgba(0,0,0,0.45), @click.self=onScrim), and it works: with the GitHub modal open I clicked the dimmed area at (80,700) and the modal closed (.s-modal count 1 -> 0) with nothing published. Escape closes it too.",
+      "defect": "The designed dialog does not exist; the modal chrome that would carry its scrim does."
+    },
+    {
+      "id": "07-publish-send",
+      "status": "pass",
+      "evidence": "Typed 'verify-07-publish probe: reply with the single word ok and change no files' and clicked Send. The draft cleared, the panel switched to the Terminal tab, and the exact line appeared at claude's prompt in the pod's tmux session (captured in a screenshot). No user turn appeared in the activity stream, because that stream is not wired (see 07-publish-turn-user).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-session-status",
+      "status": "pass",
+      "evidence": "The strip under the tabs shows a green dot and 'Connected as admin'. admin is the account I signed in as, read from the shell's auth store (AssistantPanel.connectedAs). The dot is driven by the terminal websocket state and was green while the terminal was attached.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-code-review",
+      "status": "not-implemented",
+      "evidence": "No publish dialog and no sign-offs. grep -i 'signoff|sign-off' over pkg/barn hits only pages/verification.vue and pages/review-change.vue, which are screens 13 and 12; neither is reachable from or shown in the publish path.",
+      "defect": "There is no approval record attached to a publish, so no approver and no approval time exist to show."
+    },
+    {
+      "id": "07-publish-signoff-code-review-view",
+      "status": "not-implemented",
+      "evidence": "No sign-off row exists, so there is no View link. (See 07-publish-signoff-code-review.)",
+      "defect": "Nothing links a publish to a code review."
+    },
+    {
+      "id": "07-publish-signoff-note",
+      "status": "not-implemented",
+      "evidence": "No destinations to tick and no sign-offs section, so there is nothing to grey out and no note to explain it. I could not untick the OCI destination because no destination checkboxes exist.",
+      "defect": "The whole 'destinations demand approvals' model is absent."
+    },
+    {
+      "id": "07-publish-signoff-outcome",
+      "status": "not-implemented",
+      "evidence": "No sign-offs section in any publish UI (see 07-publish-signoff-code-review).",
+      "defect": "No outcome approval concept exists in the publish path."
+    },
+    {
+      "id": "07-publish-signoff-outcome-view",
+      "status": "not-implemented",
+      "evidence": "No outcome sign-off row and therefore no View link.",
+      "defect": "Nothing links a publish to an outcome approval."
+    },
+    {
+      "id": "07-publish-state-badge",
+      "status": "pass",
+      "evidence": "The badge beside the extension name read 'Unsaved' while the pod's working tree had uncommitted changes, which I confirmed independently: `git status --porcelain` in /app/pkg/base showed ' A BRIEF.md' (and my own untracked file while it existed). EditorMasthead computes it as changes > 0 ? 'unsaved' : 'live', from a real countChanges call.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-step-expand",
+      "status": "not-implemented",
+      "evidence": "No step list is ever rendered on this screen. components/studio/ActivityTurn.vue can draw steps with a chevron, but pages/editor.vue never passes a `turns` prop to AssistantPanel, so turns is always [] and the Assistant tab renders its empty state instead.",
+      "defect": "Nothing produces structured steps: claude's output is a character stream in the terminal and no parser turns it into events. The chevron in ActivityTurn is decorative anyway, the whole row emits a 'step' event that nothing handles."
+    },
+    {
+      "id": "07-publish-step-status",
+      "status": "not-implemented",
+      "evidence": "The Assistant tab shows 'The assistant runs in the terminal / This view will show each turn as steps with durations once the CLI's output is parsed into events...' with an 'Open the terminal' button. No ticks, no spinner, no durations, because no turns are ever supplied.",
+      "defect": "The activity stream has no data source. AssistantPanel's `turns` prop is never bound in pages/editor.vue."
+    },
+    {
+      "id": "07-publish-stop",
+      "status": "not-implemented",
+      "evidence": "No Stop control exists on this screen. grep -i for 'stop|interrupt|abort' over pkg/barn components and pages returns only unrelated text (@click.stop modifiers, comments). Interrupting the assistant means pressing Ctrl+C in the terminal pane.",
+      "defect": "No way to interrupt a run from the panel chrome."
+    },
+    {
+      "id": "07-publish-submit",
+      "status": "not-implemented",
+      "evidence": "No publish dialog and therefore no footer submit that counts destinations. What exists is the masthead split button: the near half publishes locally at once, the caret offers three separate one-at-a-time actions. I stopped deliberately short of running any publish, since publishExtension does a production build in the shared base pod and installs a UIPlugin into this Rancher.",
+      "defect": "There is no multi-destination publish, so no counted label and no single action that fans out."
+    },
+    {
+      "id": "07-publish-tab-assistant",
+      "status": "fail",
+      "evidence": "The Assistant tab is the selected one on load and clicking it re-selects it (s-tab--selected moves correctly). But it shows no conversation and no run steps: the pane renders the empty state 'The assistant runs in the terminal ... once the CLI's output is parsed into events'.",
+      "defect": "The tab and its selected state are real; the content the design puts behind it is not. AssistantPanel renders ActivityTurns only when a `turns` array is passed and pages/editor.vue never passes one."
+    },
+    {
+      "id": "07-publish-tab-changes",
+      "status": "pass",
+      "evidence": "Clicked Changes: the selected state moved and the pane showed 'Uncommitted changes | 1 file +34-0 | BRIEF.md | +34 | -0' plus the added lines. The tab's count badge read 1 and matched `git status --porcelain` in the pod (' A BRIEF.md'); after I added a second file in the pod it read 2, and after the undo it went back.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-files",
+      "status": "pass",
+      "evidence": "Clicked Files: the pane swapped to the extension's file tree, reading 'Branch main | Commits on main | 8a704fb The seeded extension | 26 hours ago' over l10n/en-us.yaml, pages/Home.vue, routing/index.ts, .gitignore, BRIEF.md, CLAUDE.md, babel.config.js, index.ts, package.json. That matches the real tree in /app/pkg/base and the real HEAD 8a704fb.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-terminal",
+      "status": "pass",
+      "evidence": "Clicked Terminal: an xterm mounted and showed the live tmux session in the pod, with claude's prompt and its scrollback. It accepts input: the line I sent from the composer arrived at claude's prompt inside that pane (screenshot). Contents render to canvas, so the DOM text is empty, which is expected.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-target-catalog",
+      "status": "not-implemented",
+      "evidence": "No destination checkboxes exist at all, and nothing in pkg/barn submits anything to a SUSE catalog: grep -i 'catalog' hits only the catalog.cattle.io API group used for the UIPlugin resource, plus one sentence of copy on the new-extension page. No 'Requires approval' tag exists (grep: 0 hits).",
+      "defect": "Catalog listing is entirely absent: no destination, no submission, no approval flow."
+    },
+    {
+      "id": "07-publish-target-dev-load",
+      "status": "fail",
+      "evidence": "The destination exists but not as a checkbox. The masthead's primary Publish button runs publishTo('local'), which is exactly this: extensions.publishExtension builds the package in the pod with build-pkg, copies the bundle into the pod's public/plugins directory and upserts a UIPlugin pointing this Rancher at it. There is no tick, no default-ticked state, no 'No sign-off' badge, and no count to drop. I did not run it.",
+      "defect": "Developer-loading into this Rancher is an immediate action on a button rather than one of several selectable destinations, so it cannot be combined with, or deselected against, any other destination."
+    },
+    {
+      "id": "07-publish-target-github",
+      "status": "fail",
+      "evidence": "The destination exists as a dropdown line, not a checkbox: the caret's 'Publish to GitHub' opens PublishGithubModal ('Publish base to GitHub'), which asks for a repo as owner/name. It does not open a pull request. extensions.publishExtensionToGithub commits the package with `git commit -m '<plugin> <version>'` and pushes `HEAD:refs/heads/main` straight to the named repository. The modal also warned 'There is no GitHub token yet, and pushing needs one', so no push was possible here and I made none.",
+      "defect": "Two gaps against the design. It is an alternative action rather than a tickable destination, and it pushes directly to refs/heads/main rather than opening a PR without merging. A publish that lands on the default branch is a materially different promise from one that opens a PR."
+    },
+    {
+      "id": "07-publish-target-oci",
+      "status": "not-implemented",
+      "evidence": "grep -r 'OCI' (case-insensitive) over pkg/barn excluding node_modules and the generated seed: 0 hits. Nothing builds or pushes an OCI artifact, there is no registry reference anywhere, and no 'The gate' or 'Code review required' tag exists.",
+      "defect": "The destination the design treats as the gate is completely absent, along with the target reference it should show."
+    },
+    {
+      "id": "07-publish-target-requirements",
+      "status": "not-implemented",
+      "evidence": "No destination rows exist, so no requirement badges. grep for 'No sign-off' and 'Requires approval' over pkg/barn: 0 hits each.",
+      "defect": "Nothing states the approval cost of any publish route before you take it."
+    },
+    {
+      "id": "07-publish-turn-assistant",
+      "status": "not-implemented",
+      "evidence": "The activity stream is never given turns (pages/editor.vue does not bind AssistantPanel's `turns` prop), so no assistant reply is ever rendered above a step list. After I sent a prompt the stream still showed only its empty state; the reply, when there is one, appears in the terminal pane.",
+      "defect": "No parser turns claude's terminal output into structured turns. ActivityTurn.vue is written and used by screens 12 and 13 with hand-supplied data, but nothing feeds it here."
+    },
+    {
+      "id": "07-publish-turn-user",
+      "status": "not-implemented",
+      "evidence": "Sent a prompt from the composer and checked the Assistant tab: no 'You' bubble and no timestamp appeared, the pane still showed its empty state. The message went to the terminal instead, which is where AssistantPanel.submit routes it.",
+      "defect": "Same root cause as the assistant turn: the stream has no data source."
+    },
+    {
+      "id": "07-publish-undo",
+      "status": "pass",
+      "evidence": "Keyed to me so as not to disturb another verifier's work: I created /app/pkg/base/verify-07-publish.txt in the pod (`git status` then showed ' A BRIEF.md' and '?? verify-07-publish.txt', and the Changes badge went to 2), clicked Undo in the masthead, and re-read the pod: verify-07-publish.txt was gone and ' A BRIEF.md' was untouched. undoLastChange picks the most recently modified changed file and either checks it out of HEAD or removes it if untracked.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-version",
+      "status": "not-implemented",
+      "evidence": "There is no version field anywhere in the publish path, and a version cannot be chosen. It is derived: extensions.packageIdentity(name) reads the pod's package.json and parses `version` out of it, and that value is what names the built bundle (dist-pkg/<plugin>-<version>), what the UIPlugin is stamped with in upsertUiPlugin, and what goes into the GitHub commit message. Changing the version means editing package.json in the pod.",
+      "defect": "The design's 'Version 0.2.0' field does not exist. Publishing twice without editing package.json republishes the same version number over itself (the URL is cache-busted with the pod's clock, but the UIPlugin version does not move)."
+    },
+    {
+      "id": "07-publish-view-diff",
+      "status": "not-implemented",
+      "evidence": "No publish dialog, so no View diff button in it. The diff is reachable two other ways: the Changes tab in the left panel and the review screen at /barn/extensions/base/review from the masthead overflow. Both showed the real diff of BRIEF.md.",
+      "defect": "The diff is not reachable at the moment of publishing, only before it."
+    },
+    {
+      "id": "07-publish-workspace-title",
+      "status": "pass",
+      "evidence": "The masthead reads 'base' over 'EXTENSION STUDIO'. 'base' is the extension actually open (route /barn/editor defaults to DEFAULT_EXTENSION, and the pod is barn-base-extension). The design's 'node-health-panel' is that frame's example name, and the title tracks the real one: it is bound to the route's extension param.",
+      "defect": null
+    }
+  ]
+}

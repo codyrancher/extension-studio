@@ -1,0 +1,353 @@
+{
+  "screen": "08-failed",
+  "verdicts": [
+    {
+      "id": "08-failed-back",
+      "status": "pass",
+      "evidence": "Seeded a failure, loaded /barn/extensions/base/build-failed and clicked the chevron-left button (aria-label \"Back\") in the masthead. Landed on https://magic-closet-rancher/dashboard/barn/extensions with .studio-home__table rendered (1 match). The handler pushes { name: routes.STUDIO_ROUTE } through a computed, which is why the route name resolves rather than silently pushing undefined.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-title",
+      "status": "pass",
+      "evidence": "The masthead renders .failed__title = \"base\", the real extension from $route.params (the design's \"node-health-panel\" is a Figma fixture), and .failed__eyebrow = \"Build failed\". Navigating to /barn/extensions/other/build-failed shows the empty state, so the name is read from the route rather than hard coded.",
+      "defect": "The eyebrow reads \"Build failed\", not \"Extension Studio\" as the design specifies. Nothing on this screen labels the surface as Extension Studio. Arguably a better use of the line (the design carries the state in a separate Failed badge that this screen has no counterpart for), but it is a deliberate deviation worth a decision."
+    },
+    {
+      "id": "08-failed-rail-menu",
+      "status": "pass",
+      "evidence": "On /barn/extensions/base/build-failed the rail starts collapsed (.side-menu class \"side-menu menu-close\"). Clicked the hamburger at the top left: the class became \"side-menu menu-open\" and the entries (Home, local, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About) became visible. The page keeps the Rancher header (header height 55px), unlike /barn/editor which collapses it.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-home",
+      "status": "pass",
+      "evidence": "From the failed screen, opened the rail and clicked \"Home\" (a[href=\"/dashboard/home\"].home): landed on https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-cluster-chips",
+      "status": "pass",
+      "evidence": "The LT1/CD2/AFT chips are Figma fixtures; the rail lists this instance's real clusters. From the failed screen, opened the rail and clicked the \"local\" chip (data-testid menu-cluster-local): landed on /dashboard/c/local/explorer#cluster-events. Only one cluster exists on this Rancher, so only one chip could be exercised.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-server",
+      "status": "pass",
+      "evidence": "From the failed screen, opened the rail and clicked \"Cluster Management\" (a[href=\"/dashboard/c/_/manager/provisioning.cattle.io.cluster\"]): landed on that URL.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-gear",
+      "status": "pass",
+      "evidence": "From the failed screen, opened the rail and clicked \"Global Settings\" (a[href=\"/dashboard/c/local/settings\"]): landed on /dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-about",
+      "status": "pass",
+      "evidence": "From the failed screen, opened the rail and clicked \"About\" (a[href=\"/dashboard/about\"], the last entry): landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-user",
+      "status": "pass",
+      "evidence": "On the failed screen the text \"Log Out\" is absent from document.body. Clicked the avatar (button data-testid nav_header_showUserMenu, aria-label \"Open user menu\") and it appeared, in a popper reading admin / Default Admin / Preferences / Account & API Keys / Log Out. It sits at the top right of the header rather than at the foot of the rail as drawn.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-bell",
+      "status": "pass",
+      "evidence": "On the failed screen .notification-dropdown did not exist. Clicked the bell (data-testid notifications-center): the dropdown rendered with display:flex and listed real entries (\"Notifications / Mark all as read / Done / Today, 1:34:25 am / Snapshot restored / The files in \\\"verify-08-failed rollback A\\\" are back ...\"), including the notification my own snapshot restore had just produced.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-book",
+      "status": "not-implemented",
+      "evidence": "Enumerated every icon in the chrome on this route: menu-icon, top-menu-icon, cluster-local-logo, pin, and the app group icons (cluster-management, fleet, flask, harvester, gear, user, extension, globe), plus notify-bell in the header. No book or docs icon. document.querySelector('[class*=book], [class*=doc], a[href*=\"docs\"]') is null, and the user menu has no docs entry.",
+      "defect": "This Rancher has no documentation link in the rail or the header, so the book icon the design draws has no counterpart. Same finding as screen 10."
+    },
+    {
+      "id": "08-failed-rail-selected",
+      "status": "fail",
+      "evidence": "Opened the rail while on /barn/extensions/base/build-failed and read the computed style of all ten .option entries: every one is background rgba(0,0,0,0) and colour rgb(0,134,87), including \"Editor\", which is the Studio's own product entry (href /dashboard/barn/extensions). No element under .side-menu carries an active/selected/current class; every one is class=\"option\" and nothing more.",
+      "defect": "Nothing marks the Studio as the section you are in on this route. The design draws exactly one rail icon in the accent colour; here all of them are the same colour, and the rail is a slide-out that is closed by default, so on load there is no section indicator visible at all. Same cause as screen 10: the Studio product registers with to: { name: STUDIO_ROUTE } and Rancher only highlights the entry whose route tree matches, which the build-failed route is not."
+    },
+    {
+      "id": "08-failed-header-logo",
+      "status": "blocked",
+      "evidence": "The header on this route renders Rancher's own logo (two img elements, src .../img/rancher-logo.db10c962.svg, alt \"Logo\" and \"Main menu Rancher logo\", each 200px wide). The strings \"SUSE\" and \"Rancher Prime\" appear nowhere in the header text. This instance runs community Rancher; Prime branding is a per-project sidecar setting (PUT sidecars/config {\"prime\":true}).",
+      "defect": "Not recorded as a Studio defect: the header belongs to Rancher, not to the Studio. Flipping Prime recreates the Rancher container from an empty cluster, which would destroy the base extension pod and every other verifier's in-flight work, so I did not do it. Re-check on a Prime instance to settle it. Same position as screen 10."
+    },
+    {
+      "id": "08-failed-header-apps",
+      "status": "not-implemented",
+      "evidence": "The header on this route carries exactly two buttons (aria-label \"Open notification center\" and \"Open user menu\") plus the hamburger and two logo images. No grid icon; no icon class in the chrome resembles a grid.",
+      "defect": "There is no app-collection launcher in the header. The nearest equivalent is the hamburger, whose slide-out is headed GLOBAL APPS, so the collection is reachable but not from the control the design draws."
+    },
+    {
+      "id": "08-failed-header-more",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button and icon in header on this route: img.side-menu-logo-img, the logo img, button \"Open notification center\", button \"Open user menu\". No three-dot control and no kebab/ellipsis icon class anywhere in the chrome.",
+      "defect": "The header overflow menu is absent. Global actions live in the user menu (Preferences, Account & API Keys, Log Out) instead."
+    },
+    {
+      "id": "08-failed-failure-card",
+      "status": "fail",
+      "evidence": "Seeded a failure whose log was a realistic webpack run and loaded the screen. What renders is an error Banner reading \"The publish did not finish: the extension did not build (verifier 08-failed)\" (the real recorded message) and then an SCard titled \"The line that looks like the problem\" whose body is the raw log line \"ERROR in ./pages/NodeHealth.vue\", followed by the hint \"Picked out of the log by pattern, not by understanding it - the assistant does not yet read a build log and explain it. Treat this as a pointer to where to look.\" The heuristic is firstError() in build-failed.vue: the first log line matching /^(ERROR|error|Module not found|SyntaxError|TypeError|Failed to)/, then any line containing \"error\". Seeded a second failure whose log contains no error-looking line (\"INFO Building for production... / Done in 12.3s.\") and the card disappeared entirely, leaving only the banner and the log. The wording is honest about the gap, and the page comment says the same thing.",
+      "defect": "There is no plain-language explanation. The design promises an alert icon, a plain-language headline (\"The page renders on a blank screen\"), a sub-line separating build success from the real fault (\"Build succeeded - the route has no parent chrome\") and a paragraph explaining the cause. The product substitutes a raw log line picked by regex, and when the regex matches nothing the screen explains nothing at all. The \"explained\" half of the screen title is not delivered. The honest labelling is the right call given that, and should be kept if this is ever implemented properly."
+    },
+    {
+      "id": "08-failed-fix-snippet",
+      "status": "not-implemented",
+      "evidence": "No diff snippet exists on this route. Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel. grep -rF for \"addRoute(\" and for any minus/plus pair in build-failed.vue returns nothing; the only <code> element on the page is .failed__error-line, which holds one raw log line.",
+      "defect": "The one-line fix as a removed/added pair is not in the product. It would need a suggested fix to exist first, and nothing computes one (see 08-failed-apply-fix)."
+    },
+    {
+      "id": "08-failed-apply-fix",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Apply this fix\" and \"Apply the suggested fix\" over pkg/barn (excluding node_modules) return nothing. Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel. Nothing in the codebase derives a suggested fix from a build log: build-failed.vue computes only firstError() (a regex over the log) and culprit() (a filename regex), neither of which produces a change to apply.",
+      "defect": "The one-click fix, which is one of the three things the frame's caption promises (\"plain-language cause, one-click fix, guaranteed way back\"), does not exist. The nearest control is \"Fix it with the assistant\", which clears the failure record and routes to /barn/editor/base with no context: the log, the error line and the culprit file are not handed to the assistant, so the person has to retype the problem."
+    },
+    {
+      "id": "08-failed-canvas-apply-fix",
+      "status": "not-implemented",
+      "evidence": "Same grep as 08-failed-apply-fix (\"Apply the suggested fix\" appears nowhere in pkg/barn). There is no preview canvas on this route at all: build-failed.vue does not import PreviewPanel, and the body is a two-column split of the explanation and the Build log.",
+      "defect": "Neither of the two Apply affordances the design draws exists, so the question of whether they do the same thing does not arise."
+    },
+    {
+      "id": "08-failed-canvas-explainer",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"renders blank\" over pkg/barn matches only extension-seed.generated.ts (unrelated pod boot script). The right-hand column of .failed__body is the Build log panel (.failed__log-panel, headed \"Build log\"), not a preview canvas: build-failed.vue does not import PreviewPanel.",
+      "defect": "The preview canvas and its \"This page renders blank\" explainer are absent. The screen shows the raw build log in that space instead."
+    },
+    {
+      "id": "08-failed-canvas-show-working",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Show the last working build\" over pkg/barn returns nothing, and there is no preview on this route to swap. Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel.",
+      "defect": "Nothing on this screen can show the previous good build. The underlying material exists (snapshots are real, see 08-failed-rollback-masthead), but nothing renders a build from one."
+    },
+    {
+      "id": "08-failed-show-file",
+      "status": "fail",
+      "evidence": "The nearest control is \"See what changed (pages/NodeHealth.vue)\". The filename in the label is real: culprit() extracts it from the seeded log, and it changed when I changed the log. Clicked it: it routes to /barn/extensions/base/review (REVIEW_ROUTE with only the extension param) and the Review screen opened on its own default, BRIEF.md, with the changed-files list showing the five files actually in the pod's working tree and no selection matching the culprit. The failure record is left in place by this path (unlike the other two buttons).",
+      "defect": "The button names the offending file and then does not open it. seeChanges() in build-failed.vue pushes REVIEW_ROUTE with params { extension } only, so nothing carries the culprit path; the review screen selects its first file. The design's \"Show me the file\" is meant to land on the file at the right place. It also goes to Review rather than Files, and the culprit is a file that may not be in the diff at all (it was not here), in which case there is nothing to select."
+    },
+    {
+      "id": "08-failed-raw-output",
+      "status": "fail",
+      "evidence": "The real recorded log renders in full, always expanded, in a panel headed \"Build log\": the seven lines I seeded came back byte for byte in .failed__log, including my marker line. It survives a reload: reloaded /barn/extensions/base/build-failed and the log text was identical (same:true, 239 chars), because the record lives in sessionStorage under barn.publish.failure (publish-failure.ts) rather than in route state. An empty log renders \"The build produced no output.\" There is no disclosure control anywhere on the page (the four buttons on the route are Back, Fix it with the assistant, See what changed, Try the publish again) and no line count is rendered.",
+      "defect": "The design draws a collapsed row, \"Show raw output - 42 lines\", that expands with a chevron. The product shows the log expanded with no toggle and no line count. The content promise is met and the persistence is genuinely good; the control and the count are missing, and the count is the part that tells you how much log there is before you commit to reading it."
+    },
+    {
+      "id": "08-failed-undo-last-change",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Undo last change\" over pkg/barn returns nothing, and there is no masthead undo on this route: Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel. A counterpart exists on screen 03 only, as EditorMasthead.vue's ghost button labelled \"Undo\" (data-testid barn-undo-button), wired to undoLastChange() in extensions.ts, which puts back the single most recently modified changed file (or deletes it if it was created).",
+      "defect": "Absent from this screen. Note for whoever implements it: the product has exactly one undo, and it is file-scoped, so the design's two different scopes (see 08-failed-undo-request) are not distinguished anywhere."
+    },
+    {
+      "id": "08-failed-undo-request",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Undo my request\" over pkg/barn returns nothing. Nothing in the codebase reverts a whole assistant turn: extensions.ts has undoLastChange (one file, the most recently modified changed one), restoreSnapshot (the whole tree, back to a named point) and discard-all in review.vue. There is no per-turn record to revert, because nothing records which files a given request touched.",
+      "defect": "The design deliberately makes \"Undo last change\" (masthead, one edit) and \"Undo my request\" (conversation, the whole turn that caused the failure) different scopes. The product distinguishes neither: it has one file-scoped undo and one tree-scoped restore, and no notion of a turn at all. Implementing the request scope needs authoring provenance to be captured per turn, which is the same data screen 12 needs for per-hunk prompt provenance."
+    },
+    {
+      "id": "08-failed-rollback-masthead",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Roll back\" over pkg/barn returns nothing, and no masthead roll-back button exists on this route: Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel. I did verify the capability behind it, on screen 03 and against a snapshot of my own. In the pod I wrote /app/pkg/base/verify-08-failed.txt containing \"A\", then used EditorMasthead's Snapshots menu (data-testid barn-snapshots-menu) to take a snapshot named \"verify-08-failed rollback A\"; the toast read '\"verify-08-failed rollback A\" holds the working tree as it is now (d5ec269)' and git for-each-ref in the pod showed the new tag barn-snap/1787448855262. I changed the file to \"B\", reopened the menu, chose my own snapshot (never the pre-existing \"probe point A\"), confirmed the dialog and clicked \"Restore the files\". The file was \"A\" again, and md5sums of every other changed file in the tree (BRIEF.md, CLAUDE.md, verify-04-review-new.txt, verify-04-review-staged.txt) were unchanged before and after, so no other verifier's work moved. I then deleted my file and my tag and put the index back as I found it.",
+      "defect": "The screen the design puts this button on has no way back on it at all. The guarantee the caption calls out (\"guaranteed way back\") is real underneath (snapshots are tagged commit objects built from a scratch index, so untracked files are included, and restoreSnapshot is a real git checkout), but it is reachable only from a menu on the editor screen, and only if somebody thought to take a snapshot first. Nothing snapshots automatically per build, so on this screen after a failed build there may be no snapshot to roll back to."
+    },
+    {
+      "id": "08-failed-changes-summary",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Last working build\" and \"Preview is showing\" over pkg/barn return nothing. No summary strip renders on this route: Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel. The failure record does hold a real timestamp (failure.at) and the pod does hold real snapshots with real dates, so both halves of the strip could be sourced, but neither is read: the seeded timestamp appears nowhere in .failed innerText and nothing counts changes since the last good build.",
+      "defect": "The strip that states what the preview is showing and when the last working build was is absent, which also removes the second roll-back affordance that sits in it (08-failed-rollback-inline)."
+    },
+    {
+      "id": "08-failed-rollback-inline",
+      "status": "not-implemented",
+      "evidence": "The second roll-back affordance is absent for the same reason as the first: there is no summary strip on this route (grep -rF \"Last working build\" over pkg/barn returns nothing) and no control labelled \"Roll back\". Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel.",
+      "defect": "The design draws two roll-back affordances that must be the same action; the product has neither here, so their equivalence could not be tested. The single real roll-back path in the product is EditorMasthead's Snapshots menu on /barn/editor, verified working in 08-failed-rollback-masthead."
+    },
+    {
+      "id": "08-failed-snapshot-note",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"snapshotted\" over pkg/barn returns nothing, and the only prose on this screen is the banner, the \"picked by pattern\" hint and the empty-state message. Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel.",
+      "defect": "The reassurance is not shown. Worth noting that the claim would only be half true if it were: snapshots are real and restore works (verified in 08-failed-rollback-masthead), but nothing takes one automatically per build, so \"every build is snapshotted\" would be a promise the product does not keep."
+    },
+    {
+      "id": "08-failed-publish",
+      "status": "fail",
+      "evidence": "No masthead Publish exists on this route (Enumerated every control the route renders: with a failure seeded, the whole of `.failed` contains exactly four interactive elements (button[aria-label=Back], \"Fix it with the assistant\", \"See what changed (pages/NodeHealth.vue)\", \"Try the publish again\") plus an error banner, the \"line that looks like the problem\" card and the Build log panel.). The nearest counterpart is \"Try the publish again\". I clicked it, deliberately, having first read what it does: retry() calls clearFailure() and pushes EDITOR_ROUTE with query { publish: \"local\" }. It landed on /dashboard/barn/editor/base?publish=local with the editor rendered, the failure record cleared, the phase chip reading \"Iterating\", no publish status strip and no toast. No publish ran, so nothing was published on the shared instance.",
+      "defect": "The query parameter is dead. Nothing in editor.vue reads $route.query.publish (it reads only $route.query.tab), so \"Try the publish again\" does not retry the publish: it drops you on the workspace, having thrown away the failure record and its log on the way. Either the editor should act on ?publish=local, or the button should be labelled for what it does. Separately, the design draws Publish itself enabled in this state and there is no Publish on this screen at all, so the \"one hard gate\" question this state raises is not answered here."
+    },
+    {
+      "id": "08-failed-state-badge",
+      "status": "not-implemented",
+      "evidence": "Nothing renders an SBadge on this route. The state is carried instead by the .failed__eyebrow text \"BUILD FAILED\" under the extension name, in the error colour. EditorMasthead.vue's SBadge exists on screen 03 but only has \"unsaved\"/\"live\" states, driven by the working-tree change count, so it has no Failed variant to show. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "A masthead Failed badge is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-branch-chip",
+      "status": "not-implemented",
+      "evidence": "No SChip is rendered on this route. The counterpart is EditorMasthead.vue's <SChip :label=\"branch\" icon=\"branch\" />, populated from a real listBranches() call, on screen 03 only. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "A branch chip reading main is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-preview-target-chip",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Preview on:\" over pkg/barn matches only components/EditorMasthead.vue, which is not imported by build-failed.vue. No chip renders here. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "A \"Preview on: local\" chip is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-permission-chip",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Ask before each file edit\" over pkg/barn matches components/studio/AssistantPanel.vue and components/ui/SChip.vue only. build-failed.vue does not import AssistantPanel, and no chip renders on this route. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "A permission-mode chip is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-session-identity",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Connected as\" over pkg/barn matches components/studio/AssistantPanel.vue only, which this route does not render. No status dot or identity line appears anywhere on the screen. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The connected-as status row is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-session-expand",
+      "status": "not-implemented",
+      "evidence": "There is no session status row on this route to expand, and the only icon-only button on the page is the masthead Back chevron. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The chevron that opens the status row is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-masthead-more",
+      "status": "not-implemented",
+      "evidence": "No SMenu is rendered on this route (no [aria-haspopup=\"menu\"] element inside .failed). EditorMasthead.vue's overflow (data-testid barn-masthead-overflow, listing Files and history / Review changes / Verification / The brief / Re-read this extension / Remove the local install) exists on screen 03 only. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The workspace overflow menu is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-tab-assistant",
+      "status": "not-implemented",
+      "evidence": "There is no tab strip on this route: build-failed.vue does not import STabs and no [role=\"tab\"] element exists on the page. The four-tab panel lives in pages/editor.vue on /barn/editor. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Assistant tab is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-tab-changes",
+      "status": "not-implemented",
+      "evidence": "Same as the Assistant tab: no STabs and no [role=\"tab\"] on this route, so there is no count badge to check against the five files actually changed in the pod. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Changes tab and its count badge is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-tab-files",
+      "status": "not-implemented",
+      "evidence": "Same as the Assistant tab: no tab strip on this route. A separate Files screen exists at /barn/extensions/base/files, but it is not reachable as a tab from here. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Files tab is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-tab-terminal",
+      "status": "not-implemented",
+      "evidence": "Same as the Assistant tab: no tab strip on this route. The pod terminal exists on the editor screen only. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Terminal tab is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-composer-input",
+      "status": "not-implemented",
+      "evidence": "There is no textarea or input anywhere on this route: document.querySelectorAll(\"input, textarea, select\") inside .failed returns nothing. The composer is AssistantPanel.vue, on the editor screen. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The composer textarea is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-composer-hint",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Shift + Enter\" over pkg/barn matches components/studio/AssistantPanel.vue only, which this route does not render. With no composer here there is nothing to press Enter in. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Shift+Enter hint is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-send",
+      "status": "not-implemented",
+      "evidence": "The route renders four buttons and none is Send. The composer and its Send live in AssistantPanel.vue on the editor screen. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Send button is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-stop",
+      "status": "not-implemented",
+      "evidence": "No Stop control on this route, and nothing runs on this screen to interrupt: the page is a static read of the recorded failure. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Stop button is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-context-label",
+      "status": "not-implemented",
+      "evidence": "No composer and therefore no context row on this route. grep -rF \"Add context\" over pkg/barn returns nothing. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Context label is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-context-chip-file",
+      "status": "not-implemented",
+      "evidence": "No context row on this route. The only place the culprit filename appears is inside the label of the \"See what changed\" button. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The attached-file context chip is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-context-chip-cluster",
+      "status": "not-implemented",
+      "evidence": "No context row and no SChip of any kind on this route. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The attached-cluster context chip is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-context-add",
+      "status": "not-implemented",
+      "evidence": "No such control: the four buttons on the route are Back, Fix it with the assistant, See what changed, Try the publish again. grep -rF \"Add context\" over pkg/barn returns nothing. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Add context button is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-model-chip",
+      "status": "not-implemented",
+      "evidence": "grep -rF \"Claude Opus\" over pkg/barn returns nothing anywhere in the product, let alone on this route. Nothing names the model in the UI. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The model chip is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-user-turn",
+      "status": "not-implemented",
+      "evidence": "There is no conversation on this route. The activity stream (ActivityTurn.vue, used by AssistantPanel.vue) is on the editor screen; build-failed.vue renders a banner, a card and a log. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "Your last message in the stream is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-preview-back",
+      "status": "not-implemented",
+      "evidence": "There is no preview on this route: build-failed.vue does not import PreviewPanel, and the space the design gives the canvas is occupied by the Build log panel. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "Preview back is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-preview-forward",
+      "status": "not-implemented",
+      "evidence": "Same as preview back: no preview toolbar exists on this route. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "Preview forward is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-preview-refresh",
+      "status": "not-implemented",
+      "evidence": "Same as preview back: no preview toolbar exists on this route. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "Preview refresh is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-preview-external",
+      "status": "not-implemented",
+      "evidence": "Same as preview back: no preview toolbar exists on this route, so there is no external-link control. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "Open the preview in a new tab is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-preview-route",
+      "status": "not-implemented",
+      "evidence": "Same as preview back: no preview toolbar exists on this route. The string \"/c/local/explorer/node-health\" appears nowhere on the page. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The preview route readout is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-preview-state",
+      "status": "not-implemented",
+      "evidence": "No preview toolbar on this route. The failure record does carry a real timestamp (failure.at, stamped by recordFailure), and the screen never renders it: the seeded time appears nowhere in .failed innerText. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The build state and time in the preview toolbar is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    },
+    {
+      "id": "08-failed-viewport-chip",
+      "status": "not-implemented",
+      "evidence": "Same as preview back: no preview toolbar and no viewport control on this route. pages/build-failed.vue is 300 lines and imports only SButton, SBanner, SIcon, SCard, SEmpty, SLabel: it does not import EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges or STabs, so none of the workspace chrome the frame draws is on this route.",
+      "defect": "The Desktop viewport chip is not on this route. The design draws screen 08 as the whole workspace in its failed state; the product routes /barn/extensions/base/build-failed to a separate minimal page (masthead with a back arrow and the extension name, an error banner, the heuristic error line, three \"ways back\" buttons and the build log), so every workspace affordance the frame draws around the failure is absent from it."
+    }
+  ]
+}

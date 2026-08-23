@@ -1,0 +1,263 @@
+{
+  "screen": "10-brief",
+  "verdicts": [
+    {
+      "id": "10-brief-title",
+      "status": "pass",
+      "evidence": "Masthead of /barn/extensions/base/brief renders two lines: 'base' and 'BRIEF · STEP 1 OF 2 BEFORE ANY CODE IS WRITTEN' (uppercased by CSS, source string 'Brief · step 1 of 2 before any code is written'). The name is the route param, so /barn/extensions/<other>/brief names that extension.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-status-chip",
+      "status": "fail",
+      "evidence": "The chip renders 'Draft - not yet agreed' with a clock icon. I then filled the brief, clicked 'Agree and start building' (BRIEF.md was written into the pod, confirmed by kubectl) and navigated back to /barn/extensions/base/brief: the chip still read 'Draft - not yet agreed'.",
+      "defect": "The chip is a hard-coded literal in the template (`<SChip label=\"Draft - not yet agreed\" ... />`, brief.vue line 343). Nothing computes agreed state and nothing is read back from BRIEF.md, so the chip says 'not yet agreed' about a brief that has been agreed and written to the repository. It can only ever say one thing, and after the first agree that thing is false."
+    },
+    {
+      "id": "10-brief-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron-left button (aria-label 'Back') in the masthead. URL went from /dashboard/barn/extensions/base/brief to /dashboard/barn/extensions and the Studio home rendered.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-skip",
+      "status": "pass",
+      "evidence": "Clicked 'Skip the brief'; URL became /dashboard/barn/editor/base with no BRIEF.md write (pod file unchanged). The same route rendered `.mc-editor` in the agree run, so the workspace is reached without the brief being required.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-agree",
+      "status": "pass",
+      "evidence": "Filled the four fields and three criteria with 'verify-10-brief ...' markers and clicked 'Agree and start building'. URL became /dashboard/barn/editor/base?brief=1 and `.mc-editor` rendered. `kubectl -n barn exec deploy/barn-base-extension -- cat /app/pkg/base/BRIEF.md` then contained exactly those four sections and three '- [ ]' criteria. Restored the original file afterwards.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-editable-note",
+      "status": "pass",
+      "evidence": "The card 'What the assistant thinks you are solving' renders the note 'Drafted from what you typed and from what is already in this Rancher. Edit anything - this is your brief, not its.', and all four textareas below it accepted typing (values read back from the DOM after fill).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-problem",
+      "status": "fail",
+      "evidence": "Typed 'verify-10-brief problem text' into 'The problem', clicked away (value still there), then reloaded /barn/extensions/base/brief: the textarea came back empty. Separately, agreeing does write the value into the pod's BRIEF.md ('## The problem\\nverify-10-brief problem'), but re-opening the brief still showed an empty box.",
+      "defect": "brief.vue never reads BRIEF.md. `data()` starts every field at '' and `mounted()` only prefills `problem` and `changes` from the `?outcome=` / `?prompt=` query params (lines 61-79, 153-159). The only write is inside `agree()`, which navigates away to the editor. So there is no autosave, no explicit save, and no load: any edit is lost on reload, and re-opening the brief after agreeing presents an empty form that would overwrite the saved brief with '_not stated_' if agreed again."
+    },
+    {
+      "id": "10-brief-field-who",
+      "status": "fail",
+      "evidence": "Typed 'verify-10-brief who text' into 'Who has it', clicked away, reloaded: empty. Agreeing does write it ('## Who has it\\nverify-10-brief who has it' seen in the pod's BRIEF.md), but the field is empty again on the next visit.",
+      "defect": "Same cause as 10-brief-field-problem: no load from BRIEF.md and no save other than `agree()`. 'Who has it' is worse than the other three because `mounted()` does not even prefill it from the query, so it is empty on arrival from screen 02 as well."
+    },
+    {
+      "id": "10-brief-field-changes",
+      "status": "fail",
+      "evidence": "Typed 'verify-10-brief changes text' into 'What changes for them', clicked away, reloaded: empty. Agreeing writes it into BRIEF.md ('## What changes for them\\nverify-10-brief what changes', confirmed with kubectl), but the field does not come back.",
+      "defect": "Same cause as 10-brief-field-problem: brief.vue has no read path for BRIEF.md, so the edit only lives in the component until `agree()` navigates away."
+    },
+    {
+      "id": "10-brief-field-not-doing",
+      "status": "fail",
+      "evidence": "Typed 'verify-10-brief notDoing text' into 'What we are deliberately not doing', clicked away, reloaded: empty. Agreeing writes it into BRIEF.md, but re-opening the brief shows an empty box.",
+      "defect": "Same cause as 10-brief-field-problem. Note the knock-on: screen 13 uses the not-doing words for its scope-creep check, and after a second agree from an empty form that section becomes '_not stated_'."
+    },
+    {
+      "id": "10-brief-ac-intro",
+      "status": "pass",
+      "evidence": "Under 'How we will know it worked' the note renders: 'These become the checklist the reviewer and the requester tick off. Phrase each one as something you could watch a person do.' The first half of the claim is true - see 10-brief-ac-list, the criteria really are the items walked on screen 13.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-list",
+      "status": "fail",
+      "evidence": "Three empty numbered rows render (1, 2, 3), each a real `<input>`; typing into criterion 2 worked and the number badges renumber after a removal. Cross-screen identity holds: after agreeing with 'verify-10-brief cross-screen criterion alpha / beta / added criterion gamma', /barn/extensions/base/verification listed exactly those three, numbered 1-3, each with Yes / No / Can't tell / Show me. But reloading the brief itself wiped all three back to empty, and re-opening the brief after agreeing showed three empty rows even though BRIEF.md in the pod held the criteria.",
+      "defect": "The criteria are write-only from this screen. `criteria: ['', '', '']` in data(), never populated from BRIEF.md, and only serialised out by `agree()`. So an edit does not survive a reload, and the four criteria that already exist in the pod's BRIEF.md are invisible here - screen 13 reads them, screen 10 cannot. The design also draws four rows of real content; the product starts with three blank ones."
+    },
+    {
+      "id": "10-brief-ac-add",
+      "status": "pass",
+      "evidence": "The design draws no add control; the product has one. Clicked 'Add another' (ghost button with a plus icon): a fourth row appeared numbered 4, accepted text, and that text reached BRIEF.md and then screen 13 after agreeing. Removing a row renumbers the rest 1..n.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-row-menu",
+      "status": "not-implemented",
+      "evidence": "Each criterion row's only control is an icon-only ghost button with aria-label 'Remove' and an `icon-close` glyph (row innerHTML dumped from the live DOM). There is no three-dot control and no menu. Greps over pkg/barn for 'SMenu' inside brief.vue, and for 'overflow'/'reorder'/'moreVert'/'kebab' in pages/brief.vue, return nothing; the only SMenu users are elsewhere in the Studio.",
+      "defect": "The per-row three-dot menu (Figma 34:1057/1065/1073/1081) does not exist. Delete is covered by the Remove button, edit is covered by the row being an input, but reorder has no affordance at all."
+    },
+    {
+      "id": "10-brief-questions-intro",
+      "status": "pass",
+      "evidence": "The side column's first card, 'What the assistant cannot decide', renders the note 'The most useful thing on this screen. Ask before you build, not after.' - the design's sentence with 'Send these' reworded to 'Ask', which matches what the card actually does.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-blocking",
+      "status": "not-implemented",
+      "evidence": "No question cards exist on the screen. The DOM under `.brief__side` contains one warning banner and an 'Ask what is unclear' button; there is no Blocking badge, no alert icon, no rationale. `grep -rn 'Blocking\\|Worth asking' pkg/barn --include=*.vue --include=*.ts` returns nothing. The header comment of pages/brief.vue records the decision: the questions were replaced by a prompt sent to the claude in the extension's pod, whose answer arrives in the workspace terminal.",
+      "defect": "The three question cards and the severity distinction between them are absent. What replaced them tells the truth (the banner says in as many words that the answer appears in the terminal, not here), but nothing on this screen enumerates open questions, so nothing can be marked blocking."
+    },
+    {
+      "id": "10-brief-question-worth-1",
+      "status": "not-implemented",
+      "evidence": "Same as 10-brief-question-blocking: no question cards render at all. Searched the live DOM under `.brief__side` (only a banner, an optional 'asked' line and two buttons) and grepped pkg/barn for 'Worth asking' - no hits.",
+      "defect": "No 'Worth asking' card, badge, search icon or evidence line exists."
+    },
+    {
+      "id": "10-brief-question-worth-2",
+      "status": "not-implemented",
+      "evidence": "Same as above - the second 'Worth asking' card is absent from the DOM and from the source.",
+      "defect": "No second 'Worth asking' card exists."
+    },
+    {
+      "id": "10-brief-ask-requester",
+      "status": "not-implemented",
+      "evidence": "There are no question cards, so no per-question 'Ask the requester' button. `grep -rn 'requester' pkg/barn --include=*.vue --include=*.ts` hits only two comments and the acceptance-criteria note; there is no requester concept, no ticket and no messaging anywhere in the product.",
+      "defect": "The control does not exist. The file header of pages/brief.vue (lines 20-24) records that a previous round deleted the requester-facing controls because there is nobody to send to. What exists instead is 'Ask what is unclear', which sends the draft brief to the claude in this extension's pod via tmux (askAssistant in extensions.ts) and says plainly that the reply lands in the workspace terminal."
+    },
+    {
+      "id": "10-brief-answer-myself",
+      "status": "not-implemented",
+      "evidence": "No question cards and no 'Answer it myself' control in the DOM; `grep -rn 'Answer it myself' pkg/barn` returns nothing.",
+      "defect": "The control does not exist. There is no per-question answer input and no notion of a question being open or answered."
+    },
+    {
+      "id": "10-brief-send-questions",
+      "status": "not-implemented",
+      "evidence": "The masthead contains exactly four controls: Back, the Draft chip, 'Skip the brief' and 'Agree and start building' (buttons enumerated from the live DOM). There is no 'Send N questions to the requester' button and `grep -rn 'Send .*questions' pkg/barn` returns only the explanatory comment.",
+      "defect": "Deliberately removed, and the removal is documented in pages/brief.vue lines 20-24: there is no requester, no ticket and no list of questions to count, so a counted send button could not tell the truth. Nothing in the current screen claims otherwise - no stale count is displayed anywhere. Recording not-implemented rather than fail because this is an absent control, not a broken one."
+    },
+    {
+      "id": "10-brief-roles",
+      "status": "not-implemented",
+      "evidence": "No 'Written for' block renders anywhere on the screen (full innerText of `.brief__main` and `.brief__side` inspected). `grep -rni 'Written for\\|Cluster operator\\|Support engineer\\|Platform admin\\|App developer' pkg/barn --include=*.vue --include=*.ts` returns no hits outside node_modules.",
+      "defect": "The four role chips are absent entirely, so the multi-select versus radio-group question does not arise and nothing about the audience is written into BRIEF.md. `briefMarkdown()` has no 'Written for' section."
+    },
+    {
+      "id": "10-brief-ticket",
+      "status": "fail",
+      "evidence": "The first card is 'What you were handed'. With no query params it renders 'Nothing was carried through from the description step.' With ?prompt=RANCHER-4821%20add%20a%20node%20condition%20timeline it renders that string verbatim in a bordered row with a book icon. No ticket id field, no raiser, no age - the card has exactly one text node bound to `$route.query.prompt`.",
+      "defect": "Three quarters of the promise is missing: the id, who raised it and how long ago. There is no ticket entity in the product, so what is quoted is whatever screen 02 put in the query string, and it is lost on any reload that drops the query. Either the metadata has a real source (a ticket integration) or the card should stop being framed as a ticket."
+    },
+    {
+      "id": "10-brief-insight",
+      "status": "fail",
+      "evidence": "The accented callout (`.brief__insight`, blue fill, sparkle icon) renders only when `?outcome=` is present, and it prints that parameter verbatim: with ?outcome=operators%20can%20see%20condition%20history the callout read 'operators can see condition history'. Read pages/new-extension.vue: `outcome` is a plain textarea the user types on screen 02 and it is passed straight through in the router query.",
+      "defect": "The callout is an echo of the user's own words, not the assistant's challenge to the ticket. Nothing analyses the request, nothing argues 'this is a solution, not a problem', and there is no second line of copy. With no query param the callout does not render at all, so on a reload the screen silently loses it."
+    },
+    {
+      "id": "10-brief-prior-art-intro",
+      "status": "pass",
+      "evidence": "The card 'This already exists, partly' renders the note 'A word search over the source of every extension in this Studio.' and an info banner naming the exact terms it will grep for and warning that it is a word search, not an understanding. The claim is honest and the results are real - see 10-brief-prior-art-dashboard/-longhorn. Narrower than the design's 'every extension and Rancher page on this instance' (Rancher's own pages are not searched) and it runs on click rather than having been checked already, but it does not overclaim.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-dashboard",
+      "status": "not-implemented",
+      "evidence": "There is no fixed 'Cluster dashboard' entry and no notion of a Rancher page as prior art. What the card shows instead are grep hits grouped by extension. Verified the hits are real: with 'The problem' set to 'Operators cannot see how node conditions trended during an incident' the terms chips read conditions/operators/incident/trended/during, and clicking 'Look for prior art' returned three hits under 'nodehealth' - BRIEF.md:4, BRIEF.md:10 and pages/NodeHealth.vue:8. Running the same grep myself in the pod (`kubectl -n barn exec deploy/barn-nodehealth-extension -- grep -rniE ...`) returned exactly those three lines with the same line numbers and text.",
+      "defect": "Prior art covers extension source only. Existing Rancher pages that overlap the request are not searched and cannot appear, so the design's 'the cluster dashboard already does part of this' finding has no route into the product."
+    },
+    {
+      "id": "10-brief-prior-art-longhorn",
+      "status": "not-implemented",
+      "evidence": "No fixed 'longhorn-capacity' entry exists; the list is generated. The one installed sibling extension on this instance is nodehealth, and it is what the search found (three real file:line hits, cross-checked against the pod). No entry carries a consistency note.",
+      "defect": "The named fixture is gone, correctly. What is missing from the replacement is the editorial half of the design's entry - each hit is a file:line and a line of source, with no statement of what the existing thing covers or why it matters."
+    },
+    {
+      "id": "10-brief-prior-art-look",
+      "status": "not-implemented",
+      "evidence": "The only button on the prior-art card is 'Look for prior art' / 'Look again'. Each hit (`.brief__art-hit`) renders a path:line span and a code span and carries no button, link or click handler - dumped the rendered markup after a successful search.",
+      "defect": "There is no way to open what the search found. A hit names a file and a line in another extension's pod, and the Studio has a Files screen that could show it, but nothing links the two."
+    },
+    {
+      "id": "10-brief-prior-art-reuse",
+      "status": "not-implemented",
+      "evidence": "No 'Reuse its chart' control anywhere on the card; `grep -rn 'Reuse' pkg/barn --include=*.vue` returns nothing. `briefMarkdown()` has no section for an adoption decision, so nothing of the sort could reach the agent either.",
+      "defect": "Nothing lets a prior-art finding be adopted into the brief, so the search result cannot influence what gets built beyond the person reading it and retyping."
+    },
+    {
+      "id": "10-brief-scroll",
+      "status": "pass",
+      "evidence": "At 1440x520 the body scrolled to 575 of a 979px scrollHeight inside `.brief__scroll` (clientHeight 404) while `.brief__masthead` stayed at viewport top 55 and 'Agree and start building' remained visible. The masthead is a sibling of the scroll container, not inside it.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-menu",
+      "status": "pass",
+      "evidence": "Clicked the hamburger at the top left while on /barn/extensions/base/brief: `.side-menu` class went from 'side-menu menu-close' to 'side-menu menu-open' and the menu contents (Home, local, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About) became visible.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-home",
+      "status": "pass",
+      "evidence": "Opened the menu and clicked 'Home' (anchor href /dashboard/home): landed on https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-cluster-chips",
+      "status": "pass",
+      "evidence": "The LT1/CD2/AFT chips are Figma fixtures; the menu lists the instance's real clusters. Clicked 'local' and landed on /dashboard/c/local/explorer#cluster-events, that cluster's explorer. Only one cluster exists on this instance, so only one chip could be exercised.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-server",
+      "status": "pass",
+      "evidence": "Clicked 'Cluster Management' in the menu (href /dashboard/c/_/manager/provisioning.cattle.io.cluster): landed on that URL with the cluster management list rendered.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-gear",
+      "status": "pass",
+      "evidence": "Clicked 'Global Settings' in the menu: landed on /dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-about",
+      "status": "pass",
+      "evidence": "'About' is the last item in the menu (anchor href /dashboard/about). Clicked it and landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-user",
+      "status": "pass",
+      "evidence": "Clicked the avatar (button aria-label 'Open user menu', data-testid nav_header_showUserMenu): a popper opened reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out'. It sits at the top right of the header rather than at the foot of the rail as drawn.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-book",
+      "status": "not-implemented",
+      "evidence": "Enumerated every icon element in the page chrome outside `.brief`: pin, the eight app group icons (cluster-management, fleet, flask, harvester, gear, user, extension, globe) and notify-bell. No book or docs icon, and the header carries only two buttons - 'Open notification center' and 'Open user menu'. The user menu has no docs entry either (admin / Default Admin / Preferences / Account & API Keys / Log Out).",
+      "defect": "There is no documentation link in the rail or the header on this Rancher, so the book icon the design draws has no counterpart."
+    },
+    {
+      "id": "10-brief-rail-selected",
+      "status": "fail",
+      "evidence": "Opened the menu while on /barn/extensions/base/brief and read the computed styles of all ten `.option` entries: every one has background rgba(0,0,0,0) and colour rgb(0,134,87), including 'Editor', which is the Studio's own product entry (href /dashboard/barn/extensions, icon-flask). No element under `.side-menu` carries an active/selected/current class. The Studio's own outerHTML confirms it: `class=\"option\"`, nothing more.",
+      "defect": "Nothing marks the Studio as the section you are in. The design draws one rail icon in the accent colour; here all of them are the same colour and the rail is a slide-out that is closed by default, so on load there is no visible section indicator at all. The Studio registers its product with `to: { name: STUDIO_ROUTE }` (editor-product.ts), and Rancher only highlights the entry whose route tree matches, which the brief route apparently is not."
+    },
+    {
+      "id": "10-brief-header-logo",
+      "status": "blocked",
+      "evidence": "The header renders Rancher's own logo (img src .../img/rancher-logo.db10c962.svg, alt 'Logo'), not the SUSE chameleon, and the words 'SUSE' and 'Rancher Prime' appear nowhere in the header text. The header belongs to Rancher, not to the Studio: this instance runs community Rancher, and Prime branding is a per-project sidecar setting (PUT sidecars/config {\"prime\":true}).",
+      "defect": "Not recorded as a defect in the Studio. Turning Prime on recreates the Rancher container and starts it from an empty cluster, which would destroy the base extension pod and every other verifier's in-flight work, so I did not flip it. To settle this, re-check on a Prime instance."
+    },
+    {
+      "id": "10-brief-header-bell",
+      "status": "pass",
+      "evidence": "Clicked the bell (button aria-label 'Open notification center', data-testid notifications-center). `.notification-dropdown` did not exist before the click; after it, it was visible (display flex, non-zero box) and listed real entries: 'Notifications / Mark all as read / Done / Today, 12:43:06 am / Copied index.ts / Done / Today, 12:42:57 am / Re-read the file tree for...'.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-header-apps",
+      "status": "not-implemented",
+      "evidence": "The header strip carries exactly two buttons - 'Open notification center' and 'Open user menu' - plus the hamburger and the logo image. No grid icon; `document.querySelector('.app-bar, .icon-apps, [data-testid*=apps]')` is null and no icon class in the chrome resembles a grid.",
+      "defect": "There is no grid launcher in the header. The nearest equivalent is the hamburger, which opens a slide-out whose top section is headed GLOBAL APPS - so the app collection is reachable, just not from the control the design draws."
+    },
+    {
+      "id": "10-brief-header-more",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button and icon in the header strip with the slide-out removed: img.side-menu-logo-img, button 'Open notification center' (bell), button 'Open user menu' (avatar). No three-dot control exists, and no icon class in the chrome is a kebab or ellipsis.",
+      "defect": "The header overflow menu is absent. Global actions live in the user menu (Preferences, Account & API Keys, Log Out) instead."
+    }
+  ]
+}

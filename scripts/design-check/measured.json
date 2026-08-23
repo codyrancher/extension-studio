@@ -1716,7 +1716,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "1240x937",
+      "size": "1240x1008",
       "dir": "row",
       "align": "flex-start"
     },
@@ -1730,7 +1730,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "796x937",
+      "size": "796x1008",
       "dir": "column",
       "align": "normal"
     },
@@ -1744,7 +1744,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "430x578",
+      "size": "430x600",
       "dir": "column",
       "align": "normal"
     },

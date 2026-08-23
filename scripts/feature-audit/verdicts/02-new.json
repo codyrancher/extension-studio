@@ -1,0 +1,239 @@
+{
+  "screen": "02-new",
+  "verdicts": [
+    {
+      "id": "02-new-card-title",
+      "status": "pass",
+      "evidence": "Loaded /dashboard/barn/extensions/new: exactly one .new-ext__card, h1 text 'New extension', width 820px, 1px border rgb(220,222,231), centred by the flex wrap (bounding box left 338 / right 283 in a 1440 viewport, the difference being the nav rail).",
+      "defect": null
+    },
+    {
+      "id": "02-new-card-intro",
+      "status": "pass",
+      "evidence": "The .new-ext__lede renders verbatim: 'Describe what you want in your own words. The assistant writes the code, runs it against this Rancher, and shows you the result before anything is shared.'",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt-label",
+      "status": "pass",
+      "evidence": "'What should it do?' renders as the first .new-ext__label, directly above the description textarea.",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt",
+      "status": "pass",
+      "evidence": "On load document.activeElement is textarea.new-ext__prompt-input (autofocus) and its container carries a permanent 2px focus border. Typed 'Add a v02new panel that lists sunflower harvest totals per namespace.' and submitted: the text arrived as ?prompt= on the brief route, prefilled the brief's 'What changes for them' field, and after agreeing the brief it was in /app/pkg/v02-new/BRIEF.md in the pod under '## What changes for them'. Note it only reaches the pod if the brief is agreed - 'Skip the brief' (brief.vue skip()) pushes straight to the editor and the description is then written nowhere.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-label",
+      "status": "pass",
+      "evidence": "The SLabel to the left of the chip row renders 'Try' (upper-cased by the label style to 'TRY').",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-cost-report",
+      "status": "pass",
+      "evidence": "Clicked the chip on an empty form: the description became 'Add a cost report per namespace.' and the Name field followed with 'cost-report-per'. Focus stays on the chip button (document.activeElement.className = 'new-ext__example'), so the field is filled but does not take focus as the design's verification note expects.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-longhorn",
+      "status": "pass",
+      "evidence": "Clicked the chip with text already in the field: the description became 'Add a cost report per namespace. a Longhorn volume health tab' - useExample() appends, which the promise allows.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-fleet-drift",
+      "status": "pass",
+      "evidence": "Clicked the chip: 'a fleet drift dashboard' was appended to the description field ('...a Longhorn volume health tab a fleet drift dashboard').",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome-label",
+      "status": "pass",
+      "evidence": "Both lines render above the outcome box: label 'What can someone not do today?' and hint 'The question a ticket usually skips.'",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome",
+      "status": "fail",
+      "evidence": "Typed 'v02new outcome: nobody can see sunflower harvest totals without ssh.' and submitted. It is carried (query ?outcome=, prefills the brief's problem field, and after agreeing the brief it is in /app/pkg/v02-new/BRIEF.md under '## The problem' - read back with kubectl exec). No assistant ever sees it: nothing on this screen or the brief screen sends the description plus the outcome anywhere automatically, and the ?brief=1 the brief screen pushes to the editor is read by nothing (grep -rn \"brief\" pkg/barn shows editor.vue has no reference to it).",
+      "defect": "Half the promise holds. The text is collected and does reach BRIEF.md, but only when the user clicks 'Agree and start building' on screen 10; 'Skip the brief' discards both fields. The second half - 'which the assistant then uses to challenge a description that is really a solution', restated in the note under the field - is not implemented anywhere: no code compares the description against the outcome, and no prompt is sent on submit. The only assistant call in the flow is the manual 'What the assistant cannot decide' button on screen 10, whose answer lands in the terminal, not here."
+    },
+    {
+      "id": "02-new-outcome-note",
+      "status": "pass",
+      "evidence": "The .new-ext__note under the outcome box renders the full sentence ('Answer this and the assistant can tell you when your description is a solution rather than a problem...') with an <i class=\"s-icon icon icon-ai\"> sparkle in front of it. (What the note claims the assistant does is graded under 02-new-outcome.)",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-label",
+      "status": "pass",
+      "evidence": "Both lines render above the four cards: 'Where should it appear?' and 'This decides the parent route - the single hardest thing to fix later.'",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-cluster",
+      "status": "pass",
+      "evidence": "On load 'Inside a cluster' is the only card with new-ext__option--selected, border rgb(62,140,79) and background rgb(238,245,239) against rgb(220,222,231)/white on the other three. Clicked each of the other three in turn (selection moved, always exactly one selected) then clicked back and the selection returned to it. It is also the only placement whose stated meaning matches what is built: the seed registers a cluster-scoped product.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-top-level",
+      "status": "fail",
+      "evidence": "Selected 'Top-level nav' (it became the only selected card), submitted, and the extension barn-v02-new-extension was created with ?placement=root. Its seeded product.ts is byte-identical to the base seed's (md5 32e7dbe72a559dd61c14e9c56c6e5b39 for both barn-base-extension and barn-v02-new-extension): PRODUCT_NAME = 'base' and routing/index.ts registers only `/base/c/:cluster/home` with meta.cluster. The choice's only effect anywhere is one line in BRIEF.md, 'Parent route: `root`'.",
+      "defect": "Placement is recorded, not applied. The generated extension registers the same cluster-scoped product whatever card is chosen, because renameSeedPackage (extensions.ts) rewrites only the package directory and package.json name, never product.ts / routing. Nothing later reads the placement either - BRIEF.md is read by review-queue, review-change and verification, and never handed to the assistant (the editor ignores ?brief=1). So the 'hardest thing to fix later' decision changes no code."
+    },
+    {
+      "id": "02-new-where-resource",
+      "status": "fail",
+      "evidence": "Clicked 'On a resource': it became the only selected card and no follow-up asking which resource appeared. Submitted: the route carried ?placement=resource-detail, and the brief screen renders nothing about placement at all. The created extension's routing/index.ts and product.ts are the unmodified seed - one cluster-scoped page, no resource tab registration.",
+      "defect": "Selection works; the promised effect does not. Choosing 'On a resource' adds no tab to any resource detail page and never asks which resource it should attach to - the value only ends up as the string 'resource-detail' in BRIEF.md if the brief is agreed."
+    },
+    {
+      "id": "02-new-where-unsure",
+      "status": "fail",
+      "evidence": "Selected 'Not sure yet' and submitted: the route was .../brief?prompt=...&outcome=&placement= (empty). The brief screen shows nothing about placement, and brief.vue only emits a '## Where it appears' section when the placement string is non-empty - so the brief that gets written names no placement and gives no reason. Confirmed against the file written for the 'root' case, which does contain 'Parent route: `root`'.",
+      "defect": "PLACEMENTS maps 'unsure' to route: '', and nothing fills the gap. The assistant is never asked to pick a placement or explain one - deferring the decision simply drops it, which is worse than the other three options rather than the 'let the assistant pick and explain' the card advertises."
+    },
+    {
+      "id": "02-new-name",
+      "status": "pass",
+      "evidence": "Typed a description and the Name field filled itself with 'v02new-panel-lists'; typed over it with 'V02 New' and later prompt edits stopped overwriting it (nameEdited). Submitted: normalizeExtensionName turned it into 'v02-new' and that is what was created - configmap/deployment/service barn-v02-new-extension, package directory pkg/v02-new/ (configmap key pkg__v02-new__package.json) and \"name\": \"v02-new\" inside that package.json, which is what packageIdentity() reads at publish. The row 'v02-new' appeared on the Studio home table. Corroboration that this survives publish without republishing myself: the cluster holds UIPlugin 'nodehealth' (plugin name nodehealth, v0.1.0) for the base-seeded extension named nodehealth, not a plugin called 'base'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-name-hint",
+      "status": "pass",
+      "evidence": "The SField hint 'Suggested from your description - editable' renders under the Name input (element .s-field__hint).",
+      "defect": null
+    },
+    {
+      "id": "02-new-target",
+      "status": "not-implemented",
+      "evidence": "'Build and preview against' is a static <div class=\"new-ext__box new-ext__box--static\"> with the literal text 'local - this cluster'. Clicking it opens nothing (0 poppers/listboxes afterwards, focus fell back to .main-layout) and there is no <select> anywhere on the page. new-extension.vue's own header comment lists it under 'Drawn but inert'. For completeness, /v1/management.cattle.io.clusters returns one cluster ('local') in this Rancher, so a real picker would have had one entry.",
+      "defect": null
+    },
+    {
+      "id": "02-new-target-hint",
+      "status": "pass",
+      "evidence": "'Changes only ever run here until you publish' renders as the hint directly under the target box.",
+      "defect": null
+    },
+    {
+      "id": "02-new-git-note",
+      "status": "pass",
+      "evidence": "The grey .new-ext__git panel renders with <i class=\"s-icon icon icon-github\"> and the full sentence about no GitHub connection being needed. The claim is true in practice: this Rancher has no GitHub token (the import dialog says 'There is no GitHub token yet') and the whole create -> brief -> BRIEF.md flow completed anyway.",
+      "defect": null
+    },
+    {
+      "id": "02-new-connect-github",
+      "status": "pass",
+      "evidence": "Filled the form, clicked 'Connect GitHub': the EditorSettingsModal opens in place ('Editor settings - Used to import and publish extensions to GitHub - GitHub token'), no navigation. Cancelled it and the form still held 'preserve me please' and 'preserve-name'. Worth knowing: it is a write-only token field (the same modal screen 09 owns), not an OAuth flow, and I did not save a token because that secret is shared with the other agents on this box.",
+      "defect": null
+    },
+    {
+      "id": "02-new-footer-note",
+      "status": "pass",
+      "evidence": "The footer renders 'Next: agree a one-page brief. It takes about a minute and becomes the reviewer's checklist.' It sits above the button row rather than to its left (.new-ext__footer is flex-direction: column), and it is replaced by the error text when a create fails.",
+      "defect": null
+    },
+    {
+      "id": "02-new-cancel",
+      "status": "pass",
+      "evidence": "Typed 'cancel test v02new' into the description, clicked Cancel: landed on https://magic-closet-rancher/dashboard/barn/extensions with .studio-home__table rendered. Nothing was created - the table listed only base, demo, nodehealth and my own v02-new, and `kubectl -n barn get cm,deploy` showed no object for the cancelled form.",
+      "defect": null
+    },
+    {
+      "id": "02-new-import-instead",
+      "status": "pass",
+      "evidence": "Clicked 'Import a repo instead' (neutral button with the github icon): the ImportExtensionModal opens with title 'Import from GitHub' and fields Name / GitHub repository / Branch. Byte-for-byte the same modal screen 01's 'Import from GitHub' button opens - I opened both and compared the rendered text; both are the same ImportExtensionModal component (pages/extensions.vue:655, pages/new-extension.vue). I did not complete an import, which would have created a second extension.",
+      "defect": null
+    },
+    {
+      "id": "02-new-draft-brief",
+      "status": "pass",
+      "evidence": "With description, outcome, placement and name filled, clicked 'Draft the brief' (primary green, sparkle icon-ai): it created configmap + deployment + service barn-v02-new-extension in namespace barn and navigated to /barn/extensions/v02-new/brief?prompt=...&outcome=...&placement=root, where the brief's problem and 'what changes' fields were prefilled from what I typed. Two caveats worth recording: nothing is drafted by an assistant - the prefill is the user's own two sentences moved into two boxes - and the button is the point of no return, since the extension (and its pod) exists before the brief is even looked at.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-menu",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=top-level-menu] on the create route: .side-menu went from class 'side-menu menu-close' to 'side-menu menu-open' and the nav contents rendered; Escape closed it again.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-home",
+      "status": "pass",
+      "evidence": "Opened the rail from the create route and clicked the Home entry (a.option.home): navigated to https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail's cluster list renders one entry, 'local' (data-testid=menu-cluster-local), which is the only cluster this Rancher has. Clicked it from the create route and landed on /dashboard/c/local/explorer#cluster-events. The design's three-letter chips (LT1, CD2, AFT) are mock clusters; the real control behaves as promised for the clusters that exist, though it renders full names rather than three-letter chips.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-extensions",
+      "status": "fail",
+      "evidence": "On /dashboard/barn/extensions/new no entry in the rail carries a selected treatment: every a.option has the bare class 'option'. The treatment does exist and does apply to this product elsewhere - on /dashboard/barn/extensions the Studio's own entry ('Editor') carries 'router-link-active router-link-exact-active option active-menu-link', and the puzzle entry ('Extensions', /c/local/uiplugins) carries it on its own page.",
+      "defect": "The Studio's rail entry loses its selected state as soon as you enter the create flow. The nav entry links to /barn/extensions and the selected treatment is router-link-exact-active, so the deeper route /barn/extensions/new matches nothing. A user creating an extension cannot tell from the rail which section they are in."
+    },
+    {
+      "id": "02-new-nav-server",
+      "status": "pass",
+      "evidence": "Clicked 'Cluster Management' (icon-cluster-management) in the rail from the create route: loaded /dashboard/c/_/manager/provisioning.cattle.io.cluster.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-gear",
+      "status": "pass",
+      "evidence": "Clicked 'Global Settings' (icon-gear) in the rail from the create route: loaded /dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-book",
+      "status": "not-implemented",
+      "evidence": "No book/docs icon exists in the rail or the header. Enumerated every i.icon while the rail was open on the create route: pin, cluster-management, fleet, flask, harvester, gear, user, extension, globe, notify-bell, plus the page's own s-icon icon-ai and icon-github. No <a> on the page has an external href, and there is no docs or catalog link anywhere in the rail (rail text: Home, local, GLOBAL APPS: Cluster Management / Continuous Delivery / Editor / Virtualization Management / Base, CONFIGURATION: Users & Authentication / Extensions / Global Settings, About).",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-user",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=nav_header_showUserMenu]: the dropdown opened showing 'admin | Default Admin | Preferences | Account & API Keys | Log Out'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the foot of the rail from the create route: loaded /dashboard/about, which rendered the version table (Rancher v2.15-...-head, Dashboard master 17ad8a6, Rancher Prime CLI v2.15.0-rc.1, Helm v4.2.0).",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-logo",
+      "status": "fail",
+      "evidence": "The header logo is a bare <img data-testid=\"header__brand-img\" class=\"side-menu-logo-img\"> inside div.simple-title > div.side-menu-logo - no anchor, no click handler. Clicked it on the create route and the URL stayed at /dashboard/barn/extensions/new after 2s.",
+      "defect": "The product logo in the header is not a link. Getting home needs the rail's Home entry instead. (Rancher chrome, not barn code, but the design draws it as the way home.)"
+    },
+    {
+      "id": "02-new-header-apps",
+      "status": "not-implemented",
+      "evidence": "There is no grid/app-collection icon in the header. The header's right-hand group contains exactly two controls, [data-testid=notifications-center] and [data-testid=nav_header_showUserMenu]; the full data-testid inventory of the page is header, side-menu, top-level-menu, side-menu__brand-img, top-level-menu-cluster-0, menu-cluster-local, header__brand-img, notifications-center, notifications-center-statusunread, nav_header_showUserMenu, slide-in-glass. The nearest equivalent is the hamburger, which is graded separately as 02-new-nav-menu.",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell ([data-testid=notifications-center], i.icon-notify-bell): the notification centre opened listing real entries ('Notifications | Mark all as read | Undone | Today, 12:47:22 am | The last change to verify-03-workspace-b.txt has been undone...').",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-more",
+      "status": "not-implemented",
+      "evidence": "There is no kebab/overflow control in the header. Enumerated every button and anchor in [data-testid=header] outside the side menu: only the notifications bell and the user menu. Same data-testid inventory as recorded for 02-new-header-apps.",
+      "defect": null
+    }
+  ]
+}

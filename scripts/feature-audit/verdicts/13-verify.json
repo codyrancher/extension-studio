@@ -1,0 +1,197 @@
+{
+  "screen": "13-verify",
+  "verdicts": [
+    {
+      "id": "13-verify-attach-screenshot",
+      "status": "not-implemented",
+      "evidence": "No 'Attach a screenshot' control anywhere on the screen: 0 input[type=file] inside .verify, and the expanded No block that would hold it does not exist. grep over pkg/barn for 'Attach a screenshot', 'attach' and 'type=\"file\"' hits only components/studio/AssistantPanel.vue:587 (screen 03's paperclip).",
+      "defect": "An upload path does exist in the product and could be reused: AssistantPanel's onAttach() calls writePodImage() (extensions.ts:2069, chunked base64 write into the pod under /app/.attachments, 8MB cap). Nothing on screen 13 is wired to it, so a reviewer cannot attach evidence of their own."
+    },
+    {
+      "id": "13-verify-back",
+      "status": "pass",
+      "evidence": "Clicked the masthead chevron (button[aria-label='Back to the queue']). URL went to https://magic-closet-rancher/dashboard/barn/review and .queue__list rendered (1 match), so it lands on the review queue rather than failing silently.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-blocked-note",
+      "status": "fail",
+      "evidence": "Set criterion 3 to No: the card tints red but no sentence about publishing appears. /publish/i does not match anywhere in .verify; the only match for /block/i is 'appends a verification block'. Then recorded the result so BRIEF.md held '- **Not met** at `/home`: A 24-hour trend is readable at a glance', and loaded screen 04: both Publish buttons enabled (disabled:false), and the workspace's Publish button enabled too.",
+      "defect": "Neither half of the promise exists. The rule is never stated next to a failing criterion, and it is not enforced: nothing in the publish path reads BRIEF.md or the verification state. pages/editor.vue publishTo() goes straight to publishExtension(); pages/review.vue's Publish is gated only by ':disabled=\"!count\"' (files changed). A recorded No does not block publishing."
+    },
+    {
+      "id": "13-verify-blocked-summary",
+      "status": "fail",
+      "evidence": "The footer sentence does count the failures and does reverse: with one No it read '2 of 4 met, 1 not met, 1 still to look at.' and with the No cleared it read '2 of 4 met, 2 still to look at.' It never mentions publishing, and publishing is not in fact blocked (screen 04 and the workspace Publish buttons were both enabled with a 'Not met' verdict on disk).",
+      "defect": "The count half is implemented (computed 'signoffText' in pages/verification.vue). The restatement 'publishing stays blocked while any remain' is absent, and would be untrue if added, because no publish path consults the verification result."
+    },
+    {
+      "id": "13-verify-capture-evidence",
+      "status": "not-implemented",
+      "evidence": "No 'Capture this as evidence' button. The only buttons on the screen are: Open the brief, Yes/No/Can't tell x4, Show me x4, Back to the workspace, the viewport chip, Ask the assistant to check, Record the result. grep over pkg/barn for 'Capture this as evidence' returns nothing.",
+      "defect": "Evidence capture is implicit instead: answering a criterion stamps 'Checked HH:MM . <user>' and the preview's current route onto that criterion. There is no explicit capture action and no snapshot of what the preview was showing."
+    },
+    {
+      "id": "13-verify-cluster-select",
+      "status": "not-implemented",
+      "evidence": "The pinned preview's toolbar holds only Back, Forward, Reload, the path field, the live dot, a viewport chip and the popout link (enumerated from .preview-panel__toolbar). 0 <select> elements in .preview-panel or .verify. grep for 'cluster' in components/studio/PreviewPanel.vue returns nothing.",
+      "defect": "The preview is hard-wired to one target: extensionUrl() -> the k8s service proxy for barn-base-extension:8005 in the local cluster. There is no control to point it at another cluster and no annotation of why the current one matters."
+    },
+    {
+      "id": "13-verify-code-approved-chip",
+      "status": "not-implemented",
+      "evidence": "The masthead renders 'base', the eyebrow 'VERIFICATION . DOES IT ACTUALLY DO THE JOB?', a status badge ('2 still to check') and 'Open the brief'. No chip naming a code reviewer; /code review/i and /ana silva/i do not match anywhere in .verify. grep over pkg/barn for 'Code approved' returns nothing.",
+      "defect": "Nothing on this screen tells the reviewer the code gate is already closed or who closed it. The Studio has no second-reviewer identity to draw from (screen 12's approve is a commit by whoever is signed in)."
+    },
+    {
+      "id": "13-verify-criterion-badge",
+      "status": "pass",
+      "evidence": "Drove all four states and read the computed styles. Yes: .verify__badge--pass, background rgb(62,140,79) (#3E8C4F), icon-checkmark glyph. No: .verify__badge--fail, rgb(246,71,71) (#F64747), icon-close glyph. Can't tell: .verify__badge--unsure, rgb(201,162,39) (#C9A227) with the literal criterion number. Unanswered: .verify__badge--unanswered, rgb(242,243,245) (#F2F3F5) with the number. Colour and glyph changed with every verdict change and reversed when the verdict was cleared. One deviation: the design's Can't tell badge is grey #F2F3F5, and the product uses that grey for the unanswered state instead and gives Can't tell the warning amber. Both keep the plain criterion number, so the design's grey-numbered badge is still on screen, just on the state the mock never drew.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-failed-styling",
+      "status": "fail",
+      "evidence": "Set criterion 3 to No: the card gained .verify__criterion--fail and a background of rgb(253,236,236) (#FDECEC), and setting it back to Yes removed both. But nothing expanded: the row still contains 0 textareas, 0 file inputs and exactly the same four buttons (Yes, No, Can't tell, Show me), and its innerHTML length is unchanged in kind (1546 chars, all of it the same controls).",
+      "defect": "Only the tint half of the promise is implemented. The expanded block (note field, 'Send this back to the assistant', 'Attach a screenshot', publishing-blocked warning) does not exist in pages/verification.vue at all - the criterion template ends after the verdict group and the Show me button."
+    },
+    {
+      "id": "13-verify-criterion-text",
+      "status": "pass",
+      "evidence": "Four cards render, each a full sentence with a numbered badge: 'The tab appears under the cluster nav without a reload', 'It renders with metrics-server absent, and says why', 'A 24-hour trend is readable at a glance', 'Nothing on the existing cluster page moves or changes'. These are byte-identical to the '- [ ]' lines under '## How we will know it worked' in /app/pkg/base/BRIEF.md, which is the section pages/brief.vue (screen 10) writes and pages/review-change.vue (screen 12) renders from the same file - so they are the same objects, not a re-entry.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-evidence-explainer",
+      "status": "not-implemented",
+      "evidence": "The word 'evidence' does not appear anywhere in .verify (regex /evidence/i over the rendered text: false). There is no capture button for it to sit above. The nearest sentence is a different info banner: 'Recording the result ticks these boxes in BRIEF.md and appends a verification block, so the record lives in the repository next to the code.'",
+      "defect": "The explainer about captured evidence outliving the review is absent. The existing banner explains where the verdict is written, not why the evidence travels with it."
+    },
+    {
+      "id": "13-verify-evidence-meta",
+      "status": "pass",
+      "evidence": "Answering a criterion renders a meta line under it with an eye icon: 'Checked 01:15 AM . admin . /c/local/explorer#cluster-events' - clock, signed-in user, and the route the preview was on at the moment of the answer. Clearing the verdict removes the line. The route is written into BRIEF.md ('- **Not met** at `/c/local/explorer#cluster-events`: ...'). Two gaps worth knowing: only the route is persisted, so after a save and reload the line reads just '/c/local/explorer#cluster-events' with no clock and no name (criteriaFrom sets taken:'' deliberately, because the brief records neither); and there is no failure-specific form of the line saying what happened instead.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-framing",
+      "status": "fail",
+      "evidence": "The accented block above the criteria list is a green banner reading 'The problem this was for' plus the brief's problem statement ('Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation...'). Neither promised sentence renders: /code/i as in 'not reading code', 'you cannot break anything', and 'already checked whether the code is sound' are all absent.",
+      "defect": "The framing block exists but says something else. A non-technical reviewer is never told what their job is, that they are not reading code, or that they cannot break anything from here - which is the whole reason the design puts an accented block there."
+    },
+    {
+      "id": "13-verify-header-actions",
+      "status": "fail",
+      "evidence": "Enumerated every button/anchor in <header> outside the side menu: exactly two. The bell (aria-label 'Open notification center') opens the notification panel (rendered 'Notifications / Mark all as read / ... Verification recorded ...'), and the ghost button (aria-label 'Open user menu') opens 'admin / Default Admin / Preferences / Account & API Keys / Log Out'. Both work.",
+      "defect": "There is no third icon. The app-collection control the design draws is not present in this Rancher's masthead (no .icon-apps, no .app-collection, no third header button), so only two of the three header actions are reachable. This is Rancher chrome rather than Studio code."
+    },
+    {
+      "id": "13-verify-identity",
+      "status": "fail",
+      "evidence": "The masthead renders the extension name 'base' and the eyebrow 'Verification . does it actually do the job?', plus a verdict badge. There is no version string and no role line: /outcome sign-off/i and /RANCHER-4821/i do not match anywhere in .verify.",
+      "defect": "Only the name renders. The version is never shown (nothing on this screen reads the package version), and the reviewer's role - which is what tells them why they are being asked rather than the code reviewer - is not stated. The Studio has no per-reviewer role model to read it from."
+    },
+    {
+      "id": "13-verify-nav-rail",
+      "status": "fail",
+      "evidence": "Loaded /barn/extensions/base/verification: the rail renders with all its entries (Home, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings). But no entry carries an active class - [...document.querySelectorAll('.side-menu .option')].filter(o => /active/.test(o.className)) is empty on this route.",
+      "defect": "Same root cause as the known cross-cutting defect 2: the Studio product entry ('Editor', registered in editor-product.ts with to: { name: STUDIO_ROUTE }) is an exact router-link, so it only highlights on /barn/extensions. Every other barn route, this one included, renders with nothing marked current."
+    },
+    {
+      "id": "13-verify-note",
+      "status": "fail",
+      "evidence": "No note field on a failed criterion (0 textareas inside .verify__criterion in every state). There is one page-level 'Notes' textarea at the foot of the list. Typed 'verify-13-verify note marker' into it and pressed Record the result: it landed in BRIEF.md under a '### Notes' heading. Reloaded the page: the textarea came back empty even though the text is still in the file.",
+      "defect": "Three gaps. (1) The note is not attached to a criterion, so a reviewer cannot say why one particular thing failed. (2) Nothing says the author and the assistant will read it - and nothing routes it to either; it is only written to BRIEF.md. (3) load() in pages/verification.vue never reads the '### Notes' section back, so the note is write-only from the UI's point of view and the next visit silently discards it if the reviewer records again."
+    },
+    {
+      "id": "13-verify-open-brief",
+      "status": "fail",
+      "evidence": "Clicked 'Open the brief': URL became /dashboard/barn/extensions/base/brief and .brief__columns rendered. But every field on that page was empty - all inputs and textareas returned '' - so the brief the criteria came from is not shown.",
+      "defect": "pages/brief.vue never reads BRIEF.md: its mounted() only prefills from the ?prompt/?outcome query screen 02 passes. Reached from verification it is a blank authoring form, and its 'Agree' button writes a whole new BRIEF.md, which would destroy the criteria and the recorded verdicts. It also leaves the verification flow entirely rather than opening the brief beside it."
+    },
+    {
+      "id": "13-verify-preview-context",
+      "status": "fail",
+      "evidence": "The preview pane's header is the static string 'The extension, running' with an eye icon and a 'Back to the workspace' button. Pressed 'Show me' on criterion 4 and the frame really did navigate (address and iframe URL both moved to /c/local/explorer#cluster-events), but the header text was unchanged before and after. Nothing on the pane names the criterion.",
+      "defect": "The pane is never bound to a criterion. The live dot half of the promise exists, one level down in the preview toolbar ('Loaded . just now' with a green dot from PreviewPanel), but the header does not say which criterion is being checked, so after a Show me there is nothing tying what you are looking at to what you are answering."
+    },
+    {
+      "id": "13-verify-preview-popout",
+      "status": "pass",
+      "evidence": "The external-link anchor in the preview toolbar (.preview-panel__popout, title 'Open this page on its own', target=_blank) carries href '/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/home', which is the proxy path plus the preview's current path. Opened that URL in a separate tab: it loaded standalone, title 'Rancher Prime - Homepage', served by the extension's own dev server.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-progress-chip",
+      "status": "fail",
+      "evidence": "The chip reads passed/total. Starting at 2/4 (two criteria already ticked in the brief): setting criterion 3 to No left it at 2/4; setting criterion 4 to Can't tell left it at 2/4; clearing one of the two Yes verdicts dropped it to 1/4, and clearing both gave 0/4 while three criteria carried verdicts. So it moves only for Yes.",
+      "defect": "The chip counts criteria met, not criteria settled - computed 'passed' in pages/verification.vue is criteria.filter(c => c.verdict === 'pass').length. The design's counter reads '3 of 4 checked' with criteria 1-2 Yes, 3 No and 4 Can't tell, so 'checked' there means Yes or No and excludes only Can't tell. Four criteria all answered No would read 0/4 here, which is the opposite of a progress count. The footer sentence does report every state correctly; only the chip is wrong."
+    },
+    {
+      "id": "13-verify-rendered-preview",
+      "status": "pass",
+      "evidence": "The pane holds a real iframe whose src is https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/ - the k8s service proxy to the extension's dev server pod. Read the frame's own document through Playwright: title 'Rancher Prime - Homepage', body text from the pod. Typing a path into the address field navigated the frame and the frame's URL followed, so it is live, not a screenshot.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-accept",
+      "status": "not-implemented",
+      "evidence": "With the scope card in its drifted state, .verify__scope contains zero buttons (querySelectorAll('button') on the card returned []). grep over pkg/barn for 'add it to the brief' and 'That is fine' returns nothing.",
+      "defect": "The scope card is read-only. There is no way to accept the drift, so the brief cannot be amended from here and the warning cannot be cleared other than by changing the code or the brief by hand."
+    },
+    {
+      "id": "13-verify-scope-drift",
+      "status": "pass",
+      "evidence": "Computed on real data and fired. Baseline (only BRIEF.md changed) the card showed the honest info banner 'This change adds no lines outside the brief itself...'. I then wrote /app/pkg/base/verify-13-verify.txt containing 'this line mentions alerting on purpose' into the pod's working tree and reloaded: the card switched to the amber warning 'This change adds lines that mention what the brief said it was deliberately not doing. A word match is not proof of anything - it is a place to look.' and listed the hit as term 'alerting' in file 'verify-13-verify.txt'. 'alerting' comes from the brief's '## What we are deliberately not doing' section ('No alerting, and no history beyond 24 hours'), and the file count chip moved with the real git status. Removed the file and the card went back. The design's 'found automatically' tag is not drawn and the heading is 'Scope' rather than a sentence about the undeclared behaviour; the card names the matched term and the files instead of describing the behaviour in prose.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-remove",
+      "status": "not-implemented",
+      "evidence": "Same reading as scope-accept: the drifted scope card renders a banner plus a list of term/file rows and no controls at all (0 buttons in .verify__scope). grep over pkg/barn finds 'Remove it' only in pages/extensions.vue and components/EditorSettingsModal.vue, both unrelated.",
+      "defect": "There is no way to reject the drifted behaviour from the sign-off screen, so no change can be requested from here."
+    },
+    {
+      "id": "13-verify-send-criterion-back",
+      "status": "not-implemented",
+      "evidence": "No per-criterion send-back control: a criterion row's buttons are only Yes, No, Can't tell and Show me in every state, including No. grep over pkg/barn for 'Send this back' returns nothing.",
+      "defect": "The nearest real thing is the footer's 'Ask the assistant to check', which puts the still-unanswered criteria to the pod's claude session as a question. It is not per-criterion, carries no verdict, note or evidence, and asks the assistant to check rather than to fix - so the design's hand-back does not exist."
+    },
+    {
+      "id": "13-verify-send-list-back",
+      "status": "not-implemented",
+      "evidence": "No 'Send the whole list back' control. The footer holds exactly two buttons, 'Ask the assistant to check' and 'Record the result'. grep over pkg/barn for 'Send the whole list' returns nothing.",
+      "defect": "Nothing hands the verdicts to the author or removes the change from the reviewer's queue. Recording the result writes the verdicts into BRIEF.md in the pod and stops there - the review queue (screen 11) is not updated and the author is not notified."
+    },
+    {
+      "id": "13-verify-show-me",
+      "status": "pass",
+      "evidence": "Drove the preview to /c/local/explorer, answered criterion 4 there (its meta line recorded '. /c/local/explorer#cluster-events'), then moved the preview to /home. Pressed 'Show me' on criterion 4: the address field returned to /c/local/explorer#cluster-events and the iframe's own URL followed to .../proxy/c/local/explorer#cluster-events. With no recorded route it takes the preview to '/' and toasts to say why.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-sign-off",
+      "status": "fail",
+      "evidence": "There is no sign-off button. The footer's primary action is 'Record the result', which writes the verdicts into BRIEF.md; it is enabled whatever the verdicts are. Pressed it with criterion 3 set to No: it succeeded, wrote '- **Not met** at `/home`: A 24-hour trend is readable at a glance' into the brief, toasted 'Verification recorded', and closed no gate. Screen 04's two Publish buttons and the workspace's Publish button were all still enabled afterwards.",
+      "defect": "Nothing is gated - not the button, not the publish. 'Record the result' is a save, phrased as bookkeeping rather than a judgement about the problem, and its only :disabled condition is !criteria.length. The publish path (pages/editor.vue publishTo, pages/review.vue publish) never reads BRIEF.md or the verification state, so the outcome gate the design describes does not exist anywhere in the product."
+    },
+    {
+      "id": "13-verify-signoff-status",
+      "status": "not-implemented",
+      "evidence": "The footer bar is a single row: a user icon, one sentence of counts ('2 of 4 met, 1 not met, 1 still to look at.'), then the two buttons. There are no gate rows, no completed marker, no empty dot; /code review/i does not match anywhere in .verify and grep over pkg/barn for 'Code review' and 'Outcome sign-off' returns nothing.",
+      "defect": "The two-gate status is absent here. Screen 12 has a .rc__signoffs bar, but it is a single-reviewer sentence, not the two-row component, and nothing carries its state into screen 13."
+    },
+    {
+      "id": "13-verify-verdict",
+      "status": "pass",
+      "evidence": "Each criterion carries a three-segment group (role=group, aria-label 'Verdict for criterion N') with buttons Yes / No / Can't tell. Clicked each: aria-pressed=true moves to exactly one segment, fills are Yes rgb(62,140,79) green, No rgb(246,71,71) red, Can't tell rgb(201,162,39) amber. The footer sentence updated for each ('2 of 4 met, 1 not met, 1 could not be judged...'), and the masthead badge followed. There is a fourth state the design never draws: clicking the pressed segment again clears it back to unanswered (grey numbered badge, group gets --unanswered), which is also the state a criterion loads in, and it is counted and written separately ('still to look at' / 'Not looked at' in BRIEF.md) rather than being folded into Can't tell. All of it survived a save and reload.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-verdict-cant-tell",
+      "status": "pass",
+      "evidence": "Set criterion 4 to Can't tell. The progress chip did not move (2/4 before and after). The badge kept the plain number '4'. The footer counted it separately from the failures: '2 of 4 met, 1 not met, 1 could not be judged.' It saved to BRIEF.md as '- **Could not tell** at `<route>`: <criterion>' - a state of its own, distinct from both the unticked box and 'Not looked at' - and came back selected after a reload. It does not block publishing, though neither does a No. Deviations: the fill and badge are warning amber (#C9A227) rather than the design's grey (grey is used for the unanswered state instead), and the 'only a No blocks' contrast cannot be observed because nothing anywhere blocks publishing - see 13-verify-blocked-note.",
+      "defect": null
+    }
+  ]
+}

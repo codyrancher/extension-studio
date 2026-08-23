@@ -1,0 +1,214 @@
+{
+  "screen": "12-change",
+  "verdicts": [
+    {
+      "id": "12-change-approve",
+      "status": "fail",
+      "evidence": "Clicked 'Approve and commit' on /barn/review/base/working. It is a real, persistent decision: barn-base-extension went from HEAD 8a704fb with ' A BRIEF.md' to a new commit 89b952b 'Reviewed: 1 file' with a clean tree, the queue's deferral (git config barn.review.deferred) was cleared, a growl/notification 'Approved' was recorded, and it routed to /barn/review. But it is not a code gate: there is no 'Code review' dot, no outcome gate left open beside it, and nothing anywhere reads an approval - grep over pkg/barn for signoff|approv finds only this method, its label and verification.vue's own separate bar. Publishing is unaffected. I restored the pod afterwards (git reset --soft 8a704fb, git reset -- BRIEF.md, git add -N BRIEF.md, deferral re-written), verified back at HEAD 8a704fb / ' A BRIEF.md' / deferral 2026-08-22T22:28:40.695Z.",
+      "defect": "approve() in pages/review-change.vue is `git add -A && git commit -m \"Reviewed: N files\"` plus clearDeferral plus a route push. It records no reviewer, no decision object and no gate state, so nothing downstream can tell an approved change from an unapproved one and publish is not blocked by it. The design's cross-screen rule (nothing published until both sign-offs are green) has no mechanism at all: 'approve' and 'publish' are unrelated code paths."
+    },
+    {
+      "id": "12-change-assistant-draft",
+      "status": "not-implemented",
+      "evidence": "No comment can be written on this screen, so no assistant draft can exist. Searched the rendered page for 'Send to the assistant', 'See the fix' and 'draft' (all absent from document.body.innerText) and grepped pkg/barn (excluding node_modules) for 'Send to the assistant', 'assistant draft' and 'not applied' - zero hits. pages/review-change.vue does not import askAssistant at all; the only caller of askAssistant is pages/review.vue (screen 04) for 'explain this change'.",
+      "defect": "The whole comment -> assistant -> unapplied draft loop is missing from screen 12. The primitive exists (askAssistant in extensions.ts writes a one-line prompt into the pod for the running claude session) but nothing on this screen uses it."
+    },
+    {
+      "id": "12-change-automated-checks",
+      "status": "not-implemented",
+      "evidence": "No checks section renders. The three columns are the packet (brief sections + changed files), the diff and the live preview; the page text contains none of 'Automated checks', 'credentials', 'contrast', 'focus order', 'translatable' or 'private Rancher'. Grepped pkg/barn for each of those strings - zero hits outside node_modules.",
+      "defect": "None of the five machine checks (build passes, no credentials in the diff, contrast and focus order, strings translatable, no private Rancher APIs) exists, and there is no section header to summarise them. Nothing on the screen runs anything against the diff or the build."
+    },
+    {
+      "id": "12-change-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron button (aria-label 'Back to the queue') in the masthead at /barn/review/base/working. The URL became https://magic-closet-rancher/dashboard/barn/review and .queue__list rendered with the base and nodehealth rows."
+    },
+    {
+      "id": "12-change-comment-thread",
+      "status": "not-implemented",
+      "evidence": "No thread renders anywhere under the diff. DiffView.vue (360 lines) contains no @click, no @mouse, no textarea and no occurrence of 'comment'; the diff is a plain <table> of .diff__row rows. Hovering row 5 of the BRIEF.md diff produced no new buttons and no textarea (queried .rc__code button / .rc textarea after hover: 0 each).",
+      "defect": "There is no comment model on this screen: no thread, no line anchor, no author line, no avatar. Nothing is persisted per diff line."
+    },
+    {
+      "id": "12-change-criteria-list",
+      "status": "fail",
+      "evidence": "The four acceptance criteria are real and are the ones authored on screen 10 - brief.vue writes '## How we will know it worked' followed by '- [ ] <criterion>' into BRIEF.md, and review-change.vue reads the same BRIEF.md out of the pod and splits it on '##'. The packet's 'HOW WE WILL KNOW IT WORKED' section showed exactly the four lines that are in /app/pkg/base/BRIEF.md. But they render as raw markdown text: literal '- [x] The tab appears under the cluster nav without a reload', '- [ ] A 24-hour trend is readable at a glance'. There is no per-criterion icon and no evidence sub-label.",
+      "defect": "Criteria are printed as unparsed markdown list lines (the '- [x]' / '- [ ]' syntax leaks to the reviewer) with no evidence state. The three states the design asks for (evidence captured / no evidence yet / not measured) are not modelled here at all; the only state visible is the whole '## Verification' block screen 13 wrote, dumped verbatim into the packet as more raw markdown ('Verdict: **2 still to check**', '- **Met**: ...', '### Criteria'), asterisks and hashes unrendered."
+    },
+    {
+      "id": "12-change-diff-header",
+      "status": "pass",
+      "evidence": "On base the diff column head read 'BRIEF.md' and the DiffView file header under it read 'BRIEF.md  +34 −0'; after selecting the second file on nodehealth the head read 'pages/NodeHealth.vue' and the delta read '+10 −0'. The numbers are real: git diff --numstat HEAD in the pod gives 34 added lines for BRIEF.md and 10 for pages/NodeHealth.vue."
+    },
+    {
+      "id": "12-change-diff-line-to-visual",
+      "status": "not-implemented",
+      "evidence": "Clicked .diff__row line 5 of the BRIEF.md diff: URL unchanged, no element gained a highlight class ([class*=highlight] and .is-highlighted both 0 before and after), nothing changed in the Rendered result pane. DiffView.vue has no @click, no click listener and no emit; the rows are inert <tr> elements.",
+      "defect": "Diff lines are not addressable. There is no mapping from a source line to anything in the rendered result, and the rendered result is a live iframe of a whole dashboard rather than an annotated shot, so there is nothing to highlight into."
+    },
+    {
+      "id": "12-change-diff-lines",
+      "status": "pass",
+      "evidence": "The diff renders as a real table: each row is <tr class=\"diff__row diff__row--add\"> with two .diff__gutter cells (old line number, new line number) and a .diff__code cell whose first child is <span class=\"diff__sign\">+</span>. 35 line nodes for BRIEF.md, numbered 1-34, added lines tinted green via the --add modifier. The content is the real git diff HEAD output from the pod, not a fixture."
+    },
+    {
+      "id": "12-change-file-ranking",
+      "status": "fail",
+      "evidence": "Files are grouped, and the counts are coherent - on nodehealth the masthead said 'Reviewing all 2 files' and the two group headers were 'the package root 1' and 'pages 1'; on base 'Reviewing all 1 file' with 'the package root 1'. But the grouping key is the directory, not attention: fileGroups() in review-change.vue buckets on file.path.lastIndexOf('/'). Searched the page text for 'Worth your attention', 'Generated, low risk' and 'Config' - none present; grep over pkg/barn for those three strings returns zero.",
+      "defect": "There is no risk/attention ranking at all, and no one-line reason per file: the sub-line under each path is fileStats(), i.e. 'added · +34' (status and size), which is exactly the file-count framing screen 11's caption says to demote. Note the design's own numbers do not reconcile (chip 3 files vs headers 2+2+1 vs five rows drawn); the implementation is self-consistent, so the defect is the missing ranking dimension, not the arithmetic."
+    },
+    {
+      "id": "12-change-file-scope",
+      "status": "not-implemented",
+      "evidence": "'Reviewing all 1 file' renders as <span class=\"s-chip s-chip--subtle\"> with computed cursor 'auto' and no clickable modifier (the neighbouring PR chip is a <button class=\"... s-chip--clickable\"> with cursor 'pointer', so the primitive does support it). Force-clicked it anyway: no [role=menu], .s-menu, .dropdown or .popover appeared and document.body.innerText length did not change.",
+      "defect": "The chip is a read-only count. There is no way to narrow the review's scope, and the diff pane always covers whichever single file is selected in the list regardless."
+    },
+    {
+      "id": "12-change-file-select",
+      "status": "pass",
+      "evidence": "Used nodehealth, which has two changed files. Before: BRIEF.md selected (.rc__file--selected) and the diff pane showed '+23 −0' of BRIEF.md. Clicked the 'NodeHealth.vue added · +10' row: the selected class moved to that row, the diff column head changed to 'pages/NodeHealth.vue' and the diff body changed to the Vue SFC ('+<script> +export default { name: 'NodeHealth' };'). Confirmed against the pod: /app/pkg/nodehealth has exactly those two files modified."
+    },
+    {
+      "id": "12-change-header-actions",
+      "status": "fail",
+      "evidence": "Enumerated every button/anchor inside <header> while on /barn/review/base/working. Only two action controls exist on the right: aria-label 'Open notification center' and aria-label 'Open user menu'. Clicked both - the notification centre opened (.notification-dropdown with 'Notifications / Mark all as read' and the entries it holds) and the user menu opened ('admin / Default Admin / Preferences / Account & API Keys / Log Out'). There is no third icon.",
+      "defect": "Two of the three header affordances the design draws are reachable. There is no overflow (kebab) menu and no app-collection icon on this route - the kebab only exists in Rancher's cluster-explorer header, and Studio pages are global-level, so it is absent here."
+    },
+    {
+      "id": "12-change-hide-generated",
+      "status": "not-implemented",
+      "evidence": "No such chip or toggle on the screen: page text contains neither 'Hide generated' nor 'generated'. Grepped pkg/barn for 'Hide generated', 'generated' as a diff filter and 'fold' - nothing in review-change.vue or DiffView.vue. DiffView renders every hunk of the patch unconditionally.",
+      "defect": "There is no notion of a generated line in the model, so nothing can be folded away."
+    },
+    {
+      "id": "12-change-hunk-provenance",
+      "status": "not-implemented",
+      "evidence": "This is the design's headline requirement and none of it exists. No hunk carries any label: the diff is git's own output rendered by DiffView, whose only per-hunk chrome is the '@@' header line (.diff__hunk-head). The page text contains no 'Prompt', no 'provenance' and no relative time. Grepped pkg/barn (excluding node_modules) for 'provenance' - 7 hits, all in verification.vue (screen 13, meaning who took a verdict and when) and one comment in extensions.ts; for 'Prompt N of' / 'prompt' as captured authoring data - nothing. Nothing on screen 03 records which prompt produced which change either: extensions.ts's askAssistant() writes a single line into a file the pod's shell reads and keeps no record, and the pod's git history holds one commit ('The seeded extension') with no prompt trailer.",
+      "defect": "Per-hunk prompt provenance is absent end to end. There is no capture on screen 03, no store, and no display on screen 12. Building it needs an authoring-time record (prompt text, timestamp, the files/lines the assistant then wrote) that survives into the review, which nothing in extensions.ts currently produces."
+    },
+    {
+      "id": "12-change-identity",
+      "status": "fail",
+      "evidence": "The masthead reads 'base' (.rc__title) over the eyebrow 'REVIEW A CHANGE' (.rc__eyebrow), then the chips 'low risk', 'No GitHub token', 'Reviewing all 1 file' and a Refresh button. That is the whole of it.",
+      "defect": "Only the extension name renders. No version (publishedVersion() exists in extensions.ts but is not read here), and no provenance line at all - no author, no timestamp, nothing saying which of the two reviews this is. The eyebrow is a static string, so it cannot distinguish a code review from an outcome sign-off."
+    },
+    {
+      "id": "12-change-leave-for-author",
+      "status": "not-implemented",
+      "evidence": "No such button. Page text contains neither 'Leave it for the author' nor 'sees it either way'; grep over pkg/barn for both strings returns zero. There is no thread to route in the first place (see 12-change-comment-thread).",
+      "defect": "The reviewer cannot choose between the human author and the assistant, because neither destination exists on this screen."
+    },
+    {
+      "id": "12-change-nav-rail",
+      "status": "pass",
+      "evidence": "Loaded /barn/review/base/working and the collapsed Rancher rail (.side-menu.menu-close) rendered with all its entries, including the Studio one - 'Editor', href /dashboard/barn/extensions. Caveat worth recording: no rail entry carries an active/selected class on this route, but the same is true on /barn/editor and /barn/review, so this is Rancher's collapsed-rail behaviour rather than something screen 12 drops."
+    },
+    {
+      "id": "12-change-open-brief",
+      "status": "not-implemented",
+      "evidence": "No 'Open the brief' control in the packet column or anywhere else on the screen (checked document.body.innerText). Grep over pkg/barn for 'Open the brief' gives two hits, neither on this screen: pages/extensions.vue:427 (a row action on screen 01) and pages/verification.vue:791 (screen 13). The packet inlines the brief's section bodies instead but offers no way to reach screen 10.",
+      "defect": "The packet shows the brief's text but has no link to the brief itself, so a reviewer cannot get to the full document, its open questions or its edit history."
+    },
+    {
+      "id": "12-change-open-preview",
+      "status": "pass",
+      "evidence": "The Rendered result column is the live preview, not a shot: it frames <iframe src=\"/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/\">, the pod's own dev server through the service proxy, and its toolbar reported 'Loaded · 11s ago'. Clicked the popout anchor (aria-label 'Open this page on its own', target=_blank): a new tab opened at .../barn-base-extension:8005/proxy/home and rendered the running dashboard ('Welcome to Rancher Prime / Clusters 1'). Closed the tab afterwards."
+    },
+    {
+      "id": "12-change-pr-link",
+      "status": "blocked",
+      "evidence": "The masthead's GitHub chip is real and honest but cannot be exercised here: with no token configured it renders 'No GitHub token' (warning tone, clickable) and clicking it opens the Editor settings modal ('Editor settings ... GitHub token / Cancel / Save') rather than pretending a PR number. The open-PR path exists in code (checkPullRequest -> findOpenPullRequest, then onPrChip does window.open(this.pr.url)), but this environment has neither a GitHub token nor a remembered repository for base, so no PR can be found or opened. Blocked on that missing prerequisite, not on the code.",
+      "defect": null
+    },
+    {
+      "id": "12-change-purpose-card",
+      "status": "fail",
+      "evidence": "The packet's first card is 'THE PROBLEM' with the real sentence from BRIEF.md ('Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.'), so the purpose is there and is genuinely read from the pod. There is no 'What this is for' framing and no provenance line of any kind - page text contains no 'Agreed with', no date and no requester.",
+      "defect": "The second half of the promise has no data behind it: brief.vue's briefMarkdown() never records who agreed the brief, when, or how it differs from the originating ticket, so screen 12 has nothing to show. The card also has no heading distinguishing purpose from the other brief sections; it is just the first '##' section of the file."
+    },
+    {
+      "id": "12-change-request-changes",
+      "status": "fail",
+      "evidence": "Clicked 'Request changes' at /barn/review/base/working: it routed to /dashboard/barn/editor/base and the editor loaded with the assistant panel, Changes tab '1', terminal 'Connected as admin'. Nothing else happened. The working tree was untouched (' A BRIEF.md' before and after) and requestChanges() in review-change.vue is exactly clearDeferral() plus $router.push - it writes no state saying changes were requested.",
+      "defect": "Two failures. (1) The label is the static string 'Request changes' with no count, because there are no threads to count. (2) It carries nothing back to the assistant: the editor opens on whatever conversation was already there, with no comment loaded, so INTENT.md's recovery rule ('goes straight back to the workspace with the comment already loaded into the assistant') is not met. extensions.ts already has askAssistant(), which brief.vue and review.vue use to seed the pod's session, so the missing piece is a comment to send, not the transport."
+    },
+    {
+      "id": "12-change-risk-chip",
+      "status": "pass",
+      "evidence": "Screen 12 for base shows 'low risk' (s-chip--success). Navigated back with the masthead arrow and the same change's queue row read 'RISK low'. Both come from the same rule (count > 8 high, > 3 medium, else low over changedFiles), so the rating genuinely survives the navigation rather than being restated."
+    },
+    {
+      "id": "12-change-see-conversation",
+      "status": "not-implemented",
+      "evidence": "There is no provenance strip to hang it on (see 12-change-hunk-provenance). Page text contains no 'See the conversation'; grep over pkg/barn for that string and for 'transcript' returns zero. The authoring conversation lives only in the pod's tmux scrollback, which nothing indexes by prompt.",
+      "defect": "No conversation record is addressable from a hunk, and none is stored in a form that could be opened at a given prompt."
+    },
+    {
+      "id": "12-change-see-the-fix",
+      "status": "not-implemented",
+      "evidence": "No 'See the fix' button anywhere on the screen and no drafted-fix concept. Grep over pkg/barn for 'See the fix' and 'drafted' returns zero. Depends on 12-change-send-to-assistant, which is also absent.",
+      "defect": "Nothing produces a draft, so there is nothing to open."
+    },
+    {
+      "id": "12-change-send-to-assistant",
+      "status": "not-implemented",
+      "evidence": "No such button and no thread to attach it to. Page text has no 'Send to the assistant'; grep over pkg/barn returns zero hits. review-change.vue's import list from extensions.ts does not include askAssistant (only pages/review.vue and pages/brief.vue call it).",
+      "defect": "The route from a reviewer's sentence to the assistant does not exist on the review screen, even though askAssistant() is available and used by two other screens."
+    },
+    {
+      "id": "12-change-shot-after",
+      "status": "not-implemented",
+      "evidence": "The Rendered result column holds one PreviewPanel iframe of the pod's live dev server plus its toolbar (back, forward, reload, path field, 'Loaded · 9s ago', 'Desktop', popout). No 'After' label, no img elements (querySelectorAll('img').length = 0 inside .rc__visual), and no 'Node condition trend' anywhere in the page text.",
+      "defect": "There is no captured after-shot. What renders is whatever route the live preview happens to be on (/home by default), which is not the change's result and is not labelled as such."
+    },
+    {
+      "id": "12-change-shot-before",
+      "status": "not-implemented",
+      "evidence": "Nothing renders the unchanged page. The visual column contains exactly one iframe and no second panel; page text contains no 'Before'. Nothing in extensions.ts captures or stores a pre-change rendering, so there is no source for one.",
+      "defect": "No before state is captured at any point in the flow, so a visual comparison is impossible as things stand."
+    },
+    {
+      "id": "12-change-signoff-status",
+      "status": "not-implemented",
+      "evidence": "The decision bar (.rc__decision) is a user icon plus one sentence - 'You are the only reviewer on this Studio, so your decision is the decision.' - then the three buttons. No gate rows, no dots, no owners: page text contains neither 'Code review' nor 'Outcome sign-off'. The source comment at review-change.vue:16-19 says this is deliberate, since there is no second reviewer to draw.",
+      "defect": "The two-part gate is not modelled. The honest sentence is a reasonable stand-in for a single-user Studio, but it also means nothing tracks which of the two questions has been answered, which is what the cross-screen rule 'nothing published until both are green' would have to be built on."
+    },
+    {
+      "id": "12-change-since-last-look",
+      "status": "not-implemented",
+      "evidence": "No chip or toggle for it: page text contains no 'Since', no 'since your last look'. Grep over pkg/barn returns zero. The only per-reviewer state that exists is the deferral (git config barn.review.deferred / -note, read by the queue to show a 'Deferred' mark) and it is a single timestamp with no diff filtering behind it.",
+      "defect": "There is no record of what a reviewer has already seen, so the diff cannot be narrowed to what landed since. Building it needs per-reviewer state keyed to a commit, which the deferral is close to but is cleared by any decision."
+    },
+    {
+      "id": "12-change-talk-to-author",
+      "status": "not-implemented",
+      "evidence": "The masthead holds only the back arrow, the title block, three chips and Refresh. No 'Talk to the author' control; grep over pkg/barn returns zero hits for that string and there is no author identity on the screen to address (see 12-change-identity).",
+      "defect": "No author is recorded on a change, so there is nobody to open a conversation with."
+    },
+    {
+      "id": "12-change-ux-decision",
+      "status": "not-implemented",
+      "evidence": "No such button. The only decisions offered are 'Request changes', 'Come back to it' and 'Approve and commit'. Grep over pkg/barn for 'UX', 'design question' and 'reroute' finds nothing on this screen, and there is no second reviewer role to route to.",
+      "defect": "There is no reviewer-role model, so a point cannot be handed to anyone else; the only escape is 'Come back to it', which defers rather than reroutes."
+    },
+    {
+      "id": "12-change-visual-mode",
+      "status": "not-implemented",
+      "evidence": "No Before/After/Overlay segmented control exists. The visual column's only mode control is PreviewPanel's viewport chip cycling Desktop/Tablet/Mobile. Page text contains no 'Overlay' and no 'Before'; grep over pkg/barn for 'Overlay' returns zero.",
+      "defect": "There is no before state and no overlay compositing, so there is nothing to switch between."
+    },
+    {
+      "id": "12-change-visual-to-code",
+      "status": "not-implemented",
+      "evidence": "The rendered result is a cross-document iframe on the pod's dev server; clicks inside it go to that dashboard, and the Studio cannot read its DOM or map an element back to a diff line. No click handler on .rc__visual outside PreviewPanel's own toolbar, and DiffView exposes no scroll-to-hunk API.",
+      "defect": "No element-to-source mapping exists in either direction (see also 12-change-diff-line-to-visual). It would need instrumentation inside the previewed build, which nothing currently injects."
+    },
+    {
+      "id": "12-change-write-comment",
+      "status": "not-implemented",
+      "evidence": "Hovered .diff__row 5 and then clicked it: no comment affordance appeared (0 buttons and 0 textareas inside .rc__code, before and after), no gutter control, and nothing changed. DiffView.vue has no @click, no @mouseover, no textarea and no 'comment' anywhere in its 360 lines; the whole screen has no textarea. Note the design has the same gap - it draws an authored comment but no composer - so this one is unbuilt on both sides.",
+      "defect": "There is no way to write a comment, which is the root of the six other missing features on this screen (thread, send to assistant, leave for author, see the fix, assistant draft, and the thread count on Request changes)."
+    }
+  ]
+}

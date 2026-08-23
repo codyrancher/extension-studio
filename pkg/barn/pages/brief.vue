@@ -27,7 +27,7 @@ import {
 } from '../components/ui';
 import { toastSuccess, toastError } from '../toast';
 import {
-  writeExtensionFile, askAssistant, findPriorArt, DEFAULT_EXTENSION
+  readExtensionFile, writeExtensionFile, askAssistant, findPriorArt, DEFAULT_EXTENSION
 } from '../extensions';
 import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -66,6 +66,10 @@ export default {
       notDoing: '',
       criteria: ['', '', ''],
       saving:   false,
+      // True until BRIEF.md has been read. Agreeing writes the whole form over that
+      // file, so agreeing before it has been read back would replace it with a form
+      // that never contained it.
+      loading:  true,
       asking:   false,
       // '' until the question has been put to the pod; then what happened to it, so the card
       // can say where the answer is rather than looking like nothing happened.
@@ -113,7 +117,7 @@ export default {
     },
 
     canAgree() {
-      return !!this.problem.trim() && !this.saving;
+      return !!this.problem.trim() && !this.saving && !this.loading;
     },
 
     /**
@@ -156,9 +160,119 @@ export default {
     // nothing is invented for the boxes there is no answer for.
     this.problem = this.outcome || this.handed;
     this.changes = this.handed;
+
+    this.load().catch(() => {
+      this.loading = false;
+    });
   },
 
   methods: {
+    /**
+     * Read the brief that already exists, if one does.
+     *
+     * Agreeing writes the whole form over BRIEF.md, and until this existed the form was never
+     * filled from that file - only from the query parameters screen 02 hands over at creation.
+     * So opening the brief of an extension that already had one showed a form that did not
+     * contain it, and agreeing replaced the document with the form. What went with it was not
+     * just prose: the criteria under "How we will know it worked" are the same items screen 12
+     * renders and screen 13 records verdicts against, so one click dropped the criteria, every
+     * verdict recorded against them, and the review packet's link to what was promised.
+     *
+     * An extension that has no BRIEF.md yet is the normal case on the way in from screen 02, and
+     * for that the query prefill already in place is right. So a missing file is not an error
+     * here, and neither is one this parser cannot make sense of: in both cases the form keeps
+     * what it has rather than blanking itself.
+     */
+    async load() {
+      const text = await readExtensionFile(this.extension, 'BRIEF.md').catch(() => '');
+
+      if (text.trim()) {
+        const sections = this.parseBrief(text);
+
+        // Only overwrite a box the file actually spoke about. A brief written before a section
+        // existed should not blank the box for it.
+        ['problem', 'who', 'changes', 'notDoing'].forEach((key) => {
+          if (sections[key] !== undefined) {
+            this[key] = sections[key];
+          }
+        });
+
+        if (sections.criteria?.length) {
+          this.criteria = sections.criteria;
+        }
+      }
+
+      this.loading = false;
+    },
+
+    /**
+     * Turn the markdown `briefMarkdown` writes back into the form that wrote it.
+     *
+     * Keyed on the headings that method emits, so the two stay together: change one and this
+     * stops finding a section rather than silently reading the wrong one. `_not stated_` is what
+     * it writes for a box left empty, so it reads back as empty rather than as that literal.
+     */
+    parseBrief(text) {
+      const HEADINGS = {
+        '## The problem':                          'problem',
+        '## Who has it':                           'who',
+        '## What changes for them':                'changes',
+        '## What we are deliberately not doing':   'notDoing',
+      };
+
+      const out = {};
+      let key = null;
+      let buffer = [];
+
+      const flush = () => {
+        // `criteria` is accumulated line by line into an array, not buffered as prose, so
+        // flushing it would replace that array with the empty buffer. That is not hypothetical:
+        // the first version of this parser did exactly that when it reached the `## Verification`
+        // section screen 13 appends, and read four real criteria back as none - which agreeing
+        // would then have written over them as `_not stated_`.
+        if (!key || key === 'criteria') {
+          return;
+        }
+        const body = buffer.join('\n').trim();
+
+        out[key] = body === '_not stated_' ? '' : body;
+      };
+
+      for (const raw of text.split('\n')) {
+        const line = raw.replace(/\s+$/, '');
+
+        if (line.startsWith('## ') || line === '---') {
+          flush();
+          key = HEADINGS[line] || null;
+          buffer = [];
+
+          if (line === '## How we will know it worked') {
+            out.criteria = [];
+            key = 'criteria';
+          }
+          continue;
+        }
+
+        if (key === 'criteria') {
+          // The verdicts screen 13 records live on these same lines, as trailing bold text after
+          // the criterion. Keep only the criterion itself, which is what this form owns.
+          const m = line.match(/^- \[[ xX]\]\s+(.*)$/);
+
+          if (m) {
+            out.criteria.push(m[1].replace(/\s*-\s*\*\*.*$/, '').trim());
+          }
+          continue;
+        }
+
+        if (key) {
+          buffer.push(line);
+        }
+      }
+      flush();
+
+      return out;
+    },
+
     addCriterion() {
       this.criteria.push('');
     },

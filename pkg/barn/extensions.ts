@@ -1612,20 +1612,36 @@ export async function fileDiff(name: string, path: string): Promise<string> {
  * not anybody's idea of a change to discard.
  */
 export async function discardChanges(name: string, paths: string[] = []): Promise<void> {
+  // `git reset` first, and it is not optional.
+  //
+  // A file the assistant has just created is usually intent-to-add rather than plain untracked,
+  // because `workingDiff` runs `git add -A -N` over the whole tree so that `git diff HEAD` can
+  // show new files at all. An intent-to-add path is in the index against the empty blob, and that
+  // puts it in the blind spot between the two halves of a discard: `git checkout --` restores it
+  // from that empty blob, truncating it to nothing, and `git clean` skips it because as far as
+  // clean is concerned it is tracked.
+  //
+  // The result was that discarding a new file emptied it and left it there. The review screen
+  // came back from "Discard all 5" still listing files, still marked Unsaved, and the assistant's
+  // work was gone rather than reverted. Resetting the pathspec out of the index first puts the
+  // files back to plain untracked, where clean removes them and checkout leaves them alone.
   if (!paths.length) {
-    await inPackage(name, 'git checkout -- . 2>/dev/null ; git clean -fd -e node_modules 2>/dev/null');
+    await inPackage(
+      name,
+      'git reset -q -- . 2>/dev/null ; git checkout -- . 2>/dev/null ; git clean -fd -e node_modules 2>/dev/null'
+    );
 
     return;
   }
 
-  // Named files rather than the whole tree, for the review screen's per-file selection. Both
-  // halves still run and both take the same pathspecs, so an untracked file in the list is
-  // removed and a tracked one is restored, and nothing outside the list is touched.
+  // Named files rather than the whole tree, for the review screen's per-file selection. All three
+  // take the same pathspecs, so an untracked file in the list is removed and a tracked one is
+  // restored, and nothing outside the list is touched.
   const quoted = paths.map((p) => `'${ p.replace(/'/g, `'\\''`) }'`).join(' ');
 
   await inPackage(
     name,
-    `git checkout -- ${ quoted } 2>/dev/null ; git clean -fd -e node_modules -- ${ quoted } 2>/dev/null`
+    `git reset -q -- ${ quoted } 2>/dev/null ; git checkout -- ${ quoted } 2>/dev/null ; git clean -fd -e node_modules -- ${ quoted } 2>/dev/null`
   );
 }
 

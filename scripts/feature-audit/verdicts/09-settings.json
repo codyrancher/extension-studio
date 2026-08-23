@@ -1,0 +1,353 @@
+{
+  "screen": "09-settings",
+  "verdicts": [
+    {
+      "id": "09-settings-access-admins",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'Cluster Owners', 'Cluster Members', 'custom role', 'who can use', 'access', 'roleBinding' - the only RBAC in the product is install.ts creating one ClusterRoleBinding (`barn-extension-cluster-admin`) that binds the pods' ServiceAccount to cluster-admin. That is the pods' grant, not a grant of Studio to people. Access to the Studio itself is whatever Rancher gives the route: the barn product is registered inStore 'management' with no permission gate (editor-product.ts), so anyone who can load the dashboard sees the flask entry. No access rows exist, so there is no Administrators row to try to untick.",
+      "defect": "Absent. Note the underlying model is missing too: there is no allow-list of roles anywhere for an 'always on' row to sit at the top of."
+    },
+    {
+      "id": "09-settings-access-cluster-members",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'Cluster Owners', 'Cluster Members', 'custom role', 'who can use', 'access', 'roleBinding' - the only RBAC in the product is install.ts creating one ClusterRoleBinding (`barn-extension-cluster-admin`) that binds the pods' ServiceAccount to cluster-admin. That is the pods' grant, not a grant of Studio to people. Access to the Studio itself is whatever Rancher gives the route: the barn product is registered inStore 'management' with no permission gate (editor-product.ts), so anyone who can load the dashboard sees the flask entry.",
+      "defect": "No Cluster Members checkbox and no user count."
+    },
+    {
+      "id": "09-settings-access-cluster-owners",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'Cluster Owners', 'Cluster Members', 'custom role', 'who can use', 'access', 'roleBinding' - the only RBAC in the product is install.ts creating one ClusterRoleBinding (`barn-extension-cluster-admin`) that binds the pods' ServiceAccount to cluster-admin. That is the pods' grant, not a grant of Studio to people. Access to the Studio itself is whatever Rancher gives the route: the barn product is registered inStore 'management' with no permission gate (editor-product.ts), so anyone who can load the dashboard sees the flask entry.",
+      "defect": "No Cluster Owners checkbox and no mechanism behind one - revoking Studio from a role is not something the product can currently express."
+    },
+    {
+      "id": "09-settings-access-counts",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'Cluster Owners', 'Cluster Members', 'custom role', 'who can use', 'access', 'roleBinding' - the only RBAC in the product is install.ts creating one ClusterRoleBinding (`barn-extension-cluster-admin`) that binds the pods' ServiceAccount to cluster-admin. That is the pods' grant, not a grant of Studio to people. Access to the Studio itself is whatever Rancher gives the route: the barn product is registered inStore 'management' with no permission gate (editor-product.ts), so anyone who can load the dashboard sees the flask entry. Nothing in pkg/barn queries role bindings to count users.",
+      "defect": "No per-role user counts. The data is available (management.cattle.io.clusterroletemplatebindings / globalrolebindings) but nothing reads it."
+    },
+    {
+      "id": "09-settings-access-custom-role",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'Cluster Owners', 'Cluster Members', 'custom role', 'who can use', 'access', 'roleBinding' - the only RBAC in the product is install.ts creating one ClusterRoleBinding (`barn-extension-cluster-admin`) that binds the pods' ServiceAccount to cluster-admin. That is the pods' grant, not a grant of Studio to people. Access to the Studio itself is whatever Rancher gives the route: the barn product is registered inStore 'management' with no permission gate (editor-product.ts), so anyone who can load the dashboard sees the flask entry. No role picker anywhere in pkg/barn.",
+      "defect": "No 'Custom role...' row and no Rancher role picker."
+    },
+    {
+      "id": "09-settings-access-intro",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'Cluster Owners', 'Cluster Members', 'custom role', 'who can use', 'access', 'roleBinding' - the only RBAC in the product is install.ts creating one ClusterRoleBinding (`barn-extension-cluster-admin`) that binds the pods' ServiceAccount to cluster-admin. That is the pods' grant, not a grant of Studio to people. Access to the Studio itself is whatever Rancher gives the route: the barn product is registered inStore 'management' with no permission gate (editor-product.ts), so anyone who can load the dashboard sees the flask entry. Nothing warns anybody about anything, which matters because the warning would be true: the pod behind every editor holds cluster-admin.",
+      "defect": "No 'Who can use Studio' card and no warning that Studio access is effectively cluster admin."
+    },
+    {
+      "id": "09-settings-breadcrumb-current",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. No settings page, so no breadcrumb. The pattern exists on the screens that do exist - pages/extensions.vue renders 'Extensions > Studio' with a non-clickable <span class=\"studio-home__crumb-current\">, and pages/review-queue.vue the same with 'Reviews'.",
+      "defect": "Absent. When the page is built, copy the crumb-current span from pages/extensions.vue:512."
+    },
+    {
+      "id": "09-settings-breadcrumb-extensions",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. No breadcrumb to click. On the pages that have one, the first crumb 'Extensions' is an <a> calling $router.push({ name: 'home' }) (pages/extensions.vue:510) or the STUDIO_ROUTE (pages/review-queue.vue:284).",
+      "defect": "Absent."
+    },
+    {
+      "id": "09-settings-breadcrumb-studio",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. The design's crumb chain for screen 09 is Extensions > Studio > Settings, and the middle crumb has no counterpart because there is no third level in the product.",
+      "defect": "Absent."
+    },
+    {
+      "id": "09-settings-catalog-code-review",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). No catalog destination exists to carry a control.",
+      "defect": "No catalog code-review control and no org-policy lock."
+    },
+    {
+      "id": "09-settings-catalog-outcome",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). No catalog destination, and screen 07's 'Both + extensions team' requirement has no counterpart in the code.",
+      "defect": "No catalog outcome control and no org-policy lock."
+    },
+    {
+      "id": "09-settings-dest-catalog",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. grep for 'catalog' in pkg/barn finds only Kubernetes group names (catalog.cattle.io.uiplugins) and one sentence of copy on pages/new-extension.vue; there is no SUSE catalog destination and no notion of organisation policy. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>).",
+      "defect": "No catalog destination row, no lock glyph, no 'Org policy' tag, no greyed background. 'orgPolicy'/'org policy' match nothing in pkg/barn."
+    },
+    {
+      "id": "09-settings-dest-dev-load",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). The concept exists as an action - the editor's Publish split button installs the built bundle into this Rancher as a UIPlugin (extensions.ts, catalog.cattle.io.uiplugins) - but it is nowhere described as a row in a destinations table.",
+      "defect": "No destinations table, so no 'Developer load into a Rancher' row, no server glyph, no 'still iteration' description."
+    },
+    {
+      "id": "09-settings-dest-dev-preview",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. No destination table exists anywhere. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). The dev preview itself is real (the editor's right pane iframes the pod's dev server) but it is never described as a publish destination in any list.",
+      "defect": "The 'Where it can go' destination table is absent in full. There is no component listing destinations, no 'always' tag, no lock glyph and no greyed row. Build it as part of a new /barn/settings route."
+    },
+    {
+      "id": "09-settings-dest-oci",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. grep -rn 'oci\\|OCI' over pkg/barn returns nothing at all. The product has exactly two publish targets: a local UIPlugin install and a push of the package source to GitHub (PublishSplit items: 'Publish to GitHub', 'Import from GitHub', 'Remove local install'). Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>).",
+      "defect": "There is no OCI push destination in the product, let alone a row for it marked as 'The gate'. The whole gating concept the design hangs on this row does not exist."
+    },
+    {
+      "id": "09-settings-dev-load-code-review",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). Nothing to click and nothing to persist. I confirmed the only persisted Studio setting is the barn-settings Secret: `kubectl -n barn get secret barn-settings -o jsonpath='{.data}'` shows only gh_token / gh_repo.<ext> keys, so there is nowhere for a per-destination review policy to be stored.",
+      "defect": "No editable three-way control for developer-load code review, and no storage for one."
+    },
+    {
+      "id": "09-settings-dev-load-outcome",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). I opened the publish flow on /barn/editor - 'Other ways to publish' -> 'Publish to GitHub' - and the dialog asks only for a repository. There are no sign-off requirements shown for any destination, so there is nothing for this control to feed.",
+      "defect": "No editable three-way control for developer-load outcome sign-off, and the publish dialog has no sign-offs section for it to affect."
+    },
+    {
+      "id": "09-settings-dev-preview-code-review",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). There is no segmented control to try to move. For what it is worth the effective behaviour matches the design's fixed 'Off': previewing needs no review because the preview is just the pod's own dev server.",
+      "defect": "No three-way segmented control for dev-preview code review. The behaviour it would describe (Off) is what happens, but only because no gating exists at all."
+    },
+    {
+      "id": "09-settings-dev-preview-outcome",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). No outcome control exists on any row.",
+      "defect": "No three-way control for dev-preview outcome sign-off."
+    },
+    {
+      "id": "09-settings-dev-server-restart",
+      "status": "not-implemented",
+      "evidence": "No Restart control exists on any barn screen. grep -rn 'Restart\\|restartPod\\|deletePod' over pkg/barn (excluding node_modules and the generated seed) returns only prose in comments - no handler, no button. The editor masthead's overflow menu (data-testid barn-masthead-overflow) offers the other screens plus 'Remove local install', and the assistant panel's session menu offers session actions; neither bounces the dev server.",
+      "defect": "No Restart button. extensions.ts deliberately avoids restarting a pod somebody is editing in (see its comment at line ~756), so if this is built it needs the confirm the design does not draw."
+    },
+    {
+      "id": "09-settings-dev-server-status",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. There is no dev-server health row. The nearest thing is the editor's PreviewPanel, whose strip read 'Loaded · 5s ago' with a dot - but that reports whether the iframe loaded, not the dev server's state, and it shows a relative timestamp, not an uptime. grep for 'uptime' in pkg/barn returns nothing.",
+      "defect": "No 'Dev server running' state row and no uptime. If it is built, the truth is available: the pod is deploy/barn-base-extension in namespace barn, whose status.startTime and container readiness give a real uptime and state."
+    },
+    {
+      "id": "09-settings-github-account",
+      "status": "fail",
+      "evidence": "The one settings surface that exists is EditorSettingsModal.vue, opened by the gear (data-testid barn-editor-settings-button) on the editor masthead at /barn/editor. Drove it end to end: with no token the modal shows just the empty field; after saving a token it shows 'One is stored; typing here replaces it. Remove it' and the field placeholder becomes 'Stored. Leave blank to keep it.' That is the entire connection state it can express.",
+      "defect": "No connected-account display: no login name, no Active pill, no granted scopes, no expiry and no authorisation date. readSettings() in extensions.ts returns only { hasToken: boolean, repo: string } and never calls the GitHub API, so none of those values is fetched. grep for 'scopes'/'expiry'/'oauth' in pkg/barn finds nothing relevant."
+    },
+    {
+      "id": "09-settings-github-disconnect",
+      "status": "fail",
+      "evidence": "Clicked 'Remove it' in the settings modal (which raises the warning 'The stored token will be removed when you save.'), then Save. `kubectl -n barn get secret barn-settings -o jsonpath='{.data}'` returned empty, and reopening the modal showed the not-connected state. So the credential really is removed. But the second half of the promise did not hold: I then reopened 'Other ways to publish' on /barn/editor and 'Publish to GitHub' was still listed and still opened its dialog.",
+      "defect": "Two divergences. (1) It is a text link ('Remove it') that arms a clear applied on Save, not a ghost Disconnect button - two clicks and a mode, where the design draws one button. (2) The GitHub publish destination is not withdrawn: the menu item stays, the dialog still opens, and it degrades instead to a warning banner ('There is no GitHub token yet, and pushing needs one. Add one in settings') with the Publish button disabled (button.disabled === true). Arguably better UX than hiding it, but it is not what the design promises."
+    },
+    {
+      "id": "09-settings-github-intro",
+      "status": "fail",
+      "evidence": "The one settings surface that exists is EditorSettingsModal.vue, opened by the gear (data-testid barn-editor-settings-button) on the editor masthead at /barn/editor. Its whole intro is one sentence: 'Used to import and publish extensions to GitHub.' That names both uses, and it matches reality (the split menu offers 'Publish to GitHub' and 'Import from GitHub').",
+      "defect": "The isolation promise is missing: nothing on the surface says generated extensions never receive the token. Worse, the promise would be hard to make - the token is stored in the namespace-wide Secret `barn-settings` in namespace `barn`, and every extension pod runs under the `barn-extension` ServiceAccount which is bound to cluster-admin (clusterRoleBindingBody in extensions.ts), so a generated extension could read it."
+    },
+    {
+      "id": "09-settings-github-pat",
+      "status": "pass",
+      "evidence": "The one settings surface that exists is EditorSettingsModal.vue, opened by the gear (data-testid barn-editor-settings-button) on the editor masthead at /barn/editor. Pasted a PAT ('ghp_verify09settings_TESTTOKEN') into the 'GitHub token' password field and clicked Save. `kubectl -n barn get secret barn-settings -o jsonpath='{.data}'` then showed gh_token base64-encoding exactly that string, where before the save the Secret did not exist at all. Reloaded /barn/editor and reopened the gear: the modal now reads 'One is stored; typing here replaces it.' So the paste-a-PAT path works and persists.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-reconnect",
+      "status": "not-implemented",
+      "evidence": "The one settings surface that exists is EditorSettingsModal.vue, opened by the gear (data-testid barn-editor-settings-button) on the editor masthead at /barn/editor. There is no Reconnect control and no authorisation flow to re-run. Searched pkg/barn for 'oauth', 'OAuth', 'reconnect', 'authorize', 'expiry' - the only 'reconnect' hits are PodTerminal.vue's terminal reattach, which is unrelated.",
+      "defect": "No GitHub OAuth app, no authorisation redirect, no expiry tracking. Re-authorising means pasting a fresh PAT over the old one."
+    },
+    {
+      "id": "09-settings-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Same enumeration: the far right of Rancher's header is the bell and then the user avatar. There is no grid glyph and no app-collection concept - grep for 'app collection'/'appCollection' over pkg/barn returns nothing.",
+      "defect": "Absent. Rancher has no app-collection switcher for barn to draw; this is a Figma-only affordance."
+    },
+    {
+      "id": "09-settings-header-logo",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. The header renders Rancher's own wordmark: two <img> with src https://releases.rancher.com/dashboard/latest/img/rancher-logo.svg, alt 'Main menu Rancher logo' and 'Logo'. It identifies the Rancher the Studio runs in, which is the promise. It is not the SUSE/Prime lockup because this instance is community Rancher v2.15, not Prime - document.body.innerText contains neither 'SUSE' nor 'Prime'. Prime branding is a per-project sidecar setting, not something barn draws.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-more",
+      "status": "not-implemented",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Enumerated every button/link in Rancher's header: 'Expand the Application Bar' (hamburger), 'Open notification center' (bell) and 'Open user menu' (avatar). There is no three-dot glyph. grep for a global overflow in pkg/barn finds only data-testid barn-masthead-overflow, which is the editor masthead's own menu (this extension's other screens plus 'Remove local install'), not the header's.",
+      "defect": "Rancher's header has no overflow menu, and barn deliberately registers nothing into it - index.ts ends with a comment explaining that NavHeaderRight was removed because it is a single global slot the last extension silently wins."
+    },
+    {
+      "id": "09-settings-header-notifications",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Clicked button[aria-label='Open notification center'] on /barn/extensions. A .notification-dropdown slid in headed 'Notifications / Mark all as read' with ~40 real entries, several of them written by the Studio itself ('Snapshot taken', 'Changes discarded', 'Verification recorded', 'Welcome to Rancher v2.15'). The tray is Rancher's and barn feeds it.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-iteration-note",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. No blue note, and no 'Notified' state exists to explain - grep for 'Notified' in pkg/barn returns nothing.",
+      "defect": "The foot-of-card note about a run collapsing into one diff and 'Notified' never blocking a push does not exist."
+    },
+    {
+      "id": "09-settings-model-intro",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'redact', 'model', 'Anthropic', 'Claude', 'kubeconfig' - there is no data-sharing card and no redaction anywhere. The only 'Claude' hit is a comment in PodTerminal.vue. The pod's claude reads whatever is in /app and runs with cluster-admin, so a card making these claims would need code behind it that does not exist.",
+      "defect": "No 'What goes to the model' card at all."
+    },
+    {
+      "id": "09-settings-model-never-secrets",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'redact', 'model', 'Anthropic', 'Claude', 'kubeconfig' - there is no data-sharing card and no redaction anywhere. The only 'Claude' hit is a comment in PodTerminal.vue. The pod's claude reads whatever is in /app and runs with cluster-admin, so a card making these claims would need code behind it that does not exist. I also checked the second half of the claim: I opened 'Other ways to publish' -> 'Publish to GitHub' on /barn/editor and the dialog contains only a repository field, a Cancel and a Publish. There is no credential scan at publish.",
+      "defect": "No locked 'never sent' row, no redaction before the request leaves Rancher, and no credential scan at publish. Do not draw this row until something implements it - it is exactly the kind of claim that would be a lie in the UI."
+    },
+    {
+      "id": "09-settings-model-sends-shapes",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'redact', 'model', 'Anthropic', 'Claude', 'kubeconfig' - there is no data-sharing card and no redaction anywhere. The only 'Claude' hit is a comment in PodTerminal.vue. The pod's claude reads whatever is in /app and runs with cluster-admin, so a card making these claims would need code behind it that does not exist.",
+      "defect": "No row about cluster resource shapes, and no code that strips values - grep for 'redact' over pkg/barn returns zero hits, so the claim would be unbacked if it were drawn."
+    },
+    {
+      "id": "09-settings-model-sends-source",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn for 'redact', 'model', 'Anthropic', 'Claude', 'kubeconfig' - there is no data-sharing card and no redaction anywhere. The only 'Claude' hit is a comment in PodTerminal.vue. The pod's claude reads whatever is in /app and runs with cluster-admin, so a card making these claims would need code behind it that does not exist. The claim itself is broadly true - the pod's claude works in /app/pkg/<name> - but nothing in the UI says it.",
+      "defect": "No ticked row naming the prompt and the extension folder."
+    },
+    {
+      "id": "09-settings-nav-about",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Clicked a[aria-label='About page link'] at the foot of the rail (href /dashboard/about). Landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. The pinned-cluster chip mechanism is Rancher's and it works: this Rancher has exactly one cluster, and clicking its chip in the rail (button[aria-label='Cluster menu item local']) took me to /dashboard/c/local/explorer#cluster-events. There is no cluster named AFT on this instance - AFT/CD2/LT1 are the Figma mock's cluster names - so what I verified is the affordance, pinned chip -> that cluster's explorer, on the one cluster that exists. Each chip also carries its own [aria-label='Pin/Unpin <cluster> cluster'] control.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. The pinned-cluster chip mechanism is Rancher's and it works: this Rancher has exactly one cluster, and clicking its chip in the rail (button[aria-label='Cluster menu item local']) took me to /dashboard/c/local/explorer#cluster-events. There is no cluster named CD2 on this instance - AFT/CD2/LT1 are the Figma mock's cluster names - so what I verified is the affordance, pinned chip -> that cluster's explorer, on the one cluster that exists. Each chip also carries its own [aria-label='Pin/Unpin <cluster> cluster'] control.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. The pinned-cluster chip mechanism is Rancher's and it works: this Rancher has exactly one cluster, and clicking its chip in the rail (button[aria-label='Cluster menu item local']) took me to /dashboard/c/local/explorer#cluster-events. There is no cluster named LT1 on this instance - AFT/CD2/LT1 are the Figma mock's cluster names - so what I verified is the affordance, pinned chip -> that cluster's explorer, on the one cluster that exists. Each chip also carries its own [aria-label='Pin/Unpin <cluster> cluster'] control.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-clusters",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Clicked the rail's 'Cluster Management' item (icon-cluster-management). Landed on /dashboard/c/_/manager/provisioning.cattle.io.cluster - Rancher's cluster management list.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-docs",
+      "status": "not-implemented",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Enumerated every link in .side-menu: Home, local, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. There is no book/docs item, and grep for 'docs' over pkg/barn returns nothing.",
+      "defect": "No documentation link in the rail on this Rancher, and barn adds none."
+    },
+    {
+      "id": "09-settings-nav-extensions",
+      "status": "fail",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. The rail does have an 'Extensions' item with the puzzle glyph (icon-extension), but clicking it went to /dashboard/c/local/uiplugins#installed - Rancher's UI-plugins page, not the Studio. And it is not the highlighted item while a barn page is open: the router-link-active class sat on 'Editor' (icon-flask, href /dashboard/barn/extensions), which is the Studio's own entry.",
+      "defect": "Two mismatches with the design. The rail entry that marks the Studio as the current section is 'Editor' with a flask icon, not a highlighted puzzle icon; and the puzzle 'Extensions' entry goes to Rancher's uiplugins list rather than /barn/extensions. Renaming the product or changing its icon in editor-product.ts (icon: 'flask') is the lever, but note the puzzle name is already taken by Rancher's own page."
+    },
+    {
+      "id": "09-settings-nav-home",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. From /barn/extensions, opened the rail and clicked a[aria-label='Home page navigation menu'] (href /dashboard/home). Landed on https://magic-closet-rancher/dashboard/home and the home screen rendered.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-menu",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Clicked [aria-label='Expand the Application Bar'] on /barn/extensions: .side-menu className went from 'side-menu menu-close' to 'side-menu menu-open' and the menu rendered its full item list. Escape put it back to 'side-menu menu-close'. Opens and closes both ways.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-settings",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Clicked the rail's gear item ('Global Settings', icon-gear). Landed on /dashboard/c/local/settings/management.cattle.io.setting - a settings area opened, which is the promise. Worth saying plainly for whoever builds screen 09: this is Rancher's global settings, and it is not and does not link to a Studio settings page.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-user",
+      "status": "pass",
+      "evidence": "Screen 09 has no page, so I checked the chrome the page would inherit: barn's routes are all registered with plugin.addRoute('plain', ...), so a settings route would render inside exactly the Rancher header and rail I drove on /barn/extensions and /barn/editor. Clicked button[aria-label='Open user menu']. A v-popper dropdown opened reading 'admin | Default Admin | Preferences | Account & API Keys | Log Out'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-no-save",
+      "status": "fail",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. I drove the settings surface that does exist instead. EditorSettingsModal has an explicit two-button footer: Cancel and Save. Typing a token and navigating away without pressing Save leaves nothing stored - the Secret is only written by saveSettings() from the Save handler.",
+      "defect": "The opposite of the promise: the one settings surface in the product is save-gated, and destructive changes need it too (clearing the token is 'Remove it' followed by Save). A new settings page can be apply-on-change, but the existing modal is not, so 'no Save button anywhere' is currently false."
+    },
+    {
+      "id": "09-settings-oci-code-review",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). There is no OCI destination and no 'Code review required' badge in the publish dialog - the dialog's only banner is the missing-token warning.",
+      "defect": "No OCI code-review control. Note the effective behaviour is the opposite of the design's fixed 'Required': nothing in the product requires code review before any publish."
+    },
+    {
+      "id": "09-settings-oci-outcome",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). No OCI destination, no Off/Notified/Required states anywhere, and the publish dialog has no sign-offs section.",
+      "defect": "No OCI outcome-sign-off control, and no persisted setting for it."
+    },
+    {
+      "id": "09-settings-permission-ask-every-edit",
+      "status": "fail",
+      "evidence": "Confirmed against the live pod: `kubectl -n barn exec deploy/barn-base-extension -- ps aux` shows `claude --dangerously-skip-permissions` (pid 592) as the running process, started by /seed/claude-session.sh, which spells that flag on all three of its invocation lines (pkg/barn/extension-skeleton/pod/claude-session.sh:43,51,52). pod/claude-defaults.mjs additionally writes skipDangerousModePermissionPrompt:true so the confirmation dialog never appears. There is no radio to select. Sending a prompt through the editor terminal produces file writes with no approval step, which is the documented behaviour of that flag.",
+      "defect": "Hardcoded to the opposite. The level is fixed at 'never ask' by the --dangerously-skip-permissions flag in pod/claude-session.sh; 'Ask before every file edit' cannot be selected and cannot be produced by any setting. Making it real means removing the flag (and the skipDangerousModePermissionPrompt default) and giving the terminal a way to surface claude's approval prompts."
+    },
+    {
+      "id": "09-settings-permission-edit-freely",
+      "status": "fail",
+      "evidence": "Confirmed against the live pod: `kubectl -n barn exec deploy/barn-base-extension -- ps aux` shows `claude --dangerously-skip-permissions` (pid 592) as the running process, started by /seed/claude-session.sh, which spells that flag on all three of its invocation lines (pkg/barn/extension-skeleton/pod/claude-session.sh:43,51,52). pod/claude-defaults.mjs additionally writes skipDangerousModePermissionPrompt:true so the confirmation dialog never appears. Nothing marks this as the selected default because there is no radio group at all; the chip on the assistant panel is a plain <span class=\"s-chip s-chip--warning\">, not clickable (evaluated onclick === null, no chevron).",
+      "defect": "Hardcoded, and hardcoded past this level rather than to it. The design's middle level stops the assistant before commands that touch the cluster; the pod stops it before nothing - claude runs shell commands unattended too, and the pod's ServiceAccount `barn-extension` is bound to cluster-admin (clusterRoleBindingBody in extensions.ts), so 'stops it before anything touching the cluster' is not enforced anywhere."
+    },
+    {
+      "id": "09-settings-permission-intro",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. There is no permission card. The nearest thing is an informational chip on the editor's assistant panel (data-testid barn-permission-chip) reading 'Edits apply without asking', whose tooltip explains the pod runs claude with --dangerously-skip-permissions. It says nothing about per-user scope or next-message timing, and the component's own comment states it is deliberately informational because 'there is no permission mode to switch to'.",
+      "defect": "No 'Assistant permissions' card and no statement of scope or timing. If the level ever becomes settable, note that today it could not be per user: one pod per extension runs one claude, shared by everyone who opens that extension's editor."
+    },
+    {
+      "id": "09-settings-permission-never-ask",
+      "status": "fail",
+      "evidence": "Confirmed against the live pod: `kubectl -n barn exec deploy/barn-base-extension -- ps aux` shows `claude --dangerously-skip-permissions` (pid 592) as the running process, started by /seed/claude-session.sh, which spells that flag on all three of its invocation lines (pkg/barn/extension-skeleton/pod/claude-session.sh:43,51,52). pod/claude-defaults.mjs additionally writes skipDangerousModePermissionPrompt:true so the confirmation dialog never appears. This is exactly what the product does, for every user, unconditionally. I opened /barn/editor as admin; the chip states the behaviour rather than offering it. There is no admin gate anywhere: grep for 'admin' guarding the terminal in pkg/barn finds nothing - PodTerminal.vue opens the exec subresource with whatever session the page already has.",
+      "defect": "Hardcoded on, not selectable, and not restricted to admins. Any user who can reach /barn/editor gets an unattended claude in a cluster-admin pod. The design's 'still cannot publish' caveat is also unenforced: the assistant's pod holds cluster-admin, so nothing technically prevents it installing a UIPlugin itself."
+    },
+    {
+      "id": "09-settings-preview-cluster",
+      "status": "fail",
+      "evidence": "There is no preview-cluster dropdown on any barn screen (searched pkg/barn for 'preview cluster', 'previewCluster', 'clusterId', 'cluster switch' - nothing). I read where the target actually comes from instead: extensions.ts line 31 `const EXT_CLUSTER = 'local';`, used to build `const EXT_BASE = '/k8s/clusters/' + EXT_CLUSTER` (line 57), which every pod/Service/Secret call in the file goes through.",
+      "defect": "Hardcoded to the `local` cluster, namespace `barn` (EXT_NS, line 32). Not a constant that is read from anything - it is a module-level literal, so there is no setting, no picker and no Kubernetes version shown. The barn product is also registered with showClusterSwitcher:false (editor-product.ts), so there is not even Rancher's own switcher on these pages."
+    },
+    {
+      "id": "09-settings-preview-intro",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. No 'Where previews run' card exists. The containment claim happens to be true - EXT_CLUSTER is 'local' and EXT_NS is 'barn' (extensions.ts:31-32), so preview pods only ever exist in this cluster - but nowhere in the UI says so.",
+      "defect": "The card and its containment promise are absent."
+    },
+    {
+      "id": "09-settings-signoff-columns",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. Searched pkg/barn (excluding node_modules and extension-seed.generated.ts) for: 'sign-off', 'signoff', 'code review', 'codeReview', 'outcome', 'Notified', 'oci', 'OCI', 'catalog', 'org policy', 'orgPolicy'. The only 'signoff' hits are the sign-off sentence on screen 13 (pages/verification.vue) and screen 12 (pages/review-change.vue); there is no sign-off policy model, no destination matrix, and no persisted setting of any kind beyond the barn-settings Secret (which holds only gh_token and gh_repo.<ext>). There are no 'Code review' / 'Outcome sign-off' column heads and no per-destination controls, because there is no destination table.",
+      "defect": "The two-column sign-off matrix is absent entirely."
+    },
+    {
+      "id": "09-settings-signoff-intro",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. No card, no copy. Nothing in the product states when review is demanded, and nothing enforces it: I opened the publish menu on /barn/editor and both 'Publish' and 'Publish to GitHub' run immediately with no review step.",
+      "defect": "The 'What needs sign-off' card and its explanation of the gate do not exist."
+    },
+    {
+      "id": "09-settings-title",
+      "status": "not-implemented",
+      "evidence": "There is no Studio settings screen. `/dashboard/barn/settings` renders Rancher's fail-whale 404 (routeName 'fail-whale'); `grep -n \"addRoute\" pkg/barn/index.ts` lists 10 barn routes and none is a settings route, and design-check/spec.json has no 09 screen. There is no heading because there is no page. The existing settings surface is a modal titled 'Editor settings' and says nothing about scope.",
+      "defect": "No 'Studio settings' page title and no scope sentence."
+    }
+  ]
+}

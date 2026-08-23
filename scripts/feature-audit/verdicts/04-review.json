@@ -1,0 +1,199 @@
+{
+  "screen": "04-review",
+  "podBaseline": {
+    "recordedAt": "2026-08-23T01:25Z",
+    "head": "8a704fb013061bc02d4a318e2f85404bef8c4665",
+    "branch": "main",
+    "status": " A BRIEF.md",
+    "restoredAt": "2026-08-23T01:47Z",
+    "restoredTo": "HEAD 8a704fb013061bc02d4a318e2f85404bef8c4665, status ' A BRIEF.md', BRIEF.md md5 75f1c293c45072a2831074aa44b5a8d9 unchanged from first read, index entry back to the empty blob e69de29 (intent-to-add), all verify-04-review-* files removed"
+  },
+  "verdicts": [
+    {
+      "id": "04-review-ask-different-approach",
+      "status": "pass",
+      "evidence": "The button under the explanation rail is labelled 'Ask about this file', not 'Ask for a different approach'. Clicked it with BRIEF.md selected: the page routed to /dashboard/barn/editor/base?tab=terminal and 'tmux capture-pane -t mc-editor' in the pod shows the prompt arrived verbatim and was submitted - 'In the working tree of the base extension, explain the added file BRIEF.md: what the change does, why it was made, and anything in it a reviewer should question. Explain it here in the terminal and do not edit any files.' So the assistant does open with a prompt seeded about this change, which is the stated bar.",
+      "defect": "Deviation worth knowing about: the prompt ends 'do not edit any files', so the button asks the assistant to EXPLAIN the change, never to redo it differently. There is no control anywhere on the screen that asks for a different approach (grep 'different approach' over pkg/barn excluding node_modules: 0 hits)."
+    },
+    {
+      "id": "04-review-back-arrow",
+      "status": "pass",
+      "evidence": "Clicked the chevron button (aria-label='Back') at the start of the masthead on /dashboard/barn/extensions/base/review. URL became https://magic-closet-rancher/dashboard/barn/extensions and .studio-home__table rendered (1 match), so the Studio home screen really loaded.",
+      "defect": null
+    },
+    {
+      "id": "04-review-back-to-assistant",
+      "status": "pass",
+      "evidence": "Clicked the ghost 'Back to assistant' button in the masthead. URL became /dashboard/barn/editor/base and .mc-editor rendered. 'git status --porcelain' in the pod immediately afterwards was byte-identical to before the click, so no change was lost.",
+      "defect": null
+    },
+    {
+      "id": "04-review-branch-chip",
+      "status": "pass",
+      "evidence": "Chip in the masthead reads 'main'. 'git rev-parse --abbrev-ref HEAD' in deploy/barn-base-extension returns 'main'. Cross-checked on a second extension: /barn/extensions/nodehealth/review also shows 'main' and the nodehealth pod reports 'main', so the chip is read per-extension from listBranches() and not hardcoded.",
+      "defect": null
+    },
+    {
+      "id": "04-review-changed-files-summary",
+      "status": "fail",
+      "evidence": "The 'Changed files' panel header is icon + title + a bare count badge. The count is real and tracks: it read 4, then 5, then 4, then 3, then 2 across the session and matched 'git status --porcelain' in the pod at every reading. But there is no added/removed total anywhere in that header - the only +/- totals on the screen belong to the single selected file (DiffView's '1 file +34-0' line).",
+      "defect": "The file panel header counts files but never totals the diff. review.vue's panel head renders only {{ count }}; nothing sums file.added / file.removed across this.files, although both numbers are already on every ChangedFile."
+    },
+    {
+      "id": "04-review-diff-body",
+      "status": "pass",
+      "evidence": "Selected CLAUDE.md while it carried a +3 -1 edit. The code pane rendered a table with two gutter columns (old line no. / new line no.) and a marker column: rows ['1','1',' # A Rancher extension...'], ['2','','-'], ['','2','+VERIFY-04-REVIEW marker line 1'] ... matching 'git diff HEAD -- CLAUDE.md' in the pod exactly. Computed backgrounds: .diff__row--add rgb(234,245,236) green, .diff__row--remove rgb(253,236,236) red, .diff__row--context transparent.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-header",
+      "status": "pass",
+      "evidence": "Selected verify-04-review-staged.txt, verify-04-review-new.txt, CLAUDE.md and BRIEF.md in turn; the .review__diff-head title tracked the selection every time. The added/removed counts are repeated at the top of the diff itself (.diff__summary '1 file +3-0' and .diff__file-head 'verify-04-review-staged.txt +3 -0'), matching git diff --numstat HEAD.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-scroll",
+      "status": "pass",
+      "evidence": "Created a 220-line file and selected it. .review__code measured clientHeight 708 / scrollHeight 4035 with overflow-y:auto; setting scrollTop to 100000 landed at 3327, so it scrolls internally. document.scrollingElement had 0 px of page overflow, and the masthead stayed at y=55, the file list at y=116 and the action bar at y=885 throughout.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-view-mode",
+      "status": "not-implemented",
+      "evidence": "The diff header contains exactly one control, an icon-only ghost button with title 'Re-read this file' (inventory of .review__diff-head button). There is no 'Unified' chip and no second layout. grep -rn \"Unified|side-by-side|split view\" over pkg/barn excluding node_modules returns one hit only: a comment at components/DiffView.vue:11, 'Unified rather than side by side. Side by side needs twice the width to say the same thing...'. Unified is hardcoded on purpose and there is no toggle.",
+      "defect": "The design draws a 'Unified' chip in the diff header offering a second layout. DiffView.vue renders one mode with no prop or state to switch it."
+    },
+    {
+      "id": "04-review-discard-all",
+      "status": "fail",
+      "evidence": "Drove it for real against a tree I had prepared (I first staged another verifier's BRIEF.md so a whole-tree checkout would restore it byte-identically instead of emptying it; its md5 75f1c293... was unchanged before and after, and I put its index entry back afterwards). Confirm read 'Discard all 5 changed files in base? This cannot be undone.'. The checkout half is real: CLAUDE.md's marker line was gone from the pod afterwards (grep -c VERIFY-04-REVIEW = 0). The clean half is real: two plain-untracked files (verify-04-review-discard.txt, verify-04-review-staged.txt) were removed from disk. HEAD stayed 8a704fb013061bc02d4a318e2f85404bef8c4665. BUT the screen did not empty: it came back reading 'These changes are running in your preview only. 2 of 2 files will be kept.', count badge 2, state badge still 'Unsaved', and verify-04-review-new.txt was still there at 0 bytes.",
+      "defect": "Discard does not remove intent-to-add files, it truncates them to 0 bytes and leaves them in the index, so they stay listed as changed for ever. 'git checkout -- .' restores an intent-to-add path from the empty blob in the index (git 2.39.5 in the pod - reproduced standalone in /tmp), and 'git clean' skips it because it is in the index. This is not a corner case: extensions.ts fileDiff() runs 'git add -N -- <path>' every time you open a file's diff, so merely LOOKING at a new file on this screen converts it to intent-to-add, and Discard then destroys its contents without removing it. Same for anything staged with real content (verified separately: unticking a 'git add'-ed file and pressing 'Discard 1' left it completely untouched, 35 bytes, still listed). Fix is to reset the named paths out of the index first, e.g. 'git reset -q -- <paths>' before the checkout+clean in discardChanges()."
+    },
+    {
+      "id": "04-review-explanation",
+      "status": "fail",
+      "evidence": "The right-hand 'Why this changed' rail contains: one fixed info banner, a three-row fact table (File / Change / Branch) and the 'Ask about this file' button. The banner is the same sentence for every file - only the bolded filename is interpolated - and it says the assistant explains changes in the workspace terminal, not here. Nothing on the rail is derived from the diff: the only live values are file.path, file.status and branch, all already shown in the file list and masthead. Confirmed by reading pages/review.vue (the .review__explain block is static template, there is no generated prose anywhere in data or computed).",
+      "defect": "There is no plain-language explanation of the change. The design's three headed paragraphs (what was added, what was replaced, what was not touched) are replaced by a static banner plus a restated file/status/branch table. The screen is honest about this rather than faking it, but INTENT.md screen 04 makes 'understand' a requirement, not a nicety, so the promise is unmet."
+    },
+    {
+      "id": "04-review-file-stats",
+      "status": "fail",
+      "evidence": "Change type is right on every row (checked 'added' for BRIEF.md, verify-04-review-new.txt, verify-04-review-staged.txt and 'modified' for CLAUDE.md against git status --porcelain). The numbers shown are real: rows read +34 / +3 -1 / +3, and 'git diff --numstat HEAD' returned 34 0 BRIEF.md, 3 1 CLAUDE.md, 3 0 verify-04-review-staged.txt. But an untracked file shows NO counts at all: verify-04-review-new.txt and verify-04-review-long.txt (220 lines) both rendered an empty stats span while their diffs showed +6 and +220.",
+      "defect": "Line counts are missing for untracked files, and worse they are non-deterministic. changedFiles() gets its numbers from 'git diff --numstat HEAD', which does not see untracked paths, while fileDiff() runs 'git add -N' on whatever file you click. So the same unchanged file shows '' before you open its diff and '+6' after the next reload - observed exactly that for verify-04-review-new.txt. Either add -N in changedFiles too, or count the lines of untracked files directly."
+    },
+    {
+      "id": "04-review-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button / a / [role=button] inside <header data-testid=header> on the review screen. The complete list is: the hamburger ([data-testid=top-level-menu]), the Home link, the 'local' cluster button, the eight product links, About, [data-testid=notifications-center] (the bell), and [data-testid=nav_header_showUserMenu]. There is no grid icon and no app/cluster switcher popover at the far right of the header.",
+      "defect": "The design draws a grid icon at the far right of the top bar opening an app collection. Rancher's header in this build (2.15/head) has only the bell and the user menu there; nothing in pkg/barn adds one."
+    },
+    {
+      "id": "04-review-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header inventory as 04-review-header-apps. There is no three-dot / overflow control in the top-right of the header - only the notification bell and the user-menu avatar button.",
+      "defect": "The design draws a three-dot overflow menu in the header. It does not exist in Rancher's header on this route and pkg/barn does not add one."
+    },
+    {
+      "id": "04-review-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked header button[aria-label='Open notification center'] ([data-testid=notifications-center]). A .notification-dropdown appeared in the DOM along with .notification-header, .notification-title and .notification-unread, so the notification centre really opened.",
+      "defect": null
+    },
+    {
+      "id": "04-review-keep-and-continue",
+      "status": "pass",
+      "evidence": "Clicked 'Keep and continue building' in the action bar. URL became /dashboard/barn/editor/base and .mc-editor rendered. 'git status --porcelain' in the pod immediately after was identical to before (all five files still changed, including the 220-line file's full 6712 bytes), and nothing was published - no UIPlugin change and no publish progress anywhere.",
+      "defect": null
+    },
+    {
+      "id": "04-review-keep-file",
+      "status": "fail",
+      "evidence": "Half of the promise holds and half does not. The tick genuinely drives the discard: I unticked only verify-04-review-long.txt (a plain untracked 220-line file), the action button relabelled itself 'Discard 1', I pressed it and accepted the confirm, and in the pod that one file was gone while BRIEF.md, CLAUDE.md, verify-04-review-new.txt and verify-04-review-staged.txt were all untouched - so the checkbox is not collected-and-ignored on that path. The leave-the-screen half does not happen at all: with verify-04-review-long.txt unticked I clicked 'Keep and continue building', and back in the pod the file was still there, 6712 bytes, byte-identical. Returning to the review screen re-ticked every box.",
+      "defect": "Unticking a file only feeds the Discard button's target list; leaving the screen never acts on it. review.vue has no beforeRouteLeave / beforeUnmount hook, and load() unconditionally resets this.kept to every path, so the intent is silently dropped the moment you navigate. Either revert the unticked files on leave, or stop implying that leaving decides anything (the design's wording is 'will be kept')."
+    },
+    {
+      "id": "04-review-masthead-title",
+      "status": "pass",
+      "evidence": "On /barn/extensions/base/review the masthead reads 'base' / 'REVIEW CHANGES'; on /barn/extensions/nodehealth/review the same masthead reads 'nodehealth' / 'REVIEW CHANGES'. It comes from $route.params.extension, so it is the real extension name and not a hardcoded 'node-health-panel'.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-about",
+      "status": "pass",
+      "evidence": "The 'About' link at the foot of the rail carries href=/dashboard/about. Clicked it from the review screen and the browser landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "This Rancher has one pinned cluster, so the rail draws one chip, 'local' ([data-testid=menu-cluster-local]). Clicked it from the review screen and landed on https://magic-closet-rancher/dashboard/c/local/explorer#cluster-events. The design's LT1/CD2/AFT are three mock clusters; the mechanism is the same and it works.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house icon in the rail from the review screen, both with the rail collapsed (clicking inside the visible 70px strip) and expanded. Both landed on https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-menu",
+      "status": "pass",
+      "evidence": "Measured .side-menu before and after clicking [data-testid=top-level-menu] on the review screen: width 70 -> 300 and class 'side-menu menu-close' -> 'side-menu menu-open'. The drawer really expands.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-rail-icons",
+      "status": "fail",
+      "evidence": "Routing works: from the review screen the rail items navigate to /dashboard/c/_/manager/provisioning.cattle.io.cluster (Cluster Management), /dashboard/c/_/fleet (Continuous Delivery), /dashboard/barn/extensions (Editor, i.e. the Extension Studio), /dashboard/c/local/base, /dashboard/c/local/auth, /dashboard/c/local/uiplugins, /dashboard/c/local/settings/management.cattle.io.setting - all verified by clicking and reading the URL. The selected state does not: on the review screen NO rail item carries a selected class or highlight (every one is plain class='option', background rgba(0,0,0,0)). For contrast, on /dashboard/c/local/settings the Global Settings item gets class 'option active-menu-link' with background rgb(2,89,55).",
+      "defect": "The Studio's rail entry ('Editor') never shows as selected while you are inside the Studio. Rancher marks the active item with .active-menu-link driven by the product route; the barn routes (/dashboard/barn/...) do not resolve to the product the rail entry points at, so nothing highlights. The design shows the Extension Studio icon selected on this screen."
+    },
+    {
+      "id": "04-review-open-in-files",
+      "status": "not-implemented",
+      "evidence": "The diff header holds one control, the icon-only 'Re-read this file' refresh button; there is no 'Open in Files' anywhere on the screen. grep -rn 'Open in Files' over pkg/barn excluding node_modules: 0 hits. Nothing on screen 04 links to /barn/extensions/:extension/files at all.",
+      "defect": "The design puts a button in the diff header that jumps to the Files screen with the current file selected. It does not exist, and the Files screen has no query/param for a preselected path either, so implementing it needs both halves."
+    },
+    {
+      "id": "04-review-preview-note",
+      "status": "pass",
+      "evidence": "The action bar reads 'These changes are running in your preview only. N of M files will be kept.' With 5 changed files it read '5 of 5', untick one -> '4 of 5', untick a second -> '3 of 5', re-tick -> '4 of 5'. It also states nothing is live yet ('running in your preview only').",
+      "defect": null
+    },
+    {
+      "id": "04-review-publish-action-bar",
+      "status": "fail",
+      "evidence": "Clicked 'Publish...' in the action bar. The only thing that happened was a route change to https://magic-closet-rancher/dashboard/barn/editor/base?publish=local. No modal, no [role=dialog], no publish screen, no confirmation, and no publish started (the workspace's publish-status strip stayed idle and nothing was installed).",
+      "defect": "review.vue publish() pushes { name: EDITOR_ROUTE, query: { publish: 'local' } }, but nothing reads that query. grep -rn \"query.publish\" over pkg/barn: 0 hits; the string \"publish: 'local'\" is written in pages/review.vue:221 and pages/build-failed.vue:91 and read nowhere. editor.vue only ever reads $route.query.tab (line 124). So the ellipsis promises a confirmation step that does not exist and the button just dumps you on the workspace. Gating, separately: the only condition on the button is :disabled=\"!count\" (file count). Neither sign-off from INTENT.md cross-screen rule 3 is checked anywhere."
+    },
+    {
+      "id": "04-review-publish-masthead",
+      "status": "fail",
+      "evidence": "Clicked 'Publish' in the masthead. Same single effect: URL became /dashboard/barn/editor/base?publish=local, no dialog, no publish screen, no publish started. Not a dead click, but not the publish flow either - it is a plain navigation to the workspace.",
+      "defect": "Same root cause as 04-review-publish-action-bar: the ?publish=local intent is written and never read (grep 'query.publish' over pkg/barn = 0 hits). The masthead button additionally has no disabled binding at all, so it is pressable with zero changed files."
+    },
+    {
+      "id": "04-review-revert-file",
+      "status": "not-implemented",
+      "evidence": "There is no 'Revert this file' control. The diff header's only button is the 'Re-read this file' refresh icon (verified by enumerating .review__diff-head button). grep -rn 'Revert this file' over pkg/barn excluding node_modules: 0 hits. The nearest equivalent is untick the file's checkbox in the list and press 'Discard 1' in the action bar, which does work (see 04-review-keep-file).",
+      "defect": "The design puts a per-file revert in the diff header. The capability exists in extensions.ts discardChanges(name, [path]) but nothing on the diff pane calls it."
+    },
+    {
+      "id": "04-review-select-file",
+      "status": "pass",
+      "evidence": "Clicked each row in turn. Selecting verify-04-review-staged.txt moved class review__file--selected onto that row, put its name in the diff header and loaded its real diff (+3, three 'staged ...' lines matching git diff HEAD in the pod); the same for verify-04-review-new.txt (+6), CLAUDE.md (+3 -1 with real context lines) and BRIEF.md (+34). The previously selected row lost the highlight each time.",
+      "defect": null
+    },
+    {
+      "id": "04-review-state-badge",
+      "status": "pass",
+      "evidence": "With uncommitted changes in the pod the masthead badge reads 'Unsaved', on both /barn/extensions/base/review and /barn/extensions/nodehealth/review, and it is driven by the real changed-file count (:status=\"count ? 'unsaved' : 'live'\" over the git status reading, not a literal). Caveat worth recording: I never got to observe the count=0 'Live' branch, because another verifier's BRIEF.md kept the base tree dirty for the whole session and my 'Discard all' left an empty husk behind (see 04-review-discard-all), so the tree never reached clean while I was on it.",
+      "defect": null
+    },
+    {
+      "id": "04-review-unticked-note",
+      "status": "fail",
+      "evidence": "There is exactly one caption under the file list (.review__note-text) and it reads: 'Everything here is in the pod's working tree. Publishing builds from it; discarding puts it back to the last commit.' It never mentions the checkboxes or what clearing one does. The only sentence that references the ticks is in the action bar ('N of M files will be kept'), which counts them rather than explaining them.",
+      "defect": "The caption the design puts under the list - explaining the consequence of unticking a file - is not there. The text in that slot is about the working tree generally. Given that unticking currently does nothing when you leave the screen (04-review-keep-file), the missing explanation is the more forgivable half of the same gap."
+    }
+  ]
+}

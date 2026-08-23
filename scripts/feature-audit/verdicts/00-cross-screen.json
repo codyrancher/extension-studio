@@ -1,0 +1,125 @@
+{
+  "screen": "00-cross-screen",
+  "verdicts": [
+    {
+      "id": "00-cross-screen-oci-gate",
+      "status": "not-implemented",
+      "evidence": "No code path gates any publish on anything. Greps over pkg/barn (excluding node_modules and extension-seed.generated.ts): `grep -rIiE '\\boci\\b'` 0 hits, `registry` 0, `ghcr` 0, `requiresApproval` 0, `blockPublish` 0, `approved` 0 (the 3 `canPublish` hits are all PublishGithubModal.vue's repo+token credential check). The two publish functions, publishExtension() and publishExtensionToGithub() in extensions.ts, are reached only through editor.vue publishTo(), whose sole precondition is `if (this.publishing) { return; }`, and the button is `:disabled=\"publishing\"` and nothing else. Live: on /barn/editor/base, which had 1 unreviewed change and no sign-off recorded anywhere, `[data-testid=\"barn-publish-button\"].disabled` read false, and a scan of the whole workspace page text for approval / sign off / gate / OCI / registry / blocked returned an empty list.",
+      "defect": "There is no distribution boundary in the product. Publishing is local (build in the pod, upsert a UIPlugin) or a git push to refs/heads/main; neither is an OCI push and neither asks anybody. The one hard gate the whole flow map is organised around does not exist."
+    },
+    {
+      "id": "00-cross-screen-both-signoffs-required",
+      "status": "not-implemented",
+      "evidence": "Nothing records a sign-off, so nothing can require two. `grep -rin 'sign-?off|signoff|signOff'` over pkg/barn returns 9 hits and every one is either a CSS class (`verify__signoff`, `rc__signoffs`) or a computed sentence. The sentences say the opposite of the rule: screen 12 renders the literal string \"You are the only reviewer on this Studio, so your decision is the decision.\" and screen 13's sign-off bar renders a criteria tally (observed: \"2 of 4 met, 2 still to look at\"). Approving on screen 12 calls commitExtension() (a git commit titled \"Reviewed: N files\"); recording on screen 13 writes a `## Verification` block into BRIEF.md. Neither writes a state any publish reads, and publishExtension() reads neither.",
+      "defect": "No sign-off state exists in the product. A publish proceeds with zero sign-offs, and there is no surface on which to attach one."
+    },
+    {
+      "id": "00-cross-screen-iteration-ungated",
+      "status": "pass",
+      "evidence": "Drove 01 (/barn/extensions), 02 (/barn/extensions/new), 10 (brief), 03 (/barn/editor/base), 04 (review), 05 (files) and 08 (build-failed, with a seeded sessionStorage failure) in one session. No approval dialog, no pending-review banner and no control disabled for a review reason appeared anywhere. A text scan of the workspace for approval / sign off / signed off / gate / OCI / registry / blocked returned []. The Publish button was enabled on screen 03 while the extension had unreviewed working-tree changes, and screen 02's \"Draft the brief\" submit was enabled. Two extensions created by other verifiers during this run (demo, v02-new-extension) went straight to Building with no approval step. I did not create one myself, per the shared-pod rule.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-two-signers",
+      "status": "fail",
+      "evidence": "Half holds: screens 12 and 13 are two separate acts with two separate records, and signing one does not mark the other complete - 12's Approve calls commitExtension(name, 'Reviewed: N files'), 13's \"Record the result\" writes a `## Verification` block into BRIEF.md, and neither reads the other. Half fails: neither record carries a signer. verification.vue's own comment states it - \"The brief records the verdict and the route, not who took it or when, so a criterion read back off the file has no name and no clock\" - and the base pod's BRIEF.md confirms it: the recorded lines are `- **Met**: The tab appears under the cluster nav without a reload`, with no name and no timestamp. Screen 12 records nothing but the git author, hardcoded to `barn <barn@rancher.local>` in commitExtension. `grep -rin signer` over pkg/barn: 0 hits. Both screens tell the user in words that there is only one reviewer.",
+      "defect": "No identity is attached to either sign-off, so \"is it safe?\" and \"does it work?\" cannot be shown to have been answered by different people. Nothing distinguishes the developer from the person who asked, and nothing prevents one person doing both."
+    },
+    {
+      "id": "00-cross-screen-pr-is-the-record",
+      "status": "fail",
+      "evidence": "Half holds: screen 12 can display an existing PR. checkPullRequest() reads the pod's current branch, the stored token and the remembered repo, then calls findOpenPullRequest() and renders a chip that opens the PR, the repo's /pulls, settings or a retry depending on the state. Half fails: nothing in the product ever creates a PR. publishExtensionToGithub() commits and then runs `git push <remote> HEAD:refs/heads/main` - straight to main, no feature branch, no PR - so the chip's own precondition (a PR whose head is this extension's branch) can never be produced by the hand-off it is supposed to record. `grep -rIn 'pullRequest|pull request|\\bPR\\b'` over pkg/barn: 0 hits outside review-change.vue. Live on /barn/review/base/working the chip had nothing to say (no token configured, and no \"pull request\" text on the page).",
+      "defect": "Crossing the gate does not produce a PR, because there is no gate and the push is a direct push to main. The PR chip is a read of GitHub, not a record the product writes."
+    },
+    {
+      "id": "00-cross-screen-review-packet-accumulates",
+      "status": "fail",
+      "evidence": "Half holds: a packet is assembled and it is the right material. Screen 12's left column is titled \"The packet\" and carries BRIEF.md read from the pod, the file list grouped by directory, every file's diff and the live preview. Half fails, and it is the half the rule is about: nothing waits for a push and nothing is accumulated in the background. review-queue.vue builds the queue from the cluster on load - its own comment says \"an extension with uncommitted changes in its pod is a change waiting on somebody\" - via listExtensions + countChanges + readExtensionFile. Live at /barn/review with no push having happened anywhere: \"Waiting on you 2\", rows for base and nodehealth, and the page's own lede reads \"Nothing in this list is live. Everything here is still running only in its author's preview\". Screen 12 then re-reads changedFiles() and fileDiff() at open time.",
+      "defect": "The packet is computed on demand at review time from whatever the working tree happens to hold, which is the opposite of the rule: an author who has not pushed is already in somebody's review queue, and nothing from earlier build cycles is retained (only the current uncommitted state exists)."
+    },
+    {
+      "id": "00-cross-screen-collapsed-diff",
+      "status": "fail",
+      "evidence": "Half holds: it is one net diff, not a stream of intermediate edits. workingDiff() is `git add -A -N ; git diff HEAD` and fileDiff() is `git add -N -- <path> ; git diff HEAD -- <path>`, so a change made and undone before review contributes nothing by construction. Half fails: the baseline is the last commit, not the last published version. publishExtension() (the local install, the only publish that makes the extension installable here) builds and upserts a UIPlugin and never commits, so HEAD does not move when something is published. nodehealth is published as v0.1.0 - screen 01's \"Running on\" reads \"catalog . v0.1.0\" and its row menu offers \"Remove the local install v0.1.0\" - while its review diff is still measured against its last git commit. base's pod confirms the shape: HEAD is 8a704fb \"The seeded extension\" and `git diff HEAD --stat` gives \"BRIEF.md | 34 ++++\", which is exactly what screens 04 and 12 render. `grep -rIn 'lastPublished|last published'`: 0 hits, so no record of the published version exists to diff against.",
+      "defect": "The review diff is against HEAD. Since a local publish never commits, HEAD and the last published version drift apart, and a reviewer of a published extension sees changes measured from the wrong point."
+    },
+    {
+      "id": "00-cross-screen-prompt-provenance-survives",
+      "status": "fail",
+      "evidence": "The brief half survives; the prompt half is never captured at all, anywhere. Brief: screen 10 writes BRIEF.md into the pod's package, screen 12 reads it back into \"The packet\" (observed rendering the base brief's problem, who has it, what changes, non-goals and criteria) and screen 13 reads the same file. Provenance: nothing during authoring records which prompt produced which change. `grep -rIn provenance` over pkg/barn returns 7 hits, all in verification.vue about the line under a criterion, plus one unrelated comment in extensions.ts; `grep -rIn hunk` matches only DiffView.vue's patch parser and two comments. AssistantPanel.vue states the cause in its header: the activity stream is \"Not real ... claude's output is a character stream, not a sequence of typed events, and turning one into the other is a parser nobody has written\", and live the stream renders \"The assistant runs in the terminal / This view will show each turn as steps with durations once the CLI's output is parsed into events.\" With no turn ever recorded there is nothing to attach to a hunk, and screen 12 shows no prompt (text scan for \"prompt\" on /barn/review/base/working: false).",
+      "defect": "Per-hunk prompt provenance is not captured on screen 03 and therefore cannot arrive on screen 12. This confirms the screen-12 finding at its source: the data does not exist during authoring, so this is an authoring-side gap, not a review-side one."
+    },
+    {
+      "id": "00-cross-screen-since-last-look",
+      "status": "not-implemented",
+      "evidence": "`grep -rIn 'since your last|since-last|sinceLast'` over pkg/barn: 0 hits. `grep -rIn since --include=*.vue` matches only \"changes since the last commit\", \"14 changes since v0.1.0\" and snapshot copy. The only persisted review state is deferReview()/readDeferral(), which writes `git config --local barn.review.deferred <iso>` plus a note - one value per extension, not per reviewer, and it records \"I am not ready\", not \"how much landed since I approved\". Live: screen 11's rows carried only Deferred and Unsaved chips and no since-count banner; screen 12 had no filter control (text scan for \"since your last look\": false).",
+      "defect": "There is no per-reviewer state and no incremental re-review. A reviewer returning after another push re-reads the whole working tree."
+    },
+    {
+      "id": "00-cross-screen-recovery-returns-to-workspace",
+      "status": "pass",
+      "evidence": "Both amber routes land back in the same workspace route. Screen 08: fixIt() and retry() both `$router.push({ name: EDITOR_ROUTE, params: { extension } })` (retry adds `query: { publish: 'local' }`); seeChanges() goes to screen 04, which itself carries a \"Back to assistant\" button (observed in its button list). Verified live by loading /barn/extensions/base/build-failed with a seeded sessionStorage failure: the \"Ways back\" block rendered exactly \"Fix it with the assistant\", \"See what changed\", \"Try the publish again\". Screen 12: requestChanges() pushes EDITOR_ROUTE for the same extension. No recovery route leaves the product or opens a separate remediation surface.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-changes-requested-loads-assistant",
+      "status": "fail",
+      "evidence": "Half holds: \"Request changes\" on screen 12 exists, is enabled when there are changes, clears the deferral and routes the author to EDITOR_ROUTE for the same extension - the same workspace. Half is entirely missing: the reviewer's words never travel. There is no comment control anywhere on screen 12 (live text scan of /barn/review/base/working: hasComment false, hasSendToAssistant false), requestChanges() takes no argument and carries no query, and no review screen calls askAssistant() - `grep -rIn askAssistant` shows it called only from brief.vue (\"what the assistant cannot decide\"), review.vue (screen 04's \"Ask about this file\") and verification.vue (\"Ask the assistant to check\"). The decision bar on screen 12 is: \"You are the only reviewer on this Studio, so your decision is the decision. Request changes | Come back to it | Approve and commit\".",
+      "defect": "There is no way for a reviewer to write a comment, so nothing can be loaded into the assistant as the instruction to work from. The author arrives back in the workspace with no record of what was asked for."
+    },
+    {
+      "id": "00-cross-screen-failure-snapshot-rollback",
+      "status": "fail",
+      "evidence": "Half holds: snapshots are real and work. extensions.ts has snapshot create (`git stash create` plus a tag so it survives), listSnapshots() and a restore, and EditorMasthead.vue exposes them as a \"Snapshots\" menu with \"Take a snapshot\" and a line per snapshot that opens a confirm before restoring. Observed on /barn/editor/base: the masthead carries \"Snapshots\" and \"Undo\". Half fails, and it is the word \"guaranteed\": no snapshot is taken automatically, so a failure only has a state to go back to if the author happened to take one first. `grep -n snapshot pages/build-failed.vue`: 0 hits, and live the failure screen's three ways back were \"Fix it with the assistant\", \"See what changed\", \"Try the publish again\" - no rollback offered at all. Nothing in publishTo() or publishExtension() snapshots before building.",
+      "defect": "The snapshot is a manual action in the workspace, not a per-build automatic one, and screen 08 does not offer a rollback. A failure from a state nobody snapshotted has no way back."
+    },
+    {
+      "id": "00-cross-screen-publish-reversible",
+      "status": "pass",
+      "evidence": "Screen 01's per-row menu carries \"Remove the local install\", and it is live rather than aspirational. Opened all three row menus on /barn/extensions: nodehealth, which is published (\"Running on: catalog . v0.1.0\"), showed \"Remove the local install v0.1.0\" enabled; base and demo, which are not installed, showed it disabled with the reason \"not installed\". removeLocalInstall() resolves the plugin through packageIdentity() and DELETEs the UIPlugin in the cattle-ui-plugin namespace, which is the whole of what a local publish creates (upsertUiPlugin), leaving the pod and its tree untouched. Confirmed by reading rather than clicking - removing another verifier's install is destructive shared state. The GitHub push is not reversible from screen 01, but that is a push to someone else's repository rather than the \"Live\" state the map marks reversible.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-brief-precedes-build",
+      "status": "fail",
+      "evidence": "Half holds: the create route really does pass through the brief. Screen 02's only submit is \"Draft the brief\" (observed as the primary button), and submit() calls ensureExtension() then pushes BRIEF_ROUTE with prompt, outcome and placement in the query - so 02 -> 10 -> 03 is the path, and agree() writes BRIEF.md before pushing EDITOR_ROUTE. Half fails: the brief is exactly as skippable as screen 04. brief.vue renders a \"Skip the brief\" ghost button whose skip() pushes EDITOR_ROUTE with no BRIEF.md written, and the workspace is directly addressable at /barn/editor/:extension - screen 01's row menu \"Open in the workspace\" goes straight there. Nothing anywhere requires a brief to exist before building.",
+      "defect": "\"Skip the brief\" makes the required stage optional, erasing the distinction the flow map draws between stage 3 (main path, green) and stage 5 (explicitly optional). Separately: brief.vue's agree() pushes `query: { brief: '1' }` and editor.vue never reads it (`grep -i brief pages/editor.vue` matches nothing), so the brief is written to the pod but is never sent to the assistant as the first instruction, contrary to brief.vue's own comment that \"the brief is not a ceremony, it is the prompt\"."
+    },
+    {
+      "id": "00-cross-screen-criteria-from-brief",
+      "status": "pass",
+      "evidence": "Authored once on screen 10 and read as the same objects on screen 13. brief.vue's briefMarkdown() writes the heading `## How we will know it worked` followed by one `- [ ] <criterion>` per filled criterion; verification.vue's criteriaLines() reads sectionOf(brief, 'How we will know it worked') and takes every `- [ ]`/`- [x]` line, keyed on the criterion's own text. Verified live against real data: `kubectl -n barn exec deploy/barn-base-extension -- cat /app/pkg/base/BRIEF.md` holds four criteria, two ticked, and /barn/extensions/base/verification rendered exactly those four in the same order with the tally \"2/4\" and the two ticked ones already answered Yes. Walked against the running build: each row carries \"Show me\", which navigates the PreviewPanel (the extension's own dev server, framed on the right and reading \"Loaded . just now\") to the route the verdict was taken at, and the route is written back next to the verdict. Evidence is captured into the same file - the pod's BRIEF.md already contains the `## Verification` block with \"- **Met**: ...\" lines. I did not author a fresh criterion because BRIEF.md on the shared base pod is another verifier's working file; the write side and the read side use the identical heading and line syntax, and the round trip is observable on the existing four.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-scope-creep-vs-brief",
+      "status": "fail",
+      "evidence": "Half holds, and it is an honest half: screen 13 has a real Scope card that compares the build back to its own brief. It reads `## What we are deliberately not doing` out of BRIEF.md, extracts the non-goal terms (with a stop-list so common code words cannot fire it), scans only the added lines of the working diff, skips BRIEF.md itself, and has four states - unstated, nothing-changed, clear, drifted - listing term and files when it drifts. Half fails: there are no resolutions. The drifted branch renders a warning banner plus a static list of `term -> files` and nothing to press; there is no \"accept it into the brief\" and no \"take it out\" anywhere in verification.vue. Observed live on base: the card read \"1 file changed / This change adds no lines outside the brief itself, so there is nothing to compare with what the brief ruled out\", with no controls.",
+      "defect": "Scope drift is surfaced but not resolvable. The sign-off cannot accept the extra work into the brief or record that it should be removed, so the flag is a note rather than a decision point."
+    },
+    {
+      "id": "00-cross-screen-preview-is-not-published",
+      "status": "fail",
+      "evidence": "Half holds and is genuinely enforced: preview and published are different objects and publishing is a separate deliberate act. The preview is the pod's dev server behind the apiserver service proxy; publishing runs build-pkg in the pod and upserts a UIPlugin, and nothing in the workspace touches that object. Observed on /barn/extensions: base has an edited working tree and reads \"Running on: local (preview)\" with \"Remove the local install\" disabled and annotated \"not installed\" - so all the editing done in its workspace has published nothing - while nodehealth reads \"catalog . v0.1.0\". Screen 11 states the same in words: \"Everything here is still running only in its author's preview.\" Half fails on the rule's two qualifiers: it is not \"yours alone\" - the preview is one pod per extension at a fixed cluster URL that every Studio user sees, and I could watch other verifiers' edits to base appear in my session - and it is not \"snapshotted per build\", since snapshots are only ever taken by hand from the masthead menu.",
+      "defect": "The preview is shared, not per-author, and no snapshot is taken per build. The publish boundary itself is sound."
+    },
+    {
+      "id": "00-cross-screen-connection-and-permission-state",
+      "status": "fail",
+      "evidence": "Half holds: there is exactly one surface that edits the GitHub token - EditorSettingsModal.vue, the same component reused from screens 01, 03, 11 and 12 - so no second surface edits it. Everything else fails. There is no settings page: screen 09 has no route in index.ts, and \"Editor settings\" opens the bare modal the design says it replaces (observed content: \"Editor settings / Used to import and publish extensions to GitHub. / GitHub token / Cancel / Save\"). The strip on screen 03 and the modal are not the same state: the strip's label is computed as \"Connected to this Rancher\" (the Rancher session), while the modal's state is a GitHub token stored in a Secret. And there is no permission mode at all - the strip's chip is a non-clickable `data-testid=\"barn-permission-chip\"` reading \"Edits apply without asking\", and AssistantPanel.vue's comment says why: the pod runs `claude --dangerously-skip-permissions`, so \"there is no permission mode to switch to\". `grep -rin permission` over pkg/barn finds no mode, setting or control.",
+      "defect": "Screen 09 does not exist. Connection state, permissions, access and data have no single home; the workspace strip and the settings modal show unrelated state; and the permission mode is an informational chip rather than a control, so nothing can be changed in one place and be true in the other."
+    },
+    {
+      "id": "00-cross-screen-capability-parity",
+      "status": "pass",
+      "evidence": "All five capabilities still reachable in the running Studio, checked one by one. CLI: the workspace's left pane has tabs Assistant / Files / Changes / Terminal, the Terminal being xterm on the pod's exec subresource. Raw output is one click from the activity stream - the stream's empty state renders an \"Open the terminal\" button, and clicking it made the terminal pane visible (measured height > 50px); the copy states it is still the source of truth (\"the terminal below is the whole session, and the composer sends to it\"). Files: the Files tab plus screen 05 at /barn/extensions/base/files, which rendered the tree and the contents of index.ts. GitHub import: \"Import\" on screen 01's masthead, \"Import a repo instead\" on screen 02, and \"Import from GitHub\" in the publish split's dropdown. Publish: \"Publish\" on the workspace masthead, enabled, with a dropdown of \"Publish to GitHub / Import from GitHub / Remove local install\". Settings: \"Editor settings\" opened the modal with the GitHub token field. Nothing the old build did has been removed.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-existing-components-only",
+      "status": "fail",
+      "evidence": "Half holds: nothing in the design needs a primitive the dashboard lacks - every shape used is a table, input, banner, card, tab or button. Half fails on the implementation the rule is checked against. The ten Studio pages are built on a bespoke 15-component set in pkg/barn/components/ui/ (SBadge, SBanner, SButton, SCard, SChip, SEmpty, SField, SIcon, SLabel, SMenu, SModal, SPanel, SRow, STabs, SToolbar), whose own headers describe them as implementations of the Figma component sets rather than wrappers - SBanner \"The design's Banner (Figma component set 4:51)\", STabs \"The design's Tab (Figma component set 4:34)\". `grep -rn \"from '@shell|from '@components\" components pages` matches only the pre-redesign components (NewExtensionModal, ExtensionFiles, PublishStatus, ExtensionSelect, PublishSplit) and extension-starting.vue; no page under pages/ imports a dashboard component. Screen 01 in particular is not SortableTable: extensions.vue renders `<div class=\"studio-home__table\">` with `<div class=\"studio-home__row\">` children and its own COLUMNS array and sort comparators.",
+      "defect": "The Studio reimplements Banner, Card, Tabbed, Button, Modal, Badge and Menu as a private S-prefixed set instead of using the dashboard's, and screen 01 is a hand-rolled div grid rather than the Clusters page's SortableTable. The rule's claim that no new primitive is needed is true; the build does not honour it."
+    }
+  ]
+}

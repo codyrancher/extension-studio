@@ -1,0 +1,239 @@
+{
+  "screen": "05-files",
+  "verdicts": [
+    {
+      "id": "05-files-ask-about-file",
+      "status": "not-implemented",
+      "evidence": "No such button on the Files screen. `grep -rniF \"Ask about this file\" pkg/barn --include=*.vue --include=*.ts` returns exactly one hit, pages/review.vue:459 (screen 04). In the running page the only button in the editor column header is the ghost icon-only 'Re-read this file' (read from the DOM: `.files__editor button` -> [\"Re-read this file\"]). pages/files.vue never imports askAssistant.",
+      "defect": "Figma 22:1061 draws a Button/Secondary 'Ask about this file' with icon/sparkle in the editor header. pages/files.vue has no such control; the working implementation exists only on the review screen (pages/review.vue askAboutFile -> askAssistant)."
+    },
+    {
+      "id": "05-files-back-arrow",
+      "status": "pass",
+      "evidence": "Clicked `.files__masthead button[aria-label=\"Back\"]` on /dashboard/barn/extensions/base/files. URL became https://magic-closet-rancher/dashboard/barn/extensions and `.studio-home__table` rendered, so it really left the screen for the Studio home.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-chip",
+      "status": "pass",
+      "evidence": "The masthead chip reads 'main'. In the pod, `git rev-parse --abbrev-ref HEAD` in /app/pkg/base is `main`. Loading /barn/extensions/nodehealth/files showed the chip for that pod's repo too (also 'main', matching its git). The value comes from listBranches().current, not a literal.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-select",
+      "status": "not-implemented",
+      "evidence": "The tree column head (`.files__tree .files__panel-head`) is only an icon plus the word 'Files'; below it is a text filter input, no branch row, no chevron and no 'up to date with origin' line anywhere in the DOM. The masthead chip is a non-interactive `<span class=\"s-chip\">`; clicking it opened nothing (0 elements matching `.s-menu__panel, [role=menu], .s-popover`). pages/files.vue imports listBranches but not checkoutBranch (grep over pkg/barn: checkoutBranch is imported only by components/ExtensionFiles.vue, which is used on the editor screen).",
+      "defect": "Figma 22:928 draws a branch select at the top of the tree column with a chevronDown (22:937) and a live sync subtitle (22:936 'up to date with origin'). Neither the select nor the sync readout exists on this screen, and nothing here can switch branches. A working branch dropdown already exists in components/ExtensionFiles.vue if one is wanted."
+    },
+    {
+      "id": "05-files-code-scroll",
+      "status": "pass",
+      "evidence": "Opened CLAUDE.md (97 lines in the pod, 97 rows rendered). `.files__code` reported scrollHeight 2150 against clientHeight 694 with computed overflow-y: auto; setting scrollTop to 400 stuck at 400. The tree column and the 'Where used' rail both stayed at viewport top 160px throughout, so only the code pane scrolled.",
+      "defect": null
+    },
+    {
+      "id": "05-files-code-view",
+      "status": "fail",
+      "evidence": "Contents and numbering are genuinely right: index.ts rendered 14 rows, product.ts 28, CLAUDE.md 97, matching `wc -l` in the pod, and the first three product.ts rows matched the pod byte for byte. The gutter numbers start at 1 and the font resolves to \"JetBrains Mono\", SFMono-Regular, Menlo, Consolas, monospace. But there is no syntax colouring: every `.files__code-line` is a bare text node (0 child elements across the pane) and all 20 sampled lines compute to the same colour rgb(20, 20, 25).",
+      "defect": "The template renders `<td class=\"files__code-line\">{{ line }}</td>` with no tokenizer, so the code pane is one flat colour. Figma 22:1077 draws the source coloured. Everything else about the pane (real contents, gutter, numbering from 1, monospace) is correct."
+    },
+    {
+      "id": "05-files-edit-file",
+      "status": "not-implemented",
+      "evidence": "There is no Edit button. `.files__editor button` yields only ['Re-read this file']. The code pane is not editable: `.files__code-line` isContentEditable === false, and `.files__editor textarea, .files__editor input` count 0. Clicking a line and typing 'XYZ' left the line unchanged. pages/files.vue does not import writeExtensionFile.",
+      "defect": "Figma 22:1067 draws a Button/Neutral 'Edit' with icon/code. The file header comment in pages/files.vue states the omission is deliberate ('Editing is the one thing this screen does not do... two writers on one tree with no locking'). That conflicts with the designer's own caption for this screen (INTENT.md, 23:905: 'the file view stops being read-only'), so it is a real gap rather than a drawing artefact, and the decision needs to be either reversed or written into the UI."
+    },
+    {
+      "id": "05-files-editor-header-path",
+      "status": "fail",
+      "evidence": "The header names the open file and gives a live line count: 'index.ts / 14 lines', 'product.ts / 28 lines', 'CLAUDE.md / 97 lines', 'verify-05-files.txt / 2 lines' - each matching `wc -l` in the pod. But that is all it says. There is no author, no created-at and no committed/uncommitted state, for any file, including one I created in the pod myself (verify-05-files.txt, uncommitted) versus one from the seed commit (index.ts).",
+      "defect": "Figma 22:1058/22:1060 promise a provenance caption: 'Created by the assistant 2 minutes ago · 118 lines · not committed'. Only the line count is rendered. Authorship, age and commit state are all absent, even though `git log --format=%an` and `git status --porcelain` are already used elsewhere in extensions.ts (listCommits carries `who`, countChanges reads status)."
+    },
+    {
+      "id": "05-files-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button, link and icon inside the Rancher <HEADER> on this route (24 elements). The right-hand side carries exactly two controls: 'Open notification center' and 'Open user menu'. No grid/app-collection icon: a regex over the header's outerHTML for /icon-apps|app-collection|icon-grid|application-bar-collection/ returns false, and the header's icon class list is menu-icon, top-menu-icon, cluster-local-logo, pin, eight group-icon app icons and icon-notify-bell.",
+      "defect": "Figma 53:1811 draws an app-collection grid icon in the top bar. The Rancher shell this Studio runs inside (v2.15 here) does not render one, so the control the design relies on does not exist in the product at all. Not owned by pkg/barn."
+    },
+    {
+      "id": "05-files-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header inventory as above. No three-dot control: regex over the header outerHTML for /icon-actions|icon-more|icon-dots/ returns false, and none of the 24 header elements is an overflow trigger. (The masthead's own three-dot at 22:888 is a different control and does exist - see 05-files-masthead-more.)",
+      "defect": "Figma 53:1802 draws an icon/more in Rancher's top bar. The running Rancher shell has no such header control. Not owned by pkg/barn."
+    },
+    {
+      "id": "05-files-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked `button[aria-label=\"Open notification center\"]` on the Files screen. A `.notification-dropdown` opened, headed 'Notifications / Mark all as read', listing real entries including the two toasts this session had just produced ('Copied index.ts', 'Re-read the file tree for base.') and 'Welcome to Rancher v2.15'. Body HTML grew from 35682 to 93929 characters.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-heading",
+      "status": "pass",
+      "evidence": "A labelled head sits above the entries: `.files__history .files__panel-head` reads 'History' with a clock icon and a live right-hand count ('1 commits' with one commit in the pod, '2 commits' after I added a second). The wording is 'History', not the Figma's 'Recent activity' (22:940), but the list is labelled as the workspace's timeline.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-metadata",
+      "status": "fail",
+      "evidence": "Each row renders short sha + subject + relative time only: '8a704fb / The seeded extension / 26 hours ago' and, for the commit I made, 'f8174df / verify-05-files probe commit / 22 seconds ago'. Both match `git log --format='%h %s %cr'` exactly. But no row states an author, and no row distinguishes an automatic snapshot from a person's commit. I took a snapshot of my own by running the product's own createSnapshot command in the pod (tag barn-snap/1787445787000 -> commit 1d29143, subject 'verify-05-files snapshot', verified with `git for-each-ref refs/tags/barn-snap`); it never appeared in this list.",
+      "defect": "Two gaps against Figma 22:964 ('automatic · 12:06' / 'Ken Wimer · 7h ago'). (1) listCommits already returns `who`, but the row template drops it - the author is only shown in the panel head after a commit is opened. (2) The list is `git log`, so snapshots are structurally invisible: createSnapshot builds a commit-tree with HEAD as parent and tags it under refs/tags/barn-snap, which is a child of HEAD and never an ancestor. listSnapshots exists in extensions.ts but is only wired into components/EditorMasthead.vue (screen 03); pages/files.vue does not import it. So the source column the design asks for has no data behind it here."
+    },
+    {
+      "id": "05-files-history-open-entry",
+      "status": "pass",
+      "evidence": "Verified against a commit I made myself. Clicked 'f8174df verify-05-files probe commit': the middle column swapped to the DiffView showing '2 files +36-0' over BRIEF.md and verify-05-files.txt, and the head read 'f8174df / <subject> / barn · 22 seconds ago' - matching `git show --stat` in the pod. Also opened the seed commit 8a704fb: it rendered 11 files, +279-0, and `git show --stat 8a704fb` in the pod reports '11 files changed, 279 insertions(+)'; the CLAUDE.md and pages/Home.vue hunks matched the pod's files line for line. 'Back to index.ts' returned the pane to the open file.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-working-changes",
+      "status": "not-implemented",
+      "evidence": "No such entry. With two uncommitted files in the pod the history list contained only real commits ('8a704fb The seeded extension'); there is no row above them. `grep -riF 'working changes' pkg/barn --include=*.vue --include=*.ts` returns 0 hits, and pages/files.vue renders `v-for=\"c in commits\"` over listCommits with nothing prepended.",
+      "defect": "Figma 22:941 draws 'Working changes / 3 files not yet committed · now' as the first row of the timeline. The screen already knows the number (countChanges feeds the Changes tab badge and the overflow menu note) and the review screen already renders the uncommitted diff, so the row has both its subtitle and its destination available."
+    },
+    {
+      "id": "05-files-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked the masthead three-dot (`.s-menu__trigger[aria-label=\"More file actions\"]`). A teleported `.s-menu__panel` opened with four items and a divider: 'Refresh the tree', \"Copy this file's path\", 'Open the workspace', 'Review changes 2'. Drove all four: Refresh produced the toast 'Re-read the file tree for base.'; Copy produced 'Copied index.ts'; 'Open the workspace' went to /dashboard/barn/editor/base; 'Review changes' went to /dashboard/barn/extensions/base/review with .review__body rendered. The '2' note tracked the real uncommitted count.",
+      "defect": null
+    },
+    {
+      "id": "05-files-masthead-title",
+      "status": "pass",
+      "evidence": "The masthead reads 'base' on /barn/extensions/base/files and 'nodehealth' on /barn/extensions/nodehealth/files, and the nodehealth page's tree and history were that pod's (pages/NodeHealth.vue present, commit aea8fb7) - so the name is the route's extension, not a literal. Note the second line is the eyebrow 'FILES' rather than the product name 'Extension Studio' the Figma puts there (22:861).",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-about",
+      "status": "pass",
+      "evidence": "Opened the application bar and clicked `a[aria-label=\"About page link\"]` from the Files screen. URL became https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Clicked `button[aria-label=\"Cluster menu item local\"]` in the rail. URL became https://magic-closet-rancher/dashboard/c/local/explorer#cluster-events, i.e. that cluster's explorer. The rail shows the one cluster this Rancher has ('local'), not the three fixed chips the Figma draws (LT1/CD2/AFT).",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-home",
+      "status": "pass",
+      "evidence": "Clicked `a[aria-label=\"Home page navigation menu\"]` (href /dashboard/home) from the Files screen. URL became https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-menu",
+      "status": "pass",
+      "evidence": "Clicked the hamburger (`[aria-label=\"Expand the Application Bar\"]`) on the Files screen. `.side-menu`'s class went from 'side-menu menu-close' to 'side-menu menu-open', and the product list became reachable (every subsequent nav test in this run drove it through this control).",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-rail-icons",
+      "status": "fail",
+      "evidence": "The routes work: clicking 'Extensions' in the rail went to /dashboard/c/local/uiplugins#installed, and every rail option carries a real href (Cluster Management -> /dashboard/c/_/manager/..., Continuous Delivery -> /dashboard/c/_/fleet, Editor -> /dashboard/barn/extensions, Base -> /dashboard/c/local/base, Users & Authentication, Global Settings). But nothing is highlighted: with the drawer open on the Files screen I read the className of all ten `.side-menu .option` rows and none carried active, selected or router-link-active - including 'Editor', which is the Studio.",
+      "defect": "The current area is not marked in the rail while the Studio is open. The rail rows are plain `<a href>` rather than router-links, so no active class is applied, and /dashboard/barn/extensions/base/files would not exact-match the Editor row's href even if they were. Figma 53:1780 draws the Studio icon as the selected one (fill_NVC1NA)."
+    },
+    {
+      "id": "05-files-open-live-preview",
+      "status": "not-implemented",
+      "evidence": "No such button. The 'Where used' rail contains only the SLabel, the usage rows and the fixed note paragraph; there is no button anywhere in `.files__used`. `grep -iF 'live preview' pkg/barn --include=*.vue --include=*.ts` returns 0 hits, and `grep -c 'preview' pages/files.vue` is 0.",
+      "defect": "Figma 22:1178 draws a Button/Neutral 'Open the live preview' with icon/external below the thumbnail. Nothing on this screen opens the running page. components/studio/PreviewPanel.vue does render a live preview, but only on the editor screen."
+    },
+    {
+      "id": "05-files-open-reference",
+      "status": "pass",
+      "evidence": "With product.ts open the rail listed two real references: 'CLAUDE.md:19 | Product | `product.ts` | ...' and 'verify-05-files.txt:2 second line mentions product.ts' (the second is a probe file I wrote into the pod containing that exact phrase, so the search is genuinely reading the tree). Clicking the CLAUDE.md row switched the editor to 'CLAUDE.md / 97 lines' and moved the tree's current-row highlight onto CLAUDE.md. Confirmed the reference is true: line 19 of CLAUDE.md in the pod does mention product.ts.",
+      "defect": null
+    },
+    {
+      "id": "05-files-panel-tabs",
+      "status": "pass",
+      "evidence": "Four tabs render (Assistant, Files, Changes, Terminal) with Files carrying aria-selected=\"true\" and the filled `.s-tab__indicator` on the Files screen. Clicking Assistant went to /barn/editor/base?tab=assistant with .mc-editor rendered and Assistant selected; Terminal went to ?tab=terminal with Terminal selected; Changes went to /barn/extensions/base/review with .review__body rendered; Files is a no-op that stays put. So each tab really changes what is below and the selected state follows.",
+      "defect": null
+    },
+    {
+      "id": "05-files-preview-thumb",
+      "status": "not-implemented",
+      "evidence": "No thumbnail. `.files__used` contains a panel head, the SLabel 'References to <file>', the usage rows and the fixed note. There is no image, canvas or iframe in the rail and no cluster/page label. `grep -c 'thumb\\|preview' pages/files.vue` is 0.",
+      "defect": "Figma 22:1157 draws a miniature of the live page with 'local' and 'Node health' labels. Nothing on this screen renders the page a file produces, and the file -> rendered surface mapping the designer calls a required output (INTENT.md 23:905) is not computed anywhere."
+    },
+    {
+      "id": "05-files-publish",
+      "status": "not-implemented",
+      "evidence": "There is no Publish button in the masthead. The masthead's buttons read exactly ['Review changes', 'Back to assistant'] plus the back chevron and the three-dot; the primary (s-btn--primary) is 'Back to assistant' with icon-ai. pages/files.vue does not import publishExtension.",
+      "defect": "Figma 22:881 draws a Button/Primary 'Publish' with icon/rocket in this masthead. Publishing is reachable only from other screens, so the Files screen cannot start it."
+    },
+    {
+      "id": "05-files-reference-reasons",
+      "status": "fail",
+      "evidence": "Each row is a path:line plus the raw matched source line, e.g. 'CLAUDE.md:19' over '| Product | `product.ts` | The side-menu entry and what is under it |', and for index.ts 'CLAUDE.md:18' over '| Entry point | `index.ts` | `importTypes`, `addProduct`, `addRoutes` |'. The list is real and does change per file (product.ts -> 2 rows, index.ts -> 2 rows, CLAUDE.md -> 'Nothing else in this package mentions CLAUDE.md.'), but no row states a relationship in words.",
+      "defect": "Figma 22:1192/22:1199/22:1206 put a plain-language reason on each row ('registers the route', 'supplies nodeHealth.title', 'renders the chart'). findUsages returns only {path, line, text} from a fixed-string grep, so what the row shows is the grep hit rather than the relation. The screen's own footnote says as much, which is honest, but the promised derived reason is not there."
+    },
+    {
+      "id": "05-files-references-heading",
+      "status": "pass",
+      "evidence": "The rail is headed 'Where used' (with a search icon), and directly above the rows sits an SLabel that names the subject: 'REFERENCES TO PRODUCT.TS', changing to 'REFERENCES TO INDEX.TS' etc. as the open file changes. Wording differs from the Figma's 'Referenced by' (22:1185), but the list is labelled.",
+      "defect": null
+    },
+    {
+      "id": "05-files-revert-file",
+      "status": "not-implemented",
+      "evidence": "No Revert control. `.files__editor button` yields only ['Re-read this file'] (a ghost refresh that re-reads from disk, it does not discard). `grep -riE 'revert' pkg/barn --include=*.vue --include=*.ts` returns one hit and it is a comment in extensions.ts about undoLastChange. pages/files.vue does not import discardChanges or undoLastChange.",
+      "defect": "Figma 22:1072 draws a Button/Ghost 'Revert' with icon/undo in the editor header. Nothing on this screen can throw away one file's uncommitted changes; discardChanges(name, paths) already exists in extensions.ts and takes a path list."
+    },
+    {
+      "id": "05-files-review-changes",
+      "status": "fail",
+      "evidence": "The button works: clicking it went to /dashboard/barn/extensions/base/review with .review__body rendered. But the label is the fixed string 'Review changes' - read from the DOM with two uncommitted files in the pod, and again with zero after I committed them. The count lives elsewhere (the Changes tab badge, and the overflow menu's 'Review changes 2' note), never in this label.",
+      "defect": "Figma 22:873 labels it 'Review 3 changes' and the count must be live. The template renders a literal; `this.changes` is already in scope and already used two lines away for the state badge and the tab badge."
+    },
+    {
+      "id": "05-files-state-badge",
+      "status": "pass",
+      "evidence": "Drove both directions on the base pod. With two uncommitted files (`git status --porcelain` = ' A BRIEF.md' + '?? verify-05-files.txt') the badge read 'Unsaved' with class s-badge--warning. I then committed them in the pod; on reload the same badge read 'Live' with class s-badge--success and the Changes tab badge disappeared. Reverted the commit afterwards and the tree is back to its original state.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tab-changes-count",
+      "status": "pass",
+      "evidence": "Counted three states against the pod. One uncommitted file -> tab read 'Changes 1'. I wrote verify-05-files.txt into /app/pkg/base -> 'Changes 2' (and `git status --porcelain --no-renames | wc -l` = 2). Committed everything -> the badge disappeared entirely, tab read 'Changes' (count 0, rendered as null). It also read 'Changes 2' on the nodehealth extension, which has two changed files of its own.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-change-marks",
+      "status": "not-implemented",
+      "evidence": "No badges on any tree row, changed or not. With verify-05-files.txt untracked and BRIEF.md added-but-uncommitted, both rendered as plain rows: the probe file's outerHTML was `<button type=\"button\" class=\"files__loose\">verify-05-files.txt</button>` with no child element, and `.files__tree .s-badge, .files__tree [class*=badge], .files__tree [class*=mark]` matched 0 elements. components/FileTree.vue takes only `node` and `current` props and renders `{{ file.name }}`; it receives no git status at all. pages/files.vue builds the tree from listExtensionFiles (a `find`), and never calls changedFiles.",
+      "defect": "Figma 22:1000/22:1013/22:1039 put 'new' and 'edited' badges on the changed files. The tree is built from a filesystem listing with no git status joined to it, so the marks have no data path. changedFiles(name) in extensions.ts already returns {path, status} and is what the review screen uses."
+    },
+    {
+      "id": "05-files-tree-expand-folder",
+      "status": "pass",
+      "evidence": "Clicked the 'pages' folder row: the visible 'Home.vue' file row count went 1 -> 0. Clicked it again: back to 1. The caret's `--open` class and aria-expanded track it.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-heading",
+      "status": "pass",
+      "evidence": "`.files__tree .files__panel-head` renders a folder icon plus the title 'Files' above the filter box and the tree.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-select-file",
+      "status": "pass",
+      "evidence": "With index.ts open, clicked 'product.ts' in the tree. The editor head became 'product.ts / 28 lines', the code pane showed product.ts's real first lines (\"import { IPlugin } from '@shell/core/types';\", blank, \"export const PRODUCT_NAME = 'base';\" - identical to `head -3 product.ts` in the pod), the rail switched to 'REFERENCES TO PRODUCT.TS', and the only element carrying a current-row class was product.ts. Also verified through the tree's nested rows (CLAUDE.md, verify-05-files.txt).",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-sort",
+      "status": "not-implemented",
+      "evidence": "There is no control at the right of the FILES heading. The whole head is `<div class=\"files__panel-head\"><i class=\"s-icon icon icon-folder\"></i><span class=\"files__panel-title\">Files</span></div>` - no spacer, no glyph, no button. The only sorting in pages/files.vue is the fixed alphabetical `localeCompare` inside toTree() (lines 72-78), which is not exposed and has no second order.",
+      "defect": "Figma 56:1114 puts a 'sort' glyph in the section header. The tree is always name-ascending with folders before files and cannot be reordered; a 'recently changed' order would need mtime or git data the screen does not fetch."
+    },
+    {
+      "id": "05-files-where-used-panel",
+      "status": "pass",
+      "evidence": "The right-hand rail is present and its contents are derived from the open file: index.ts -> two CLAUDE.md hits, product.ts -> a CLAUDE.md hit plus my probe file, CLAUDE.md -> 'Nothing else in this package mentions CLAUDE.md.', verify-05-files.txt -> 'Nothing else in this package mentions verify-05-files.txt.'. Each is what `grep -rnF` for that basename returns in the pod. Heading wording is 'Where used' rather than the Figma's 'Where this file shows up' (22:1155), and the panel explains where the file is referenced rather than what UI surface it produces.",
+      "defect": null
+    }
+  ]
+}

@@ -1,0 +1,419 @@
+{
+  "screen": "03-workspace",
+  "verdicts": [
+    {
+      "id": "03-workspace-activity-stream",
+      "status": "fail",
+      "evidence": "Opened /dashboard/barn/editor on the Assistant tab and sent three messages through the composer. The stream never gained a turn: it showed the same empty state throughout - 'The assistant runs in the terminal / This view will show each turn as steps with durations once the CLI's output is parsed into events. Until then the terminal below is the whole session, and the composer sends to it.' plus an 'Open the terminal' button.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent. The empty state does tell the truth about why (it names the missing output parser and points at the terminal), so the screen is honest, but the promised scrolling stream of turns does not exist at runtime."
+    },
+    {
+      "id": "03-workspace-ask",
+      "status": "pass",
+      "evidence": "Typed into .assistant-panel__input: rows=2, placeholder 'Describe the next change - e.g. \"colour the bars by severity and add a 7-day toggle\"' disappears on the first character, Shift+Enter produced a real second line (value became \"AAA03\\nBBB03\"), and pressing Send cleared the draft. The field itself is a real multi-line composer.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-autosave-status",
+      "status": "not-implemented",
+      "evidence": "No clock line anywhere on the masthead or the assistant panel. grep -rn 'Snapshot saved|autosave' over pkg/barn returns nothing (only 'Snapshot taken'/'Snapshot restored' toasts in EditorMasthead.vue). The masthead's Snapshots menu does list snapshots with relative times ('verify-05-files snapshot / 14 seconds ago'), but snapshots are taken by hand from that menu - nothing autosaves and nothing reports when the last one happened.",
+      "defect": "There is no autosave and no persistent 'last snapshot' readout. The design's line claims both."
+    },
+    {
+      "id": "03-workspace-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron at the left of the masthead (button[aria-label=\"Back\"]). The URL went from /dashboard/barn/editor to https://magic-closet-rancher/dashboard/home and the Rancher home page rendered ('Welcome to Rancher Prime').",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-branch-chip",
+      "status": "pass",
+      "evidence": "The masthead chip reads 'main'. Cross-checked in the pod: kubectl -n barn exec deploy/barn-base-extension -- su node -c 'cd /app/pkg/base && git rev-parse --abbrev-ref HEAD' returns 'main'. EditorMasthead reads it with listBranches() rather than hardcoding it.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-changes-summary",
+      "status": "pass",
+      "evidence": "The strip read '1 change / Only you can see them. Nothing is asked of you until you publish.' while git status --porcelain in the pod listed exactly one entry, and it read '2 changes' and '3 changes' as other files appeared and disappeared in the same tree. The privacy sentence is present verbatim.",
+      "defect": "Minor: the 'since v0.1.0' half is omitted because publishedVersion() finds no UIPlugin for base (kubectl get uiplugins -A lists only barn and nodehealth). That is an honest omission rather than a wrong number, so it is not counted as a failure."
+    },
+    {
+      "id": "03-workspace-composer-keyboard",
+      "status": "pass",
+      "evidence": "With focus in the composer, Shift+Enter inserted a newline (textarea value 'AAA03\\nBBB03', tab stayed on Assistant); a bare Enter submitted and switched the panel to Terminal with the draft cleared. The hint under the field reads 'Shift + Enter for a new line · the assistant never publishes on its own' and grows to '· 1 path named in the message' when a context chip is added.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-add",
+      "status": "pass",
+      "evidence": "Clicked the 'Add' chip: a modal 'Add a file to the context' opened listing the 12 real files in the pod's package (.gitignore, BRIEF.md, CLAUDE.md, babel.config.js, index.ts, l10n/en-us.yaml, package.json, pages/Home.vue, product.ts, routing/index.ts, tsconfig.json, vue.config.js). Typing 'Home' in the filter cut the list to pages/Home.vue only; clicking it closed the modal and added a removable 'pages/Home.vue' chip.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-chip-cluster",
+      "status": "pass",
+      "evidence": "The chip reads 'cluster: local', which is true - the extension pod runs in namespace barn on the local cluster (EXT_CLUSTER = 'local' in extensions.ts, and the preview is proxied through /k8s/clusters/local/...).",
+      "defect": "Worth knowing for whoever works this list: the chip is a hardcoded literal in AssistantPanel's template, not a reading, and the cluster is not actually named in the line the assistant receives. The submitted prompt captured in the pod was 'Context: pages/Home.vue. CTXPROBE-03WS' - only the file paths are passed through."
+    },
+    {
+      "id": "03-workspace-context-chip-file",
+      "status": "pass",
+      "evidence": "Added pages/Home.vue through the Add picker, then sent 'CTXPROBE-03WS'. tmux capture-pane -t mc-editor in the pod shows the submitted line as '❯ Context: pages/Home.vue. CTXPROBE-03WS' - so the chip's path really is named in the message. The chip is removable and removing it restored the hint to its base text.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-label",
+      "status": "pass",
+      "evidence": "The composer's first row renders the 'Context' label (SLabel) followed by the chips; read out of the DOM as 'Context | base | cluster: local | Add'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "No app-collection launcher exists. Enumerated every [data-testid] and every a/button in header[data-testid=\"header\"] on /dashboard/home (where the header is visible): side-menu, top-level-menu, header__brand-img, page-actions-menu-action-button, notifications-center, nav_header_showUserMenu - no app collection. On /dashboard/barn/editor the whole right side is hidden anyway (see the header-logo verdict).",
+      "defect": "This Rancher's header has no app-collection control at all, so there is nothing for the design's tinted square to map onto."
+    },
+    {
+      "id": "03-workspace-header-logo",
+      "status": "fail",
+      "evidence": "On /dashboard/home the header is 55px tall and header__brand-img measures 200px wide. On /dashboard/barn/editor the same element measures 0px and the header's own height is 0: editor.vue's unscoped style block sets --header-height: 0px and hides every child of <header> except the first (the nav rail), so the logo cannot be seen or clicked on this screen.",
+      "defect": "The editor deliberately collapses Rancher's header bar, which takes the logo link with it. The nav rail's Home entry is the working substitute, but the design draws the logo on this screen and it is unreachable here."
+    },
+    {
+      "id": "03-workspace-header-more",
+      "status": "fail",
+      "evidence": "page-actions-menu-action-button is present and 34px wide on /dashboard/home and absent entirely from the header on /dashboard/barn/editor (its container .rd-header-right computes to display:none). Nothing to click.",
+      "defect": "Same cause as header-logo: the editor page hides everything in <header> except the nav rail."
+    },
+    {
+      "id": "03-workspace-header-notifications",
+      "status": "fail",
+      "evidence": "notifications-center measures 38px wide on /dashboard/home and 0px on /dashboard/barn/editor, inside .rd-header-right which computes to display:none there. The bell cannot be clicked on this screen.",
+      "defect": "Same cause as header-logo."
+    },
+    {
+      "id": "03-workspace-masthead-more",
+      "status": "pass",
+      "evidence": "Opened the masthead overflow (data-testid=barn-masthead-overflow). Items: Files and history, Review changes, Verification, The brief, Re-read this extension, Remove the local install. Drove all six. The four navigations landed on /barn/extensions/base/files (.files__body), /base/review (.review__body), /base/verification (.verify__body) and /base/brief (.brief__columns). 'Re-read this extension' re-ran the reads and the change count went from a stale value to the pod's real one. 'Remove the local install' opened the confirm dialog ('This Rancher stops loading base: its UIPlugin is deleted...') which I cancelled rather than confirming, since it would pull the extension out from under the other verifiers.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-model-picker",
+      "status": "not-implemented",
+      "evidence": "There is no model control on the screen. grep -rni 'opus|sonnet|model picker|selectModel' over pkg/barn/components and pkg/barn/pages returns nothing; the only 'model' hits are v-model bindings. The pod's claude is started by pod/claude-session.sh with no --model flag, so nothing chooses one.",
+      "defect": "No control and no state behind it."
+    },
+    {
+      "id": "03-workspace-nav-about",
+      "status": "pass",
+      "evidence": "Expanded the rail and clicked 'About'. Landed on https://magic-closet-rancher/dashboard/about with the About page rendered (h1 'About').",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "The rail draws one pinned-cluster chip per registered cluster. Clicked it (data-testid=menu-cluster-local): landed on /dashboard/c/local/explorer#cluster-events with 'Cluster Dashboard' rendered, i.e. that cluster's explorer.",
+      "defect": "The chip verified was 'local'. AFT/CD2/LT1 are Figma placeholder names - this Rancher has exactly one registered cluster, so there is no AFT chip to click. The mechanism the feature describes works."
+    },
+    {
+      "id": "03-workspace-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same drive as 03-workspace-nav-cluster-aft: the rail's pinned-cluster chip navigates to that cluster's explorer (/dashboard/c/local/explorer, 'Cluster Dashboard').",
+      "defect": "CD2 does not exist in this Rancher; only 'local' is registered."
+    },
+    {
+      "id": "03-workspace-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "Same drive as 03-workspace-nav-cluster-aft: the rail's pinned-cluster chip navigates to that cluster's explorer (/dashboard/c/local/explorer, 'Cluster Dashboard').",
+      "defect": "LT1 does not exist in this Rancher; only 'local' is registered."
+    },
+    {
+      "id": "03-workspace-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked 'Cluster Management' in the rail. Landed on /dashboard/c/_/manager/provisioning.cattle.io.cluster with h1 'Clusters'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-docs",
+      "status": "not-implemented",
+      "evidence": "There is no docs entry in the rail. Enumerated every anchor inside [data-testid=\"side-menu\"] on /barn/editor: Home, local, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. Rancher's docs links live in the header help menu (hidden on this page) and on the Home page body, not in the rail.",
+      "defect": "No book icon and no docs entry in the rail on this screen."
+    },
+    {
+      "id": "03-workspace-nav-extensions",
+      "status": "fail",
+      "evidence": "The rail's Studio entry ('Editor', href /dashboard/barn/extensions) works as a link: clicked from /dashboard/home it lands on the Studio home. But it is not drawn selected while you are in the workspace. On /dashboard/barn/editor its class list is exactly 'option' with no aria-current; on /dashboard/barn/extensions it is 'router-link-active router-link-exact-active option'.",
+      "defect": "The rail entry links to /barn/extensions, so vue-router's active class only matches that exact path and the Studio entry is left unhighlighted on /barn/editor. The design marks it current (green fill) while you are in the workspace."
+    },
+    {
+      "id": "03-workspace-nav-home",
+      "status": "pass",
+      "evidence": "Clicked 'Home' in the rail. Landed on https://magic-closet-rancher/dashboard/home with 'Welcome to Rancher Prime' rendered.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-menu-toggle",
+      "status": "pass",
+      "evidence": "Clicked the hamburger (data-testid=top-level-menu). [data-testid=\"side-menu\"] went from class 'side-menu menu-close' at 70px wide to 'side-menu menu-open' at 300px, with labels visible ('Home | local | GLOBAL APPS | Cluster Management | ... | About'). Clicking again returned it to 'menu-close' at 70px.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked 'Global Settings' in the rail. Landed on /dashboard/c/local/settings/management.cattle.io.setting with h1 'Settings'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-user",
+      "status": "fail",
+      "evidence": "There is no person icon in the rail - the eleven rail entries are Home, local, Cluster Management, Continuous Delivery, Editor, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. Rancher's account menu is nav_header_showUserMenu in the header, which measures 52px on /dashboard/home and 0px on /dashboard/barn/editor because the editor hides .rd-header-right.",
+      "defect": "The account menu exists in the shell but is unreachable on this screen; nothing in the rail replaces it. Cross-screen rule 18 wants the account addressable from the workspace, and the only account text here is the status row's read-only 'Connected as admin'."
+    },
+    {
+      "id": "03-workspace-permission-mode",
+      "status": "fail",
+      "evidence": "There is no permission control. The status row renders a non-clickable SChip labelled 'Edits apply without asking' (data-testid=barn-permission-chip) with a tooltip naming --dangerously-skip-permissions. Clicking it does nothing and there is no select, radio group or menu behind it; grep -rn 'permission' over pkg/barn finds only that chip and its comment, and EditorSettingsModal.vue has only a GitHub token field, so screen 09's 'one home for permissions' does not resolve it either.",
+      "defect": "The chip's claim is TRUE, which is the good half: the pod's pane footer reads '⏵⏵ bypass permissions on (shift+tab to cycle)', confirming claude runs with --dangerously-skip-permissions. But the design asks for the permission mode as a real control shared with the settings screen (cross-screen rule 18), and there is no way to change it from anywhere in the product."
+    },
+    {
+      "id": "03-workspace-phase-chip",
+      "status": "fail",
+      "evidence": "The chip renders 'Iterating' only. Read the masthead chips out of the DOM three times over the session: ['main', 'Preview on: local', 'Iterating'] every time. The phase half is real and derived (EditorMasthead.phase picks between 'Starting the pod', 'Reading the extension', 'Publishing n/m', 'Iterating' and 'No changes' from live readings), but the change count the design puts on the same chip is not on it.",
+      "defect": "The chip omits '· 14 changes since v0.1.0'. The count does exist a few pixels away in the changes summary strip, so the data is there - it is the chip that is missing half its label."
+    },
+    {
+      "id": "03-workspace-preview-back",
+      "status": "pass",
+      "evidence": "Navigated the preview to /c/local/explorer, then clicked the toolbar's Back. The route field went from '/c/local/explorer#cluster-events' back to '/home' and the framed page returned to the homepage. It drives the iframe's own history (contentWindow.history.go(-1)).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-canvas",
+      "status": "pass",
+      "evidence": "Proved the two panes are one live session. Added a uniquely-named page to the pod's package (a 'verify03' virtualType and route) and it appeared in the framed preview as a new 'Verify03' nav entry serving the extension's Home component. Then, with that page already open in the frame, ran sed against /app/pkg/base/pages/Home.vue to change the h1 - the framed preview showed the new heading 4 seconds later with no reload and no navigation. Both edits were reverted with git checkout afterwards.",
+      "defect": "Caution for anyone re-testing this: /base/c/_/home currently renders 'It works' from the nodehealth UIPlugin, not from the pod. That extension was published with PRODUCT_NAME still set to 'base' (its bundle contains PRODUCT_NAME = 'base' and a base-home component), so it is loaded into every dashboard on this Rancher and shadows the pod's own base product. An edit tested on that route looks like a dead preview when it is not."
+    },
+    {
+      "id": "03-workspace-preview-chart",
+      "status": "not-implemented",
+      "evidence": "Nothing in the Studio renders or knows about a chart. grep -rn 'Node condition' over pkg/barn hits only example prose in pages/new-extension.vue; grep for 'MemoryPressure' hits nothing outside node_modules. The preview frames whatever the extension serves, and the base extension serves a heading and two paragraphs.",
+      "defect": "The trend chart is example content in the Figma preview canvas, not something the product produces."
+    },
+    {
+      "id": "03-workspace-preview-chart-legend",
+      "status": "not-implemented",
+      "evidence": "Same as 03-workspace-preview-chart. grep -rn 'legend' over pkg/barn (excluding extension-skeleton/node_modules) hits only pages/new-extension.vue example prose. No legend is rendered anywhere in the preview.",
+      "defect": "Example content in the Figma preview canvas."
+    },
+    {
+      "id": "03-workspace-preview-existing-stats",
+      "status": "pass",
+      "evidence": "Pointed the preview at /c/local/explorer. The framed cluster dashboard rendered the real Rancher gauges untouched: 'Pods Used 12 / 110 10.91%', 'CPU Reserved 0.11 / 12 cores 0.92%', 'Memory Reserved 0.19 / 62.15 GiB 0.31%', plus the Node/Deployments totals - live values from this cluster, not placeholders.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-forward",
+      "status": "pass",
+      "evidence": "After going Back from /c/local/explorer to /home, clicked the toolbar's Forward. The route field returned to '/c/local/explorer#cluster-events' and the framed page went with it.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-live-state",
+      "status": "fail",
+      "evidence": "The readout is 'Loaded · 11s ago' next to a green dot, and it counts up correctly ('Loaded · 5s ago' -> 'Loaded · 16s ago' over eleven seconds, back to 'Loaded · just now' after Reload). But it times the last iframe navigation, not compilation: loadedAt is set in PreviewPanel's onLoad and in the first readAddress only, and a hot module replacement fires neither. During the hot-reload test the frame's content changed 4 seconds after the edit while the label went on counting from the navigation.",
+      "defect": "The label says nothing about hot reload, which is what the design's 'Hot reload · 3s ago' promises, and the dot is green whenever the frame has loaded rather than when the dev server is healthy or compiling. PreviewPanel's own comment acknowledges the downgrade ('so it says \"Loaded\", not \"Hot reload\"'), so this is a known, honestly-labelled gap rather than a lie - but the promise is not met."
+    },
+    {
+      "id": "03-workspace-preview-new-content-marker",
+      "status": "not-implemented",
+      "evidence": "Nothing highlights changed areas of the preview and there is no legend sentence. grep -rn 'Highlighted' over pkg/barn (excluding extension-skeleton/node_modules) returns nothing, and PreviewPanel.vue renders only a toolbar and a bare iframe - it has no overlay layer and no knowledge of which files changed this session.",
+      "defect": "The Studio cannot mark new content in the preview: nothing correlates the working-tree diff with the rendered DOM inside the frame."
+    },
+    {
+      "id": "03-workspace-preview-new-panel",
+      "status": "pass",
+      "evidence": "Verified the general promise rather than the mock's specific panel: added a new page to the pod's package and it appeared in the preview (a new 'Verify03' entry under Base, serving the extension's component), and a subsequent edit to that component's markup appeared in the frame within 4 seconds. So a thing built in the pod does show up in the preview. Both edits reverted afterwards.",
+      "defect": "The Figma's 'Node condition trend' panel itself is example content - it exists only if the extension builds it, and the base extension does not."
+    },
+    {
+      "id": "03-workspace-preview-open-external",
+      "status": "pass",
+      "evidence": "The pop-out anchor's href tracks the frame: after navigating the preview to /c/local/explorer it read /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/c/local/explorer#cluster-events. Opened it in a separate tab and the pod's dashboard rendered standalone (title 'Rancher Prime - Homepage' for the /home case, full page body). target=_blank rel=noopener, and it is disabled while the dev server is still coming up.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-page-more",
+      "status": "pass",
+      "evidence": "Pointed the preview at /c/local/explorer/node and clicked the row's own overflow inside the frame (button[aria-label^='More actions']). A dropdown opened inside the iframe with the real items: Show Configuration, Edit Config, Edit YAML, Download YAML, Delete. The previewed page's own menus are live, not a picture.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-page-tabs",
+      "status": "pass",
+      "evidence": "The framed page's own tabs work and the Studio follows them. On /c/local/explorer the frame showed Events and Certificates tabs; clicking Events changed the frame's h1 from 'Cluster Dashboard' to 'Events' and the preview toolbar's route field updated itself to /c/local/explorer/event.",
+      "defect": "The design's tab names (Overview / Nodes / Node health / Events / Related) are the mock page's; the real ones come from whatever page the preview is on."
+    },
+    {
+      "id": "03-workspace-preview-panel-collapse",
+      "status": "not-implemented",
+      "evidence": "There is no collapse control on anything in the preview. PreviewPanel.vue renders a toolbar and an iframe and nothing else; grep -rn 'collapse' over pkg/barn finds it in DiffView, SCard, ActivityTurn, files.vue and ExtensionFiles - none of which are in the preview pane.",
+      "defect": "The collapsible panel is part of the mocked preview content."
+    },
+    {
+      "id": "03-workspace-preview-reload",
+      "status": "pass",
+      "evidence": "Clicked the toolbar's reload (button[title='Reload the preview']). The frame re-fetched and the live readout reset from 'Loaded · 16s ago' to 'Loaded · just now'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-route",
+      "status": "pass",
+      "evidence": "The field is both a readout and an input. It showed /home on arrival, tracked the frame on its own when I clicked a tab inside it (became /c/local/explorer/event), and typing /c/local/explorer then Enter navigated the frame - the iframe's URL became .../proxy/c/local/explorer and its h1 became 'Cluster Dashboard'. Typing /base/c/_/verify03 likewise reached a route that only existed in the pod's working tree.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-target-chip",
+      "status": "pass",
+      "evidence": "The masthead chip reads 'Preview on: local', which is where the preview actually runs: the iframe src is https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/, i.e. the barn namespace on cluster local.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-viewport",
+      "status": "fail",
+      "evidence": "The chip cycles its label - Desktop -> Tablet -> Mobile -> Desktop - and sets the right inline style on the iframe ('width: 834px; margin: 0px auto;' then 'width: 390px; margin: 0px auto;'). The frame does not resize. Measured getBoundingClientRect().width after each click: 970, 970, 970, 970, with computed width 970px and computed margin-left 0px in every state.",
+      "defect": "PreviewPanel's .preview-panel__frame carries 'flex: 1 1 auto' inside the flex .preview-panel__canvas, so flex-grow: 1 overrides the inline width and the iframe fills the well regardless of the viewport chosen. The control looks live and changes nothing. flex-grow: 0 (or applying the width to a wrapper rather than to the flex item) would fix it."
+    },
+    {
+      "id": "03-workspace-publish",
+      "status": "blocked",
+      "evidence": "Not driven, deliberately. Read the wiring instead: the masthead's PublishSplit emits @click -> editor.vue publishTo('local') -> publishExtension() in extensions.ts, which runs build-pkg.sh in the pod, copies dist-pkg into /app/public/plugins and then creates or updates a UIPlugin in cattle-ui-plugin-system. That changes what every session on this Rancher loads, and several verifiers are working against this one instance and this one base extension, so pressing it would have invalidated their work.",
+      "defect": "Open question. The control exists, is wired to a real publish path, and refuses a second press while one is running (this.publishing), but whether a publish actually succeeds end to end was not established here. Note for whoever does test it: the nodehealth extension currently in cattle-ui-plugin-system was published with PRODUCT_NAME still 'base', which suggests the publish path does have a real naming bug worth chasing."
+    },
+    {
+      "id": "03-workspace-raw-output-toggle",
+      "status": "fail",
+      "evidence": "The strip is never drawn. ActivityTurn.vue implements it (rawLabel/rawNote props, a collapsed strip that emits 'raw'), and AssistantPanel maps that emit to switching to the Terminal tab - but ActivityTurn is only rendered for turns, and there are never any turns. Sent three messages and watched the Assistant tab: only the empty state, no raw-output strip at any point.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent. Raw output is still reachable, just not from where the design puts it: the Terminal tab is one click away on the same tab strip, and the empty state offers an 'Open the terminal' button."
+    },
+    {
+      "id": "03-workspace-review",
+      "status": "pass",
+      "evidence": "The changes summary strip's Review button moved the panel to the Changes tab, which rendered the real diff of the pod's working tree ('Uncommitted changes / 2 files +36 -0 / BRIEF.md +34 -0' with the hunk text). The selected tab moved to Changes.",
+      "defect": "It opens the in-panel Changes tab rather than screen 04 (/barn/extensions/base/review); the masthead overflow's 'Review changes' is the route to that screen and it works."
+    },
+    {
+      "id": "03-workspace-see-changes",
+      "status": "pass",
+      "evidence": "Clicked 'See what changed' on the masthead with the panel on Assistant. The selected tab moved to Changes and the pane rendered the working-tree diff ('Uncommitted changes 2 files +36 -0 BRIEF.md ...'), matching git status --porcelain in the pod.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-send",
+      "status": "fail",
+      "evidence": "The text reaches the pod but is usually not submitted. Sending 'marker VERIFY-03-WORKSPACE-K7Q2 please reply with exactly OK and change no files' put the message into claude's prompt box in the pod (tmux capture-pane -t mc-editor showed it inside the input box) where it stayed unsent; a second long message stacked underneath it; a third long one ('LONGPROBE-03WS this is a deliberately long single line message of well over one hundred characters to test submission') did the same. Short messages do submit - 'Context: pages/Home.vue. CTXPROBE-03WS' appears in the scrollback as a completed turn with claude's reply under it.",
+      "defect": "PodTerminal.sendText writes `${text}\\r` as one stdin frame over the exec websocket. When that burst is longer than the pane is wide, claude's TUI treats it as a paste and the trailing carriage return becomes a newline inside the prompt instead of a submit, so the message is silently left in the input box. The UI gives no sign: the draft clears and the panel switches to Terminal exactly as it does on success. Sending the text and the return as two writes, or appending after a short delay, would fix it. (I cleared the three stuck messages out of the pod's prompt afterwards.)"
+    },
+    {
+      "id": "03-workspace-session-status",
+      "status": "fail",
+      "evidence": "The row shows a green dot and 'Connected as admin' while the assistant in the pod is not logged in. tmux capture-pane -t mc-editor shows every submitted turn answered with '⎿ Not logged in · Please run /login'. The row's dot reports the terminal websocket, and the name is whoever is signed in to this Rancher (auth/principalId) - neither is the assistant session's state.",
+      "defect": "This is the exact state the rationale row says the strip exists to surface: '\"Not logged in · Run /login\" appears as terminal text you have to notice and act on' was supposed to become a persistent strip. Instead the strip says 'Connected' while the terminal says the opposite, which is worse than the log it replaced. AssistantPanel.connectedAs reads the dashboard's own user, and nothing anywhere reads claude's credential state in the pod."
+    },
+    {
+      "id": "03-workspace-state-badge",
+      "status": "pass",
+      "evidence": "The badge read 'Unsaved' throughout, and it is derived rather than fixed: EditorMasthead.state is changes > 0 ? 'unsaved' : 'live', with changes coming from git status --porcelain in the pod. Every time I read it the pod's tree did have uncommitted entries, so the value shown was the true one.",
+      "defect": "The 'Live' branch was not exercised: the shared base tree never reached zero changes while I was on it (other verifiers' files kept it dirty), and emptying it would have destroyed their work."
+    },
+    {
+      "id": "03-workspace-step-duration",
+      "status": "fail",
+      "evidence": "No step and therefore no duration is ever rendered. Sent three messages and watched the Assistant tab: it stayed on the empty state. ActivityTurn.vue does render a duration per step ('turn__duration'), but only for steps inside a turn.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent."
+    },
+    {
+      "id": "03-workspace-step-expand",
+      "status": "fail",
+      "evidence": "There is no step to expand. ActivityTurn emits 'step' when a step row is clicked, but AssistantPanel does not bind @step at all, so even with turns supplied clicking a step would do nothing. Drove the Assistant tab after three messages: empty state only.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent. Additionally AssistantPanel's <ActivityTurn> binds only @raw, so the 'step' emit has no listener - expanding a step is not implemented even for the case where turns exist."
+    },
+    {
+      "id": "03-workspace-step-files",
+      "status": "fail",
+      "evidence": "No step file list is ever rendered; the Assistant tab shows the empty state after every message. ActivityTurn's step shape is { state, title, detail, duration } - there is no files field in it at all, so even supplying turns would not produce 'product.ts, routing/index.ts, 3 more' without a change to the component.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent. ActivityTurn has no per-step file list in its props."
+    },
+    {
+      "id": "03-workspace-step-progress",
+      "status": "fail",
+      "evidence": "Nothing on the screen says what the agent is doing right now. Sent three messages and watched the Assistant tab and the masthead: the stream stayed empty and the masthead's phase chip stayed on 'Iterating', which is derived from the working-tree change count rather than from anything the agent is doing.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent. The running-step treatment (blue tint, spinner) exists in ActivityTurn for state 'running' but is unreachable."
+    },
+    {
+      "id": "03-workspace-step-status",
+      "status": "fail",
+      "evidence": "No status pills are rendered. ActivityTurn maps state to an icon (done -> check, failed -> close, running -> spinner, pending -> clock) but the Assistant tab showed only the empty state throughout.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent."
+    },
+    {
+      "id": "03-workspace-stop",
+      "status": "not-implemented",
+      "evidence": "There is no Stop control anywhere on the screen. Enumerated every [data-testid] under .mc-editor (barn-phase-chip, barn-snapshots-menu, barn-undo-button, barn-extension-select, barn-publish-button, barn-editor-settings-button, barn-masthead-overflow, barn-permission-chip, barn-session-menu, barn-add-context, barn-attach-button) and grepped for 'Stop|interrupt|cancel the run' over components/studio, components/EditorMasthead.vue and pages/editor.vue - nothing.",
+      "defect": "Interrupting the agent is only possible by typing Ctrl-C into the Terminal tab. The session menu offers 'Start a new conversation' (/clear), which is not the same thing."
+    },
+    {
+      "id": "03-workspace-tab-assistant",
+      "status": "pass",
+      "evidence": "Clicked Assistant from Terminal. Selected state moved (.s-tab--selected reads 'Assistant') and the visible body element changed to .assistant-panel__stream showing the activity-stream empty state.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-changes",
+      "status": "pass",
+      "evidence": "Clicked Changes. Selected state moved to 'Changes 2' and the visible body element changed to .assistant-panel__pane rendering WorkingChanges: 'Uncommitted changes / 2 files +36 -0 / BRIEF.md +34 -0' with the hunk lines. Re-entering the tab bumps changesRevision so the diff is re-read from the pod rather than cached.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-changes-count",
+      "status": "pass",
+      "evidence": "The badge on the tab is a live count, not a caption. It read 1, 2 and 3 at different moments during the session and matched git status --porcelain in the pod each time (1 = BRIEF.md; 2 = BRIEF.md + verify-05-files.txt; 3 = those plus my own verify-03-workspace-b.txt). It comes from countChanges() running git status in the pod, and it disappears when the count is zero.",
+      "defect": "It can lag: after the Undo button removed a file the badge still read the old number 6 seconds later and only caught up on the next read. Each refresh is a kubectl-style exec into the pod, so a few seconds is expected, but it is worth knowing."
+    },
+    {
+      "id": "03-workspace-tab-files",
+      "status": "pass",
+      "evidence": "Clicked Files. Selected state moved to 'Files' and the visible body element changed to .assistant-panel__pane rendering ExtensionFiles: 'Branch main / Commits on main / 8a704fb The seeded extension / 26 hours ago' and the file tree (l10n/en-us.yaml, pages/Home.vue, routing/index.ts...). The commit sha matches git rev-parse HEAD in the pod.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-terminal",
+      "status": "pass",
+      "evidence": "Clicked Terminal. Selected state moved to 'Terminal' and the visible body element changed to the .assistant-panel__pane holding the xterm canvas stack (5 canvas elements). Typing into it reached the pod's tmux session - characters typed here appeared in tmux capture-pane -t mc-editor and Enter submitted them to claude.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-title",
+      "status": "pass",
+      "evidence": "The masthead reads 'base' over the eyebrow 'EXTENSION STUDIO'. It is the extension from the route ($route.params.extension, defaulted to DEFAULT_EXTENSION), and it is the one whose pod everything else on the screen reads: the same name appears on the context chip and in the preview's proxy URL (.../services/http:barn-base-extension:8005/proxy/).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-turn-assistant",
+      "status": "fail",
+      "evidence": "No assistant turn is ever rendered. After sending three messages the Assistant tab still showed only the empty state; nothing echoed a plan, a lead sentence or a step list.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent."
+    },
+    {
+      "id": "03-workspace-turn-user",
+      "status": "fail",
+      "evidence": "Your own message is not echoed back. Sent 'CTXPROBE-03WS' - the draft cleared, the panel switched to Terminal, and the text appeared in the pod's terminal, but the Assistant tab's stream still showed only the empty state with no user bubble.",
+      "defect": "AssistantPanel.vue renders <ActivityTurn> only when its `turns` prop is non-empty, and editor.vue mounts <AssistantPanel> with no :turns binding (grep '\\bturns\\b' over pkg/barn: declared in AssistantPanel props, consumed in its v-for, never supplied). So turns.length is always 0 and the SEmpty state is permanent. The composer emits 'send' straight to the terminal and never records the message as a turn, so there is nothing for the stream to show even if it were being fed."
+    },
+    {
+      "id": "03-workspace-undo",
+      "status": "pass",
+      "evidence": "Keyed to my own file so the result was unambiguous. Wrote /app/pkg/base/verify-03-workspace-b.txt in the pod, then clicked the masthead's Undo (data-testid=barn-undo-button). The toast read 'Undone - The last change to verify-03-workspace-b.txt has been undone.' and git status --porcelain in the pod no longer listed it; the file was gone from disk. Repeated once with verify-03-workspace.txt, same result. Other verifiers' files (BRIEF.md) were untouched, since undoLastChange takes only the most recently modified changed file.",
+      "defect": "The label is 'Undo' rather than the design's 'Undo last change', and the change count on the tab and summary strip does not refresh within about six seconds of the undo (it is right again on the next read). Neither is a failure of the promise."
+    }
+  ]
+}
