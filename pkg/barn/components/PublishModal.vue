@@ -1322,11 +1322,19 @@ export default {
           >{{ target.policyNote }}</span>
         </span>
 
+        <!--
+          `requiresTone`, not a second reading of the label. The row computes the tone next to
+          the chip it belongs to - success once both sign-offs are in, error when changes were
+          requested or the gate could not be read at all - and re-deriving it here from the
+          words threw all of that away: every gated row came out warning-yellow, including the
+          one that had just been signed off, so the chip said "Both sign-offs in" in the colour
+          of a refusal.
+        -->
         <SChip
           class="publish-modal__requires"
           :icon="target.requiresIcon"
           :label="target.requires"
-          :tone="target.requires === 'No sign-off' ? 'subtle' : 'warning'"
+          :tone="target.requiresTone"
           :data-testid="`barn-publish-requirement-${ target.id }`"
         />
       </component>

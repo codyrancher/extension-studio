@@ -36,7 +36,9 @@
 //   reports, off Rancher's API. It is not a picker and does not pretend to be one - every pod
 //   this Studio creates is created in the `local` cluster, because that is where the Studio's
 //   namespace, its service proxy and every path in `extensions.ts` are - so a list of other
-//   clusters would be a list of places the build cannot go. The line under it says so, and the
+//   clusters would be a list of places the build cannot go. The line under it says so, and it
+//   reads the cluster list to say it, so "there is nothing else to choose" is a reading rather
+//   than an assertion and stops being one the day this Rancher gains a second cluster. The
 //   reassurance the design puts there - changes only ever run here until you publish - is the
 //   same sentence either way.
 import {
@@ -46,12 +48,17 @@ import { rancherFetch } from '../api';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import { toastError } from '../toast';
-import { ensureExtension, normalizeExtensionName, BUILT_IN_SEEDS, DEFAULT_SEED } from '../extensions';
+import {
+  ensureExtension, normalizeExtensionName, previewTarget, BUILT_IN_SEEDS, DEFAULT_SEED
+} from '../extensions';
 import { currentSigner } from '../review';
 import {
   PLACEMENTS, placementById, placementFiles, normalizeResource
 } from '../extension-placement';
-import { STUDIO_ROUTE, BRIEF_ROUTE } from '../editor-product';
+import {
+  STUDIO_ROUTE, BRIEF_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+} from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -68,7 +75,7 @@ export default {
     SButton, SField, SIcon, SLabel, ImportExtensionModal, EditorSettingsModal
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -92,6 +99,10 @@ export default {
       // as the cluster's id, which is true before the reading arrives and stays true if it
       // never does.
       target:     { name: 'local', version: '' },
+      // How many other clusters this Rancher manages, which is what decides whether the line
+      // under the box is a statement about a choice or about the absence of one. `null` until
+      // the reading arrives, and if it never does the line says nothing it cannot back.
+      others:     null,
     };
   },
 
@@ -111,6 +122,43 @@ export default {
 
     seeds() {
       return BUILT_IN_SEEDS;
+    },
+
+    /**
+     * What Rancher's header kebab offers on this screen (Figma 53:1430).
+     *
+     * Read by @shell/mixins/page-actions, which commits it on `created` and clears it on
+     * `beforeUnmount`, so the menu is this page's rather than every page in Rancher's. The
+     * list lives in editor-product.ts; see the note there for why these three.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
+    },
+
+    /**
+     * Why the box above it is a readout and not the picker the design draws (13:372).
+     *
+     * The sentence used to assert this from the source: it said there was nowhere else to
+     * point the build because that is what `extensions.ts` does. True, but unfalsifiable from
+     * the screen, and a claim about how many clusters exist that never looked. It reads the
+     * cluster list now, so what it says is a reading: with one cluster there is nothing to
+     * choose, with several there is, and the reason the Studio still does not offer them is
+     * the part that is about this product rather than about this Rancher.
+     */
+    targetNote() {
+      const here = 'Changes only ever run here until you publish.';
+
+      if (this.others === null) {
+        return `${ here } Not a choice: every extension pod this Studio creates lives in this cluster.`;
+      }
+
+      if (this.others === 0) {
+        return `${ here } Not a choice, and nothing to choose from: this is the only cluster this Rancher manages, and every extension pod the Studio creates lives in it.`;
+      }
+
+      const n = this.others === 1 ? 'one other cluster' : `${ this.others } other clusters`;
+
+      return `${ here } Not a choice: this Rancher manages ${ n }, but the Studio's namespace, its pods and the proxy the preview is served through are all here, so the build cannot run there.`;
     },
 
     canSubmit() {
@@ -161,14 +209,28 @@ export default {
     async readTarget() {
       const cluster = await rancherFetch('/v1/management.cattle.io.clusters/local').catch(() => null);
 
-      if (!cluster) {
-        return;
+      if (cluster) {
+        this.target = {
+          name:    cluster.spec?.displayName || cluster.metadata?.name || 'local',
+          version: cluster.status?.version?.gitVersion || '',
+        };
       }
 
-      this.target = {
-        name:    cluster.spec?.displayName || cluster.metadata?.name || 'local',
-        version: cluster.status?.version?.gitVersion || '',
-      };
+      // And how many clusters there are to not be choosing between. `previewTarget` is the
+      // same reading the workspace masthead's "Preview on" chip makes, so the two screens
+      // cannot say different things about the same Rancher.
+      const { cluster: here, clusters, read } = await previewTarget();
+
+      if (read) {
+        // By name rather than by subtracting one, because the list is display names and the
+        // one this cluster answers to is whichever of `local` and its display name it gave us.
+        this.others = clusters.filter((c) => c !== here && c !== this.target.name).length;
+      }
+    },
+
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
     },
 
     useExample(text) {
@@ -397,10 +459,10 @@ export default {
                 {{ target.name }}<template v-if="target.version"> - {{ target.version }}</template>
               </span>
             </div>
-            <span class="new-ext__hint">
-              Changes only ever run here until you publish. Not a choice: every extension pod
-              this Studio creates lives in this cluster, so there is nowhere else to point it.
-            </span>
+            <span
+              class="new-ext__hint"
+              data-testid="new-ext-target-note"
+            >{{ targetNote }}</span>
           </div>
         </div>
 

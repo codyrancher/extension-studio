@@ -15,17 +15,54 @@
 set -euo pipefail
 POD='deploy/barn-base-extension'
 MARK='harness fixture: delete this line'
+# The queue only lists work that has been handed over for review, so with no packet it correctly
+# renders no rows - and the harness then reports every row selector missing, which reads exactly
+# like a rendering regression. It is not one: it is the queue telling the truth. So the fixture
+# has to include a handed-over packet, the same way it has to include uncommitted work.
+REVIEW_CM='barn-review-base'
 
 case "${1:-seed}" in
   seed)
     kubectl -n barn exec $POD -- sh -c "cd /app/pkg/*/ && \
       printf '\n// %s\n' '$MARK' >> product.ts && \
       printf '# Harness fixture\n\nA new file, so the file list has an untracked row.\n' > HARNESS.md"
-    echo "seeded: product.ts modified, HARNESS.md added"
+    sha=$(kubectl -n barn exec $POD -- sh -c 'cd /app/pkg/base && git rev-parse --short HEAD' 2>/dev/null | tr -d '\r\n')
+    now=$(kubectl -n barn exec $POD -- sh -c 'date -u +%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null | tr -d '\r\n')
+    # Merge into whatever the record already holds: other people's looks and comments stay.
+    kubectl -n barn get cm $REVIEW_CM -o jsonpath='{.data.review\.json}' 2>/dev/null > /tmp/barn-review-cur.json || true
+    [ -s /tmp/barn-review-cur.json ] || echo '{}' > /tmp/barn-review-cur.json
+    SHA="$sha" NOW="$now" python3 - <<'PYEOF' > /tmp/barn-review-next.json
+import json, os
+cur = json.load(open('/tmp/barn-review-cur.json'))
+cur.setdefault('signoffs', {}); cur.setdefault('looks', {}); cur.setdefault('comments', [])
+cur['packets'] = cur.get('packets') or {}
+cur['packets']['1'] = {
+    'n': 1, 'ref': 'refs/barn/packets/1', 'branch': 'barn/base/1',
+    'sha': os.environ['SHA'], 'base': os.environ['SHA'], 'at': os.environ['NOW'],
+    'by': 'local://user-btc48', 'byName': 'Default Admin', 'brief': True,
+}
+print(json.dumps(cur))
+PYEOF
+    kubectl -n barn create configmap $REVIEW_CM --from-file=review.json=/tmp/barn-review-next.json \
+      --dry-run=client -o yaml | kubectl -n barn apply -f - >/dev/null
+    rm -f /tmp/barn-review-cur.json /tmp/barn-review-next.json
+    echo "seeded: product.ts modified, HARNESS.md added, packet 1 handed over"
     ;;
   undo)
     kubectl -n barn exec $POD -- sh -c "cd /app/pkg/*/ && \
       git checkout -- product.ts 2>/dev/null ; rm -f HARNESS.md ; git reset -q -- HARNESS.md 2>/dev/null ; true"
+    kubectl -n barn get cm $REVIEW_CM -o jsonpath='{.data.review\.json}' 2>/dev/null > /tmp/barn-review-cur.json || true
+    if [ -s /tmp/barn-review-cur.json ]; then
+      python3 - <<'PYEOF' > /tmp/barn-review-next.json
+import json
+cur = json.load(open('/tmp/barn-review-cur.json'))
+(cur.get('packets') or {}).pop('1', None)
+print(json.dumps(cur))
+PYEOF
+      kubectl -n barn create configmap $REVIEW_CM --from-file=review.json=/tmp/barn-review-next.json \
+        --dry-run=client -o yaml | kubectl -n barn apply -f - >/dev/null
+      rm -f /tmp/barn-review-cur.json /tmp/barn-review-next.json
+    fi
     echo "removed"
     ;;
   *) echo "usage: seed-fixture.sh [seed|undo]" >&2; exit 2 ;;

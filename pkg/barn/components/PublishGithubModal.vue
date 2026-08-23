@@ -115,7 +115,11 @@ export default {
     @close="$emit('close')"
   >
     <div class="publish-github">
-      <SBanner v-if="!loading && !hasToken" type="warning">
+      <SBanner
+        v-if="!loading && !hasToken"
+        type="warning"
+        data-testid="barn-publish-github-no-token"
+      >
         There is no GitHub token yet, and pushing needs one.
         <a href="#" @click.prevent="$emit('settings')">Add one in settings</a>, then come back.
       </SBanner>
@@ -165,7 +169,18 @@ export default {
     </div>
 
     <template #footer>
-      <SButton variant="ghost" :disabled="pushing" @click="$emit('close')">
+      <!--
+        Test ids on the two buttons, and on SButton rather than on a wrapper: SButton's root is
+        the `<button>` itself, so the attribute reaches the real control. Without them the only
+        way to drive this dialog was by button text, and the hand-over is the one destination on
+        screen 07 whose effect nobody can see without driving it.
+      -->
+      <SButton
+        variant="ghost"
+        :disabled="pushing"
+        data-testid="barn-publish-github-cancel"
+        @click="$emit('close')"
+      >
         Cancel
       </SButton>
       <SButton
@@ -173,6 +188,7 @@ export default {
         icon="upload"
         :loading="pushing"
         :disabled="!canPublish"
+        data-testid="barn-publish-github-confirm"
         @click="publish"
       >
         Publish

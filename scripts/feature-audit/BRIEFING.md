@@ -190,3 +190,26 @@ whoever wrote last** - a verifier clicked Undo and removed another verifier's fi
 
 That is correct behaviour for the product and a hazard for us. Before clicking Undo, check whose
 file is at the top of the working tree, and prefer undoing something you can name.
+
+## Read the verdict files with a JSON parser, not with grep
+
+`verdicts/*.json` and `features.json` are large single-line-ish JSON documents. A `grep -o` or
+`ugrep -o` with a loosely bounded pattern across all of them at once will try to materialise an
+enormous match set: one such search reached **5.3GB of resident memory in 70 seconds** and took the
+container from 4GB free to 569MB before it was killed.
+
+Use a parser. It is faster, it cannot explode, and it gives you fields rather than fragments:
+
+```bash
+# every open item on one screen, with the verifier's reasoning
+node -e "const d=require('./features.json');
+  for (const f of d.features.filter(f => f.screen==='09-settings' && f.status!=='pass'))
+    console.log(f.status.padEnd(16), f.id, '\n   ', f.defect || '')"
+
+# what one verdict file said about one feature
+node -e "const v=require('./verdicts/w4-review.json');
+  console.log(v.verdicts.find(x => x.id==='12-change-pr-link'))"
+```
+
+`node todo.mjs <screen> --json` already does the common case. Reach for grep only on the source
+tree, where the files are small and line-oriented.

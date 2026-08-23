@@ -1649,6 +1649,28 @@ function statusExitCode(status: string): number {
  */
 export function podExecResult(pod: string, command: string[]): Promise<PodExecResult> {
   return new Promise((resolve) => {
+    // Decoded incrementally, not per frame. `atob` gives a binary string - one character per
+    // byte - so a UTF-8 character read out of a pod arrived as mojibake: claude's own
+    // "Not logged in · Please run /login" came back as "Â· ". Every exec reader was affected, so
+    // a source file or a diff containing an accented name or a dash rendered wrong on the Files
+    // and Changes screens. Nothing had noticed because nothing had sent non-ASCII through it.
+    //
+    // `stream: true` matters as much as the decoder does: a multi-byte character can straddle two
+    // frames, and decoding each frame on its own would corrupt exactly the characters this is
+    // meant to fix. One decoder per channel, fed in order, flushed at the end.
+    const outDecoder = new TextDecoder('utf-8');
+    const errDecoder = new TextDecoder('utf-8');
+    const bytes = (b64: string): Uint8Array => {
+      const raw = atob(b64);
+      const out = new Uint8Array(raw.length);
+
+      for (let i = 0; i < raw.length; i++) {
+        out[i] = raw.charCodeAt(i);
+      }
+
+      return out;
+    };
+
     let stdout = '';
     let stderr = '';
     let status = '';
@@ -1669,8 +1691,9 @@ export function podExecResult(pod: string, command: string[]): Promise<PodExecRe
       const broke = !status && closeCode !== 1000;
 
       resolve({
-        stdout,
-        stderr,
+        // Flush: a decoder holding a partial sequence emits it (as U+FFFD) rather than losing it.
+        stdout: stdout + outDecoder.decode(),
+        stderr: stderr + errDecoder.decode(),
         status: status || (broke ? `the exec connection closed without running the command (${ closeCode })` : ''),
         code:   broke ? -1 : statusExitCode(status),
         transport: broke,
@@ -1685,20 +1708,22 @@ export function podExecResult(pod: string, command: string[]): Promise<PodExecRe
       // this function replaced the one that read only channel 1.
       socket.onmessage = (event) => {
         const frame = String(event.data || '');
-        let decoded = '';
+        let raw: Uint8Array;
 
         try {
-          decoded = atob(frame.slice(1));
+          raw = bytes(frame.slice(1));
         } catch {
           return; // a frame that is not base64 is not output
         }
 
         if (frame.startsWith('1')) {
-          stdout += decoded;
+          stdout += outDecoder.decode(raw, { stream: true });
         } else if (frame.startsWith('2')) {
-          stderr += decoded;
+          stderr += errDecoder.decode(raw, { stream: true });
         } else if (frame.startsWith('3')) {
-          status += decoded;
+          // The status frame is the apiserver's own prose or JSON, always ASCII, so it needs no
+          // streaming decoder - but it does need decoding from the same bytes as the rest.
+          status += new TextDecoder('utf-8').decode(raw);
         }
       };
 
@@ -1801,7 +1826,22 @@ function asPodUser(script: string): string[] {
  * what the extension is named. There is exactly one directory under `/app/pkg`, which is what
  * makes this safe.
  */
-const PACKAGE_DIR = '"$(ls -d /app/pkg/*/ | head -1)"';
+/**
+ * The package directory this extension owns, resolved by its own name first.
+ *
+ * This used to be `ls -d /app/pkg/*\/ | head -1`, on the reasoning that a pod holds exactly one
+ * package. That is true of a pod created after extensions started being renamed off their seed,
+ * and false of every pod created before it: `demo`'s pod holds both `/app/pkg/base` and
+ * `/app/pkg/demo`, and `head -1` takes them alphabetically, so every read, write, commit, diff
+ * and publish for `demo` was operating on `base`'s tree inside `demo`'s pod.
+ *
+ * Named lookup first, so an extension always gets its own directory. The glob stays as the
+ * fallback for an imported repository, whose package keeps the name it had upstream and need not
+ * match the extension's - but it now takes the single directory only when there is exactly one,
+ * because picking alphabetically among several is the bug this replaces.
+ */
+const packageDir = (name: string) => `"$(d=/app/pkg/${ shellQuote(name).replace(/^'|'$/g, '') } ; ` +
+  '[ -d "$d" ] && printf %s "$d" || ls -d /app/pkg/*/ | head -1)"';
 
 /** Run something in the pod, in the extension's package directory, as the tree's owner. */
 async function inPackage(name: string, script: string): Promise<string> {
@@ -1814,7 +1854,7 @@ async function inPackage(name: string, script: string): Promise<string> {
   // Braces, not a bare `&&`. Several of these scripts are `;`-separated lists, and `cd X &&
   // a ; b` only guards `a`: a failed cd would run the rest of the list wherever the shell
   // happened to be, which for `git init` means initialising a repository in /.
-  return podExecOnce(pod, asPodUser(`cd ${ PACKAGE_DIR } && { ${ script } ; }`));
+  return podExecOnce(pod, asPodUser(`cd ${ packageDir(name) } && { ${ script } ; }`));
 }
 
 /**
@@ -1835,7 +1875,7 @@ async function inPackageStrict(name: string, script: string, what: string): Prom
     throw new Error(`${ what } could not be done: ${ name } has no running pod`);
   }
 
-  return podExecStrict(pod, asPodUser(`cd ${ PACKAGE_DIR } && { ${ script } ; }`), what);
+  return podExecStrict(pod, asPodUser(`cd ${ packageDir(name) } && { ${ script } ; }`), what);
 }
 
 /**
@@ -4540,4 +4580,490 @@ export async function interruptAssistant(name: string): Promise<'sent' | 'none'>
   }
 
   throw new Error(`the interrupt did not reach ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
+}
+
+// ---------------------------------------------------------------------------
+// What claude itself recorded: its replies, the model that answered, and the mode it is in.
+//
+// Everything above this line reads the pod's own provenance log (pod/barn-provenance.mjs),
+// which is deliberately coarse: it records a prompt, the files an editing tool touched, and the
+// end of a turn, and nothing between. That is the right source for attribution - it is stable,
+// it is checkable with git, and it degrades honestly - and it is the wrong source for two
+// things the design asks for, because it never had them:
+//
+//   The assistant's own words (11:242). The provenance log has no reply in it at all, so the
+//   stream could only ever say what a turn *ended in*. claude writes every reply into its own
+//   transcript (~/.claude/projects/<slug>/<session>.jsonl), which is where it is read from
+//   here. The transcript is claude's private format and it may change; that risk is taken here
+//   and not in the provenance record, and the difference matters: a shape this does not
+//   recognise shows as "no reply recorded", which is a gap on screen, while the same failure in
+//   the attribution record would be lines silently credited to the wrong prompt.
+//
+//   The model and the permission mode. Neither is anywhere in the provenance log. The model is
+//   in claude's own settings and on every reply it wrote; the mode is on claude's status line
+//   in the pane, which is the only place that reports the mode it is in *now* rather than the
+//   one it was started with.
+// ---------------------------------------------------------------------------
+
+/** One reply, exactly as claude wrote it into its transcript. */
+export interface AssistantReply {
+  /** ISO, claude's own timestamp for the message. */
+  at:      string;
+  /** The text parts of the reply, joined. Tool calls are not text and are not here. */
+  text:    string;
+  /** The model it came back on. '<synthetic>' is claude's own marker for a local message. */
+  model:   string;
+  /** Non-empty when claude recorded this as an error rather than an answer. */
+  error:   string;
+  session: string;
+}
+
+export interface AssistantConversation {
+  /** Whether the pod answered. Nothing else here means anything when false. */
+  read:    boolean;
+  /** The tree the transcript belongs to, so a caller can say which conversation it read. */
+  dir:     string;
+  session: string;
+  /** The claude that wrote it, for a tooltip that has to age well. */
+  version: string;
+  /** The permission mode claude stamped on its last prompt. Its own spelling. */
+  mode:    string;
+  /** The model the last real reply came back on. '' when nothing has answered yet. */
+  model:   string;
+  /** Oldest first, capped. */
+  replies: AssistantReply[];
+}
+
+const CONVERSATION_MARKER = 'BARN-CLAUDE:';
+
+/**
+ * Read back in the pod rather than shipped here as JSONL.
+ *
+ * A transcript is megabytes of tool calls and file contents and the panel wants a few hundred
+ * words of it, so the filtering happens where the file is. Only the tail of each file is read,
+ * for the same reason - a half-parsed first line is dropped, which is the whole cost.
+ */
+const CONVERSATION_JS = String.raw`
+const fs = require('node:fs');
+const path = require('node:path');
+
+const HOME = process.env.HOME || '/app/.home';
+const ROOT = path.join(HOME, '.claude', 'projects');
+const TEXT_LIMIT = 2000;
+const TAIL_BYTES = 1500000;
+const FILES = 4;
+/**
+ * How much prose comes back at all, newest first.
+ *
+ * This is read on a poll while somebody watches the panel, so the answer has to be bounded by
+ * something other than how long the conversation is: one turn can be a dozen assistant
+ * messages, and a long session would otherwise send a megabyte of prose through the exec every
+ * fifteen seconds. Older replies are dropped rather than truncated, so what is shown is whole.
+ */
+const TOTAL_LIMIT = 60000;
+
+function packageDir() {
+  try {
+    const dirs = fs.readdirSync('/app/pkg', { withFileTypes: true }).filter((e) => e.isDirectory());
+
+    return dirs.length ? path.join('/app/pkg', dirs[0].name) : '';
+  } catch { return ''; }
+}
+
+function transcripts() {
+  const out = [];
+  let dirs = [];
+
+  try { dirs = fs.readdirSync(ROOT); } catch { return out; }
+
+  dirs.forEach((d) => {
+    let names = [];
+
+    try { names = fs.readdirSync(path.join(ROOT, d)); } catch { return; }
+
+    names.filter((n) => n.endsWith('.jsonl')).forEach((n) => {
+      const p = path.join(ROOT, d, n);
+
+      try { out.push({ path: p, at: fs.statSync(p).mtimeMs }); } catch { /* gone */ }
+    });
+  });
+
+  return out.sort((a, b) => a.at - b.at).slice(-FILES);
+}
+
+function tail(file) {
+  let fd;
+
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const from = Math.max(0, size - TAIL_BYTES);
+    const buf = Buffer.alloc(size - from);
+
+    fs.readSync(fd, buf, 0, buf.length, from);
+
+    return buf.toString('utf8');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* closed */ } }
+  }
+}
+
+const PKG = packageDir();
+const replies = [];
+let mode = '';
+let version = '';
+let session = '';
+
+transcripts().forEach((entry) => {
+  tail(entry.path).split('\n').forEach((line) => {
+    let r;
+
+    try { r = JSON.parse(line); } catch { return; }
+
+    if (!r || typeof r !== 'object') { return; }
+    // One pod can hold conversations from more than one directory. Only the extension's own.
+    if (PKG && r.cwd && r.cwd !== PKG) { return; }
+
+    if (r.version) { version = r.version; }
+    if (r.sessionId) { session = r.sessionId; }
+    if (r.permissionMode) { mode = r.permissionMode; }
+    if (r.type !== 'assistant') { return; }
+
+    const content = r.message && Array.isArray(r.message.content) ? r.message.content : [];
+    const text = content
+      .filter((c) => c && c.type === 'text' && typeof c.text === 'string')
+      .map((c) => c.text.trim())
+      .filter(Boolean)
+      .join('\n\n');
+
+    if (!text) { return; }
+
+    replies.push({
+      at:      r.timestamp || '',
+      text:    text.slice(0, TEXT_LIMIT),
+      model:   (r.message && r.message.model) || '',
+      error:   r.isApiErrorMessage ? String(r.error || 'the request failed') : '',
+      session: r.sessionId || '',
+    });
+  });
+});
+
+replies.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+
+// The model that answered, which is only ever read off a reply that is one: claude marks its
+// own local messages '<synthetic>' and those name no model.
+const answered = replies.filter((x) => x.model && x.model !== '<synthetic>' && !x.error);
+const limit = parseInt(process.argv[2], 10) || 40;
+
+// Newest first until the budget runs out, then back into order.
+const kept = [];
+let budget = TOTAL_LIMIT;
+
+for (let i = replies.length - 1; i >= 0 && kept.length < limit && budget > 0; i--) {
+  kept.unshift(replies[i]);
+  budget -= replies[i].text.length;
+}
+
+// Escaped to ASCII on purpose. podExecResult decodes each frame with atob, which produces a
+// binary string - one character per byte - so a UTF-8 character arrives as its bytes and
+// renders as mojibake. Nothing that goes through that exec had contained a non-ASCII
+// character before this, and claude's prose is full of them. A \uXXXX escape is ASCII on the
+// wire and the right character after JSON.parse, so this is correct without changing how
+// every other reader in this file decodes.
+// (No backticks in this comment: it lives inside a template literal.)
+process.stdout.write('BARN-CLAUDE:' + JSON.stringify({
+  read:    true,
+  dir:     PKG,
+  session,
+  version,
+  mode,
+  model:   answered.length ? answered[answered.length - 1].model : '',
+  replies: kept,
+}).replace(/[\u0080-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')) + '\n');
+`;
+
+const NO_CONVERSATION: AssistantConversation = {
+  read: false, dir: '', session: '', version: '', mode: '', model: '', replies: [],
+};
+
+/**
+ * Every reply claude has written in this pod's conversation, newest last.
+ *
+ * The one thing the activity stream could never show. The provenance hooks record that a turn
+ * happened and what it left behind; this is what the assistant actually said while doing it,
+ * which is the half of the design's turn (11:242, 11:249) that has been missing.
+ *
+ * Correlating a reply with a recorded turn is the caller's job and is done on time alone: a
+ * reply belongs to the last turn that started before it. Nothing here guesses.
+ */
+export async function assistantConversation(name: string, limit = 40): Promise<AssistantConversation> {
+  const out = await inPackage(name, [
+    `node - ${ Math.max(1, Math.min(200, Math.floor(limit))) } <<'BARN_CONVERSATION_JS'`,
+    CONVERSATION_JS,
+    // The terminator has to be alone on its line, and `inPackage` puts ` ; }` after whatever
+    // this ends with. `exit $?` is what goes between them: dash parses `EOF` followed by
+    // ` ; }` as a command list beginning with a semicolon and refuses the whole script with
+    // "Syntax error: ";" unexpected", which is a shell parse error rather than anything to do
+    // with the JS above it and therefore takes a while to recognise. A real command on the
+    // line after the terminator gives the semicolon something to follow, and this one also
+    // keeps node's exit status.
+    'BARN_CONVERSATION_JS',
+    'exit $?',
+  ].join('\n')).catch(() => '');
+
+  const at = out.indexOf(CONVERSATION_MARKER);
+
+  if (at < 0) {
+    return NO_CONVERSATION;
+  }
+
+  try {
+    const parsed = JSON.parse(out.slice(at + CONVERSATION_MARKER.length).split('\n')[0]);
+
+    return {
+      ...NO_CONVERSATION,
+      ...parsed,
+      replies: Array.isArray(parsed.replies) ? parsed.replies : [],
+    };
+  } catch {
+    // A transcript claude writes in a shape this does not recognise reads as "nothing recorded",
+    // which is a gap on screen rather than a wrong sentence in it.
+    return NO_CONVERSATION;
+  }
+}
+
+/**
+ * The model the pod's claude will answer on, and the aliases it will accept for another one.
+ *
+ * The design puts a model chip in the composer's action bar (11:340, "Claude Opus 5") and draws
+ * no chevron on it, so the drawn thing is a badge; the promise around it is that it names the
+ * model the assistant will use. Four places can set that, in the order claude itself resolves
+ * them, and each is read rather than assumed:
+ *
+ *   argv     - `--model` on the running process, which beats everything else for this session.
+ *   env      - ANTHROPIC_MODEL in the pod.
+ *   settings - `model` in ~/.claude/settings.json, which is what claude's own `/model` writes
+ *              and is on the hostPath, so a choice made here survives a pod restart.
+ *   config   - `model` in ~/.claude.json.
+ *
+ * When none of them names one - which is this pod's state until somebody chooses - claude uses
+ * whatever that install defaults to, and this reports nothing rather than picking a name for
+ * it. Deliberately not filled in from claude's transcript: that record is a private format and
+ * the product has decided not to depend on it for facts it states about itself.
+ *
+ * `aliases` is parsed out of the pod's own `claude --help`, not listed here. A hard-coded list
+ * would be a claim about a program this file does not ship.
+ */
+export interface AssistantModel {
+  read:    boolean;
+  /** The model as the pod spells it. '' when nothing in the pod names one. */
+  model:   string;
+  /** 'argv' | 'env' | 'settings' | 'config' | '' */
+  source:  string;
+  /** The aliases `claude --help` documents for --model, in the order it lists them. */
+  aliases: string[];
+  /** Whether there is a session to type `/model` into. */
+  session: boolean;
+}
+
+const MODEL_MARKER = 'BARN-MODEL';
+
+export async function assistantModel(name: string): Promise<AssistantModel> {
+  const none: AssistantModel = {
+    read: false, model: '', source: '', aliases: [], session: false,
+  };
+  const out = await inPackage(name, [
+    `echo ${ MODEL_MARKER }`,
+    "ps -eo args= 2>/dev/null | grep -m1 '^claude'",
+    "echo '--env--'",
+    'printenv ANTHROPIC_MODEL 2>/dev/null',
+    "echo '--settings--'",
+    `node -e 'const fs=require("fs");const g=(f)=>{try{return JSON.parse(fs.readFileSync(f,"utf8")).model||""}catch(e){return ""}};console.log(g(process.env.HOME+"/.claude/settings.json"));console.log(g(process.env.HOME+"/.claude.json"))' 2>/dev/null`,
+    "echo '--help--'",
+    "claude --help 2>/dev/null | sed -n '/--model </,/^ *-[a-zA-Z-]/p'",
+    "echo '--session--'",
+    `tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null && echo BARN-SESSION`,
+  ].join(' ; ')).catch(() => '');
+
+  if (!out.includes(MODEL_MARKER)) {
+    return none;
+  }
+
+  const section = (from: string, to: string) => {
+    const head = out.split(from)[1] || '';
+
+    return (to ? head.split(to)[0] : head);
+  };
+  const argv = (out.split('--env--')[0] || '').split('\n').map((l) => l.trim())
+    .filter((l) => l.startsWith('claude'))[0] || '';
+  const flagged = /--model[\s=]+(\S+)/.exec(argv)?.[1] || '';
+  const env = section('--env--', '--settings--').trim();
+  const [settings = '', config = ''] = section('--settings--', '--help--').split('\n').map((l) => l.trim());
+  const help = section('--help--', '--session--');
+
+  // The aliases, and only the aliases: claude's own sentence is "an alias for the latest model
+  // (e.g. 'opus', or 'sonnet') or a model's full name (e.g. 'claude-...')", so everything from
+  // "full name" onwards is an example of the other kind and is not offered as one of these.
+  const aliases = [...help.split(/full name/)[0].matchAll(/'([A-Za-z0-9][\w.-]*)'/g)]
+    .map((m) => m[1])
+    .filter((alias, i, all) => all.indexOf(alias) === i);
+
+  const found: [string, string][] = [
+    ['argv', flagged], ['env', env], ['settings', settings], ['config', config],
+  ];
+  const [source = '', model = ''] = found.find(([, value]) => !!value) || [];
+
+  return {
+    read:    true,
+    model,
+    source,
+    aliases,
+    session: out.includes('BARN-SESSION'),
+  };
+}
+
+/**
+ * Point the pod's claude at another model.
+ *
+ * Two ways, because there are two states the pod can be in and both have to work:
+ *
+ *   'session' - a pane is open, so `/model <alias>` is typed into it. That is claude's own
+ *               command: it changes the model this conversation is using from the next turn,
+ *               and claude writes the choice into ~/.claude/settings.json itself, so it also
+ *               becomes the default for the next session.
+ *   'settings' - nobody has opened the workspace for this pod, so there is no conversation to
+ *               change. The same key is written into ~/.claude/settings.json here, which is
+ *               where claude reads it when a session does start. On the hostPath, so it
+ *               survives the pod restarting.
+ *
+ * The alias is checked against `[\w.-]` before it goes anywhere near the shell or the pane.
+ */
+export async function setAssistantModel(name: string, alias: string): Promise<'session' | 'settings'> {
+  const wanted = String(alias || '').trim();
+
+  if (!/^[\w.-]+$/.test(wanted)) {
+    throw new Error(`${ wanted || 'that' } is not a model name this can send`);
+  }
+
+  const out = await inPackageStrict(name, [
+    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    `tmux send-keys -t ${ ASSISTANT_SESSION } -l ${ shellQuote(`/model ${ wanted }`) } && sleep 1 &&`,
+    `tmux send-keys -t ${ ASSISTANT_SESSION } Enter && echo BARN-MODEL-SESSION ;`,
+    `else node -e 'const fs=require("fs");const p=process.env.HOME+"/.claude/settings.json";let s={};try{s=JSON.parse(fs.readFileSync(p,"utf8"))}catch(e){};s.model=process.argv[1];fs.mkdirSync(require("path").dirname(p),{recursive:true});fs.writeFileSync(p,JSON.stringify(s,null,2)+"\\n",{mode:0o600})' ${ shellQuote(wanted) } &&`,
+    'echo BARN-MODEL-SETTINGS ; fi',
+  ].join(' '), `choosing ${ wanted }`);
+
+  if (out.includes('BARN-MODEL-SESSION')) {
+    return 'session';
+  }
+
+  if (out.includes('BARN-MODEL-SETTINGS')) {
+    return 'settings';
+  }
+
+  throw new Error(`${ wanted } did not reach ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
+}
+
+/**
+ * The permission mode the assistant is in right now, read off claude's own status line.
+ *
+ * `assistantPermissions` above reads the command line claude was *started* with, which is the
+ * mode it began in and not necessarily the one it is in: claude cycles its mode on shift+tab
+ * and prints the current one at the bottom of the pane ("bypass permissions on (shift+tab to
+ * cycle)"). That line is the only reading in this pod that is about now, so it is the one the
+ * chip should prefer, with the command line behind it for a pod with no session open.
+ *
+ * claude's own words are kept rather than mapped to an enum here. It has more modes than this
+ * file knows about - "auto mode" appeared without notice - and a reading that silently drops
+ * one it does not recognise is worse than one that repeats what the pane says.
+ */
+export interface AssistantMode {
+  /** Whether the pane could be read. */
+  read:    boolean;
+  /** Whether there is a session at all. False with read true means nothing is running. */
+  session: boolean;
+  /** claude's own spelling: 'bypass permissions', 'accept edits', 'plan mode', 'auto mode', ... */
+  mode:    string;
+  /** The whole status line, for a tooltip that shows what the reading came off. */
+  line:    string;
+}
+
+const MODE_MARKER = 'BARN-MODE';
+/** claude's status line, which is the only line in the pane that offers the cycle. */
+const MODE_LINE = /^(.*?)\s+on\s*\(shift\+tab to cycle\)/;
+
+function parseMode(out: string): AssistantMode {
+  if (!out.includes(MODE_MARKER)) {
+    return {
+      read: false, session: false, mode: '', line: '',
+    };
+  }
+
+  if (out.includes('BARN-MODE-NONE')) {
+    return {
+      read: true, session: false, mode: '', line: '',
+    };
+  }
+
+  const line = out.split('\n').map((l) => l.trim())
+    .filter((l) => l.includes('shift+tab to cycle'))
+    .pop() || '';
+  // The glyphs claude prefixes the line with are its own; the mode is the words before " on".
+  const mode = (MODE_LINE.exec(line.replace(/^[^A-Za-z]+/, ''))?.[1] || '').trim();
+
+  return {
+    read: true, session: true, mode, line,
+  };
+}
+
+export async function assistantMode(name: string): Promise<AssistantMode> {
+  const out = await inPackage(name, [
+    `echo ${ MODE_MARKER } ;`,
+    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    // ASCII only. The status line begins with claude's own glyphs and `podExecResult` decodes
+    // a frame with `atob`, which turns a UTF-8 character into its bytes; the tooltip quotes
+    // this line, and mojibake in it would look like a bug in the reading rather than in the
+    // decoding. The words the mode is read from are ASCII either way.
+    `tmux capture-pane -p -t ${ ASSISTANT_SESSION } | tr -cd '\\11\\12\\15\\40-\\176' ;`,
+    'else echo BARN-MODE-NONE ; fi',
+  ].join(' ')).catch(() => '');
+
+  return parseMode(out);
+}
+
+/**
+ * Cycle the pane to the mode that was asked for, which is how a person changes it.
+ *
+ * claude has no "set the mode to X": shift+tab moves to the next one and the status line says
+ * where it landed. So this does exactly that, in the pod so the round trips are not paid for
+ * one keystroke at a time - press, read, stop when the line says the wanted mode - and returns
+ * the mode it actually ended on. A mode this claude does not have is therefore reported as the
+ * one it is in, not as the one that was asked for.
+ *
+ * What it cannot do is outlive the session. The mode claude *starts* in is fixed by the
+ * arguments in pod/claude-session.sh, which is seeded from this bundle and written again on
+ * every page load, so a restart comes back on the seeded mode. The caller has to say so.
+ */
+export async function cycleAssistantMode(name: string, want: string): Promise<AssistantMode> {
+  const wanted = String(want || '').trim();
+
+  if (!/^[\w ]+$/.test(wanted)) {
+    throw new Error(`${ wanted || 'that' } is not a mode this can ask for`);
+  }
+
+  const out = await inPackageStrict(name, [
+    `echo ${ MODE_MARKER } ;`,
+    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    `want=${ shellQuote(`${ wanted } on (shift+tab to cycle)`) } ; i=0 ;`,
+    'while [ $i -lt 6 ] ; do',
+    `case "$(tmux capture-pane -p -t ${ ASSISTANT_SESSION })" in *"$want"*) break ;; esac ;`,
+    `tmux send-keys -t ${ ASSISTANT_SESSION } BTab ; sleep 1 ; i=$((i+1)) ;`,
+    'done ;',
+    `tmux capture-pane -p -t ${ ASSISTANT_SESSION } | tr -cd '\\11\\12\\15\\40-\\176' ;`,
+    'else echo BARN-MODE-NONE ; fi',
+  ].join(' '), `changing the assistant's permission mode in ${ name }`);
+
+  return parseMode(out);
 }

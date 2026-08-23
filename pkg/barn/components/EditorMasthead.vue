@@ -29,6 +29,7 @@ import {
   FILES_ROUTE, REVIEW_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
 } from '../editor-product';
 import { readFailure, failureStage, FAILURE_EVENT } from '../publish-failure';
+import { findWayBack, rollBack, rollBackLabel } from '../roll-back';
 
 /** Which screen each line of the overflow menu goes to. */
 const OVERFLOW_ROUTES = {
@@ -151,6 +152,18 @@ export default {
       autoError: '',
       // Where the preview runs and what else there is, read rather than asserted.
       target:    null,
+      /**
+       * Where the tree would go back to, resolved only while there is a failure to go back
+       * from (19:959).
+       *
+       * Read rather than assumed, because the button has to say where it goes: the design's
+       * label is "Roll back to last working build" and printing that over a pod whose only
+       * point is a hand-made snapshot would be the button lying. `findWayBack` answers with
+       * the best point that exists and what it is worth; null means the pod has no history
+       * at all and there is nothing to offer.
+       */
+      wayBack:   null,
+      rollingBack: false,
       // The recorded publish failure for this extension, when there is one. The badge is the
       // design's Failed state (19:956) and the record is where that fact lives, so the bar
       // reads it rather than being told about it by whoever ran the publish.
@@ -170,6 +183,14 @@ export default {
   },
 
   computed: {
+    /**
+     * What the roll back says it does, from roll-back.ts so the masthead and the failure panel
+     * print the same phrase for the same point.
+     */
+    rollBackLabel() {
+      return rollBackLabel(this.wayBack);
+    },
+
     // The design shows "Preview on: local" (16:511). It is `local` because that is the cluster
     // extension pods are created in, which this reads rather than repeats.
     previewOn() {
@@ -423,6 +444,8 @@ export default {
     extension() {
       // A different pod: what is on screen is the last one's until this one has been read.
       this.failure = readFailure(this.extension);
+      this.wayBack = null;
+      this.readWayBack();
       this.autoPrint = null;
       this.read = false;
       this.branches = [];
@@ -435,6 +458,7 @@ export default {
 
   async mounted() {
     this.failure = readFailure(this.extension);
+    this.readWayBack();
     // A publish fails under a masthead that is already on screen, and sessionStorage has no
     // change event within the tab that wrote it, so the record announces itself.
     window.addEventListener(FAILURE_EVENT, this.onFailureChanged);
@@ -683,9 +707,67 @@ export default {
       }
     },
 
+    /**
+     * Where "back" is, resolved only when there is a failure.
+     *
+     * Four reads into the pod, so not on the minute poll and not on a screen with nothing
+     * wrong: a workspace whose last publish worked has no roll back drawn and therefore
+     * nothing to resolve.
+     */
+    async readWayBack() {
+      const asked = this.extension;
+
+      if (!this.failure) {
+        this.wayBack = null;
+
+        return;
+      }
+
+      const found = await findWayBack(asked).catch(() => null);
+
+      if (asked === this.extension) {
+        this.wayBack = found?.target || null;
+      }
+    },
+
+    /**
+     * The design's masthead roll back (19:959), which is the same action as the failure
+     * panel's (19:786) because it is the same function.
+     *
+     * Everything about it - resolving the point, snapshotting the failed tree first and
+     * refusing to go on if that snapshot cannot be taken, restoring, and clearing the failure
+     * record - lives in roll-back.ts, so the two affordances cannot drift into two behaviours.
+     * This end only says what happened and re-reads the bar.
+     */
+    async rollBackNow() {
+      if (this.rollingBack) {
+        return;
+      }
+
+      this.rollingBack = true;
+
+      try {
+        const done = await rollBack(this.extension, this.wayBack);
+
+        if (done.ok) {
+          toastSuccess(this.$store, done.message, { title: done.title });
+        } else {
+          toastError(this.$store, done.message, { title: done.title });
+        }
+
+        this.$emit('changed');
+      } finally {
+        this.rollingBack = false;
+        this.snapshotsRead = false;
+        await this.refresh();
+        await this.readWayBack();
+      }
+    },
+
     /** The failure was recorded, dismissed or rolled back somewhere else on the page. */
     onFailureChanged() {
       this.failure = readFailure(this.extension);
+      this.readWayBack();
     },
 
     onOverflow(id) {
@@ -815,6 +897,26 @@ export default {
         >{{ lastSnapshot.label }}</span>
       </template>
     </SMenu>
+
+    <!--
+      Real, and only while there is something to go back from (19:959). The same action as the
+      failure panel's roll back, because both call roll-back.ts: the failed tree is snapshotted
+      first and nothing is restored if that snapshot cannot be taken. The label names the point
+      that was actually found rather than promising "the last working build" over a pod whose
+      only point is a snapshot somebody took.
+    -->
+    <SButton
+      v-if="failure && wayBack"
+      variant="secondary"
+      size="sm"
+      icon="undo"
+      :loading="rollingBack"
+      :title="wayBack.note"
+      data-testid="barn-rollback-masthead"
+      @click="rollBackNow"
+    >
+      {{ rollBackLabel }}
+    </SButton>
 
     <!-- Real: puts the most recently edited file back to its last committed state. -->
     <SButton

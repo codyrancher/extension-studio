@@ -812,7 +812,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(111, 111, 139)",
-      "size": "248x32",
+      "size": "226x32",
       "dir": "row",
       "align": "normal"
     },
@@ -1744,7 +1744,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "430x739",
+      "size": "430x771",
       "dir": "column",
       "align": "normal"
     },
@@ -2026,7 +2026,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "1370x418",
+      "size": "1370x233",
       "dir": "column",
       "align": "normal"
     },
@@ -2040,7 +2040,7 @@
       "radius": 4,
       "border": "1 1 1 1",
       "bcol": "rgb(220, 222, 231)",
-      "size": "1322x159",
+      "size": "1322x143",
       "dir": "row",
       "align": "normal"
     },
@@ -2054,7 +2054,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "1320x157",
+      "size": "1320x141",
       "dir": "row",
       "align": "center"
     },
@@ -2068,7 +2068,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "510x48",
+      "size": "619x48",
       "dir": "row",
       "align": "normal"
     },
@@ -2168,7 +2168,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "471x24",
+      "size": "464x24",
       "dir": "row",
       "align": "normal"
     },
@@ -2182,7 +2182,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "color(srgb 0.582118 0.582118 0.663373)",
-      "size": "471x14",
+      "size": "464x14",
       "dir": "row",
       "align": "normal"
     },
@@ -2359,12 +2359,12 @@
       "gap": "6/6",
       "font": "12/400",
       "lh": 16,
-      "color": "rgb(62, 140, 79)",
-      "bg": "rgb(235, 244, 236)",
+      "color": "rgb(201, 162, 39)",
+      "bg": "rgb(253, 246, 227)",
       "radius": 3,
       "border": "1 1 1 1",
       "bcol": "rgba(0, 0, 0, 0)",
-      "size": "58x26",
+      "size": "82x26",
       "dir": "row",
       "align": "center"
     },
@@ -2520,7 +2520,7 @@
       "radius": 3,
       "border": "0 0 0 0",
       "bcol": "rgb(62, 140, 79)",
-      "size": "810x93",
+      "size": "810x58",
       "dir": "row",
       "align": "flex-start"
     },
@@ -2534,7 +2534,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(62, 140, 79)",
-      "size": "4x69",
+      "size": "4x34",
       "dir": "row",
       "align": "normal"
     },

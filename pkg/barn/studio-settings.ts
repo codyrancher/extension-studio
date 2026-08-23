@@ -65,6 +65,11 @@ export interface GithubConnection {
 export interface StudioSettings {
   policy: Record<string, SignoffPolicy>;
   github: GithubConnection | null;
+  /**
+   * The Rancher role the access card is currently asking about, remembered so the answer is
+   * still there after a reload. A question rather than a grant: see `readRole` below.
+   */
+  customRole: string;
 }
 
 interface StoredSettings extends StudioSettings {
@@ -91,7 +96,8 @@ export async function readStudioSettings(): Promise<StoredSettings> {
       'dev-load': { ...DEFAULT_POLICY['dev-load'], ...(parsed.policy?.['dev-load'] || {}) },
       repo:       { ...DEFAULT_POLICY.repo, ...(parsed.policy?.repo || {}) },
     },
-    github: parsed.github || null,
+    github:     parsed.github || null,
+    customRole: parsed.customRole || '',
   };
 }
 
@@ -103,7 +109,7 @@ export async function writeStudioSettings(
   change: (current: StudioSettings) => StudioSettings
 ): Promise<StudioSettings> {
   const current = await readStudioSettings();
-  const next = change({ policy: current.policy, github: current.github });
+  const next = change({ policy: current.policy, github: current.github, customRole: current.customRole });
   const data = { [SETTINGS_KEY]: JSON.stringify(next, null, 2) };
 
   if (current.object) {
@@ -172,6 +178,71 @@ export function githubErrorText(message: string): string {
   }
 
   return `GitHub answered ${ status[1] }${ because }.`;
+}
+
+/**
+ * A date, in the reader's own format.
+ *
+ * GitHub writes the expiry header as `2026-10-18 12:00:00 UTC`, which Date can read; anything it
+ * cannot is passed through rather than shown as "Invalid Date".
+ */
+function asDay(value: string): string {
+  const at = Date.parse(value || '');
+
+  return at ? new Date(at).toLocaleDateString() : String(value || '');
+}
+
+/** What `githubIdentity()` answers with. Structural, so this module need not import the type. */
+export interface GithubIdentityLike {
+  login:     string;
+  scopes:    string[];
+  expiresAt: string;
+}
+
+/**
+ * The line under "Connected as ...": scopes, expiry, and when this Studio stored it.
+ *
+ * Shared by the settings page and the dialog rather than written twice, because the two used to
+ * say different things about the same credential - the dialog claimed Studio could not name the
+ * account at all, which stopped being true when `githubIdentity()` learned to ask a pod.
+ *
+ * What GitHub said a moment ago comes first and the record made when the token was pasted is the
+ * fallback, because only the second one is limited to tokens that went in through this Studio.
+ */
+export function connectionSummary(identity: GithubIdentityLike | null, connection: GithubConnection | null): string {
+  const parts: string[] = [];
+  const scopes = identity ? identity.scopes.join(', ') : (connection?.scopes || '');
+
+  if (scopes) {
+    parts.push(`Scopes: ${ scopes }`);
+  } else if (identity) {
+    // A fine-grained token lists no scopes at all, which is a fact about the token rather than a
+    // gap in the reading.
+    parts.push('Scopes: none listed, which is what a fine-grained token reports');
+  }
+
+  if (identity?.expiresAt) {
+    parts.push(`expires ${ asDay(identity.expiresAt) }`);
+  } else if (identity) {
+    parts.push('no expiry date');
+  }
+
+  if (connection?.authorised) {
+    parts.push(`stored ${ new Date(connection.authorised).toLocaleDateString() }`);
+  }
+
+  return parts.join(' · ');
+}
+
+/**
+ * Whether GitHub answered about the token and the answer was no.
+ *
+ * A 401 or a 403 is GitHub saying the credential is bad. Anything else - no egress from the pod,
+ * no pod at all, a timeout - is nobody having asked, which is a different sentence and must not
+ * be shown as the same one.
+ */
+export function tokenRejected(message: string): boolean {
+  return /\b40[13]\b/.test(String(message || ''));
 }
 
 /** Thrown when GitHub says the token is no good, which is the one case where nothing is stored. */
@@ -317,4 +388,77 @@ export async function detectPermission(): Promise<AssistantPermission> {
   }
 
   return { level: 'ask-every-edit', detail: 'The pod starts claude with no permission flag (pod/claude-session.sh), so it asks.' };
+}
+
+/**
+ * What a role has to be able to do before somebody holding it can use Studio.
+ *
+ * Studio's pages are registered with no permission gate, so anybody signed in can open them.
+ * That is not the same as being able to use them: every read and every write this product makes
+ * goes through Rancher's cluster proxy carrying the session of whoever is looking, so what
+ * actually decides is Kubernetes RBAC on namespace `barn` in the local cluster. Three calls are
+ * the whole product, and a role that cannot make them gets a Studio that renders and then 403s.
+ *
+ * `pods/exec` is the one that matters most and the one a reader is least likely to guess: the
+ * terminal is not a convenience on the side, it is how every file in an extension gets written.
+ */
+export const STUDIO_NEEDS = [
+  {
+    verb: 'get', group: '', resource: 'configmaps', label: 'read an extension',
+  },
+  {
+    verb: 'create', group: 'apps', resource: 'deployments', label: 'create one',
+  },
+  {
+    verb: 'create', group: '', resource: 'pods/exec', label: 'open a terminal in its pod',
+  },
+];
+
+/** One rule of a Rancher RoleTemplate, in the shape `/v3/roleTemplates` answers with. */
+export interface PolicyRule {
+  apiGroups?:     string[];
+  resources?:     string[];
+  verbs?:         string[];
+  resourceNames?: string[];
+}
+
+/**
+ * Kubernetes RBAC, as much of it as this question needs.
+ *
+ * `*` is the only wildcard RBAC has: there is no `pods/*`, so a rule that grants `pods` does not
+ * grant `pods/exec` and a role can very reasonably be able to list pods and not exec into one.
+ * A rule carrying `resourceNames` is treated as granting nothing, because it grants only the
+ * objects it names and this asks about objects that do not exist yet.
+ *
+ * A RoleTemplate marked `external` carries no rules of its own - it defers to the cluster's
+ * ClusterRole of the same name - so its rules have to be fetched from there before this is
+ * asked. Passing the empty list would read as "can do nothing", which is the opposite of the
+ * answer for `cluster-admin`.
+ */
+export function ruleAllows(rules: PolicyRule[], group: string, resource: string, verb: string): boolean {
+  return (rules || []).some((rule) => {
+    if (rule.resourceNames?.length) {
+      return false;
+    }
+
+    const has = (list: string[] | undefined, want: string) => !!list && (list.includes('*') || list.includes(want));
+
+    return has(rule.apiGroups, group) && has(rule.resources, resource) && has(rule.verbs, verb);
+  });
+}
+
+export interface RoleReading {
+  /** True when every one of `STUDIO_NEEDS` is granted. */
+  capable: boolean;
+  /** The labels of the ones that are not, in the order they are listed. */
+  missing: string[];
+}
+
+/** What somebody holding this role could do with Studio, read from the role's own rules. */
+export function readRole(rules: PolicyRule[]): RoleReading {
+  const missing = STUDIO_NEEDS
+    .filter((need) => !ruleAllows(rules, need.group, need.resource, need.verb))
+    .map((need) => need.label);
+
+  return { capable: !missing.length, missing };
 }

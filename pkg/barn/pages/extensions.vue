@@ -22,8 +22,10 @@ import {
   ensureExtension, removeLocalInstall
 } from '../extensions';
 import {
-  EDITOR_ROUTE, NEW_EXTENSION_ROUTE, REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, SETTINGS_ROUTE
+  EDITOR_ROUTE, NEW_EXTENSION_ROUTE, REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, SETTINGS_ROUTE,
+  STUDIO_PAGE_ACTIONS, handleStudioPageAction
 } from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -163,7 +165,7 @@ export default {
     StartingExtensions,
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -197,6 +199,17 @@ export default {
      */
     routes() {
       return { SETTINGS_ROUTE };
+    },
+
+    /**
+     * What Rancher's header kebab offers on this screen (Figma 53:1306).
+     *
+     * Read by @shell/mixins/page-actions, which commits it to the root store on `created` and
+     * clears it on `beforeUnmount`, so the menu exists here and nowhere else in Rancher. The
+     * list itself lives in editor-product.ts; see the note there for why these three.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
     },
 
     columns() {
@@ -373,6 +386,11 @@ export default {
       }
 
       return row.detail?.branch ? `On ${ row.detail.branch }, nothing uncommitted` : 'Ready';
+    },
+
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
     },
 
     open(name) {

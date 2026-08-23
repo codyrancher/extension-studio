@@ -48,12 +48,13 @@ import {
   ensureRepo,
   changedFiles, fileDiff, changedFilesSince, fileDiffSince,
   readExtensionFile, commitExtension, extensionUrl, extensionReady,
-  listBranches, readSettings, extensionSource, parseGithubSource, findOpenPullRequest,
+  listBranches,
   deferReview, clearDeferral, changeProvenance, publishedVersion, askAssistant, provenanceFor,
   DEFAULT_EXTENSION
 } from '../extensions';
 import {
-  readReview, signCodeReview, gateFrom, addComment, markLook, sinceLastLook
+  readReview, signCodeReview, gateFrom, addComment, markLook, sinceLastLook,
+  packetPullRequest, assessRisk
 } from '../review';
 import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE, BRIEF_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -313,17 +314,27 @@ export default {
       diffing:  false,
       deciding:  false,
       deferring: false,
-      // What the masthead's GitHub chip knows. `state` is the whole of it:
-      //   checking  - the question is out
-      //   open      - there is one, and `pr` is it
-      //   none      - asked and answered: no open PR has this branch as its head
-      //   no-token  - nothing was asked, because there is no token to ask with
-      //   no-repo   - nothing was asked, because no repository is known for this extension
-      //   error     - the question failed, and `prError` says how
+      // What the masthead's GitHub chip knows, as `packetPullRequest` (review.ts) answered it.
+      // `state` is the whole of it and every value carries a whole sentence in `prSentence`:
+      //   checking   - the question is out
+      //   recorded   - the hand-over opened one and the packet records it. No network needed.
+      //   found      - the record had none and GitHub has an open one on the packet's branch
+      //   failed     - the hand-over tried to open one and GitHub refused; `prError` says why
+      //   none       - the packet is pushed and there is no open pull request on its branch
+      //   unasked    - nothing could be asked: no token, no repository, or GitHub did not answer
+      //   no-packet  - nothing has been handed over, so there is no hand-off to have a record of
       pr:       null,
       prState:  'checking',
       prError:  '',
+      prSentence: '',
       repo:     '',
+      // The branch the packet was pushed on - `git branch -f`, never checked out. Kept apart
+      // from `branch` below, which is the branch the pod actually has: conflating the two is
+      // what made the GitHub chip ask about the wrong head for as long as it did.
+      prBranch: '',
+      prPacket: 0,
+      // The branch the working tree is on, for the masthead's provenance line. A fact about
+      // where the work sits, and not the head any pull request would point at.
       branch:   '',
       showSettings: false,
       // What is installed in this Rancher right now, for the masthead's version. '' means
@@ -392,12 +403,21 @@ export default {
       return this.files.length;
     },
 
-    risk() {
-      if (!this.count) {
-        return 'none';
-      }
+    /**
+     * How much attention this change wants (38:1108), from `assessRisk` in review.ts.
+     *
+     * The masthead used to count files - `count > 8 ? high : count > 3 ? medium : low` - while
+     * the queue read the paths and the numstat. The same eight-line change to the entry point
+     * was "medium" one screen back and "low risk" here, in the same minute, off the same
+     * files. Cross-screen rule: one reading, called by both. The reason comes with it, so the
+     * chip can say why on hover instead of leaving the rating unexplained.
+     */
+    riskReading() {
+      return assessRisk(this.files);
+    },
 
-      return this.count > 8 ? 'high' : (this.count > 3 ? 'medium' : 'low');
+    risk() {
+      return this.riskReading.level;
     },
 
     riskTone() {
@@ -1022,32 +1042,51 @@ export default {
      * same thing for two different reasons.
      */
     prChip() {
+      const packet = this.prPacket ? `packet ${ this.prPacket }` : 'this change';
+
+      if (this.prState === 'unasked') {
+        // Three different reasons nothing could be asked, and they are not the same press.
+        if (this.prError) {
+          return { label: 'Could not ask GitHub', tone: 'error', action: 'retry' };
+        }
+
+        return this.repo
+          ? { label: 'No GitHub token', tone: 'warning', action: 'settings' }
+          : { label: 'No GitHub repository', tone: 'warning', action: '' };
+      }
+
       const chips = {
-        checking: { label: 'Checking GitHub…', tone: 'subtle', action: '' },
-        open:     {
-          label: `PR #${ this.pr?.number } open`, tone: 'success', action: 'open',
-        },
-        none: {
-          label: `No open PR for ${ this.branch || 'this branch' }`, tone: 'default', action: 'list',
-        },
-        'no-token': { label: 'No GitHub token', tone: 'warning', action: 'settings' },
-        'no-repo':  { label: 'No GitHub repository', tone: 'warning', action: '' },
-        error:      { label: 'Could not ask GitHub', tone: 'error', action: 'retry' },
+        checking:   { label: 'Checking GitHub…', tone: 'subtle', action: '' },
+        recorded:   { label: `PR #${ this.pr?.number } opened`, tone: 'success', action: 'open' },
+        found:      { label: `PR #${ this.pr?.number } open`, tone: 'success', action: 'open' },
+        failed:     { label: 'Pull request not opened', tone: 'error', action: 'retry' },
+        none:       { label: `No PR for ${ packet }`, tone: 'default', action: 'list' },
+        'no-packet': { label: 'Not handed over yet', tone: 'default', action: '' },
       };
 
       return chips[this.prState] || chips.checking;
     },
 
-    /** The hover text: the whole fact, where the chip only has room for the headline. */
+    /**
+     * The hover text: the whole fact, where the chip only has room for the headline.
+     *
+     * `packetPullRequest` returns a sentence for every state it can be in, so this is that
+     * sentence plus what the press does, rather than a second set of words that can drift
+     * from the first.
+     */
     prTitle() {
-      return {
-        checking: `Asking GitHub whether ${ this.repo } has an open pull request for ${ this.branch }`,
-        open:     `${ this.pr?.title } - opens on GitHub`,
-        none:     `${ this.repo } has no open pull request whose head branch is ${ this.branch }. Opens the repository's pull requests.`,
-        'no-token': 'No GitHub token is configured, so nothing can be asked. Opens the editor settings.',
-        'no-repo':  `No GitHub repository is remembered for ${ this.extension }. Publishing it to GitHub records one.`,
-        error:      this.prError,
-      }[this.prState] || '';
+      if (this.prState === 'checking') {
+        return 'Reading the hand-over record, and asking GitHub only if it has no answer';
+      }
+
+      const press = {
+        open:     ' Opens the pull request.',
+        list:     ` Opens ${ this.repo }'s pull requests.`,
+        settings: ' Opens the editor settings.',
+        retry:    ' Press to ask again.',
+      }[this.prChip.action] || '';
+
+      return `${ this.prSentence }${ press }`;
     },
   },
 
@@ -1068,7 +1107,7 @@ export default {
 
       this.loading = true;
 
-      const [files, brief, provenance, version, review, prov] = await Promise.all([
+      const [files, brief, provenance, version, review, prov, branches] = await Promise.all([
         changedFiles(this.extension).catch(() => []),
         readExtensionFile(this.extension, 'BRIEF.md').catch(() => ''),
         changeProvenance(this.extension).catch(() => this.provenance),
@@ -1079,6 +1118,11 @@ export default {
         provenanceFor(this.extension).catch((e) => ({
           available: false, reason: e?.message || 'the pod could not be asked what produced these lines', base: '', baseRef: '', files: [],
         })),
+        // The branch the working tree is on, for the provenance line. Read here rather than in
+        // `checkPullRequest`, because that question is about the packet's branch and this one
+        // is about the pod's, and one field answering both is what made the GitHub chip ask
+        // GitHub about a head no pull request could ever have.
+        listBranches(this.extension).catch(() => null),
       ]);
 
       this.files = files;
@@ -1087,6 +1131,7 @@ export default {
       this.version = version;
       this.review = review;
       this.prov = prov;
+      this.branch = branches?.current || '';
       this.loading = false;
 
       // Read after the files, because a remembered pile that this change has nothing in would
@@ -1633,47 +1678,41 @@ export default {
     },
 
     /**
-     * Whether an open pull request already exists for what is being reviewed.
+     * Which pull request this change is, asked of `packetPullRequest` (review.ts).
      *
-     * Three readings, in the order that lets it stop early: the branch (the head a PR would have
-     * to point at), the token (there is no anonymous way to ask about a private repository), and
-     * the repository - the one remembered when this extension was last published, or the one it
-     * was imported from, because an imported extension knows where it came from before anybody
-     * has published it anywhere.
+     * This screen used to ask GitHub itself, about `listBranches().current`. That is the branch
+     * the pod has checked out, and it is never the packet's branch: a hand-over writes the
+     * packet branch with `git branch -f` and never checks it out, so the question was always
+     * about the wrong head and the chip could not find a pull request that existed. It also
+     * asked GitHub before looking at the record, so a recorded PR needed a token to be seen.
+     *
+     * `packetPullRequest` answers from the packet record first - which needs no network and no
+     * credential - and only asks GitHub about the packet's own branch when the record is
+     * silent. Every state it returns carries a sentence, which is what `prTitle` renders.
      */
     async checkPullRequest() {
       this.prState = 'checking';
       this.pr = null;
       this.prError = '';
+      this.prSentence = '';
 
-      const [branches, settings, source] = await Promise.all([
-        listBranches(this.extension).catch(() => null),
-        readSettings(this.extension).catch(() => ({ hasToken: false, repo: '' })),
-        extensionSource(this.extension).catch(() => ''),
-      ]);
+      const answer = await packetPullRequest(this.extension).catch((e) => ({
+        state:    'unasked',
+        packet:   0,
+        branch:   '',
+        repo:     '',
+        pr:       null,
+        error:    e?.message || String(e),
+        sentence: `The hand-over record could not be read: ${ e?.message || String(e) }`,
+      }));
 
-      this.branch = branches?.current || '';
-      this.repo = settings.repo || parseGithubSource(source)?.repo || '';
-
-      if (!settings.hasToken) {
-        this.prState = 'no-token';
-
-        return;
-      }
-
-      if (!this.repo) {
-        this.prState = 'no-repo';
-
-        return;
-      }
-
-      try {
-        this.pr = await findOpenPullRequest(this.extension, this.repo, this.branch);
-        this.prState = this.pr ? 'open' : 'none';
-      } catch (e) {
-        this.prError = e?.message || String(e);
-        this.prState = 'error';
-      }
+      this.prState = answer.state;
+      this.prPacket = answer.packet;
+      this.prBranch = answer.branch;
+      this.repo = answer.repo;
+      this.pr = answer.pr;
+      this.prError = answer.error;
+      this.prSentence = answer.sentence;
     },
 
     /** The chip's press, which is a different thing in each state - see `prChip`. */
@@ -1687,7 +1726,7 @@ export default {
       } else if (action === 'settings') {
         this.showSettings = true;
       } else if (action === 'retry') {
-        toastError(this.$store, this.prError, { title: 'GitHub did not answer' });
+        toastError(this.$store, this.prSentence || this.prError, { title: 'No pull request to open' });
         this.checkPullRequest();
       }
     },
@@ -1783,13 +1822,19 @@ export default {
         </div>
       </div>
 
-      <SChip :label="`${ risk } risk`" :tone="riskTone" />
+      <SChip
+        :label="`${ risk } risk`"
+        :tone="riskTone"
+        :title="riskReading.reason"
+        data-testid="rc-risk"
+      />
       <SChip
         :label="prChip.label"
         :tone="prChip.tone"
         :title="prTitle"
         icon="github"
         :clickable="!!prChip.action"
+        data-testid="rc-pr"
         @click="onPrChip"
       />
 

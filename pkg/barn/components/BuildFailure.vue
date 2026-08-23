@@ -24,7 +24,11 @@
 //   file; it is not always available and the screen says which. "Apply this fix" only applies a
 //   change whose `before` text is actually in the file, and refuses out loud when it is not.
 //   Roll back restores a real git ref, after snapshotting the failed tree so the roll back is
-//   itself undoable.
+//   itself undoable. The action itself is not this component's - it is in ../roll-back.ts,
+//   because the design puts the same roll back in the masthead (19:959) as well as here
+//   (19:786) and calls them one action. Two buttons doing the same thing is only true if they
+//   run the same code; a copy in the masthead would have been a second destructive path, and
+//   the weaker of the two would have been the one somebody pressed the day the snapshot failed.
 //
 //   Both of those snapshots are required rather than best effort, and that is a fix rather than
 //   a preference: `createSnapshot` used to report success for a tag git had refused to write, so
@@ -33,22 +37,30 @@
 //   replaced, and the reason is shown instead. The one promise on this panel that has to be true
 //   is that going back is safe.
 //
-//   Not built - "Undo my request". The design deliberately scopes it to the whole turn that
-//   caused the failure, and this product has no notion of a turn: one file-scoped undo
-//   (undoLastChange) and one tree-scoped restore, with nothing recording which edits came from
-//   which message. That is the same per-turn provenance screen 12 needs for per-hunk prompts,
-//   and inventing it here would be a control that lies. The panel says so in words instead.
+//   Not built - "Undo my request", and the reason has moved since it was first written down.
+//   The pod does have a notion of a turn now (pod/barn-provenance.mjs: a prompt hook mints a
+//   turn id, a Stop hook commits what the turn left with the id in a trailer), which is what
+//   screen 12 reads for per-hunk prompts. Two things this button would need on top of it are
+//   still missing. The failure record carries no turn, so "the request that caused this" would
+//   be inferred from whatever turn happened to be newest - a guess the moment somebody typed in
+//   the Terminal tab or the assistant edited through Bash, neither of which the file hook sees.
+//   And the capture half has produced nothing in this Rancher's pods: prompts are logged, tool
+//   records and commits carrying the trailer are not. Reversing a turn nobody recorded is not
+//   an undo, it is a discard with a friendlier label. So the panel says what it cannot do, and
+//   points at the undo it can.
 import {
   SButton, SBanner, SIcon, SChip, SLabel
 } from './ui';
 import {
   DEFAULT_EXTENSION, listExtensionFiles, readExtensionFile,
-  extensionPod, podExecOnce, askAssistant, assistantLogin, createSnapshot, restoreSnapshot,
-  listSnapshots, baselineRef, countChanges, undoLastChange
+  extensionPod, podExecOnce, askAssistant, assistantLogin, undoLastChange
 } from '../extensions';
 import {
-  readFailure, clearFailure, readWorkingBuild, failureStage, FAILURE_EVENT
+  readFailure, clearFailure, failureStage, FAILURE_EVENT
 } from '../publish-failure';
+import {
+  findWayBack as resolveWayBack, rollBack as rollBackExtension, rollBackLabel
+} from '../roll-back';
 import {
   readProposedFix, recordProposedFix, clearProposedFix, applyProposedFix, isApplicable, FIX_EVENT
 } from '../publish-fix';
@@ -198,7 +210,6 @@ export default {
       changes:    -1,
       rollingBack: false,
       undoing:     false,
-      safety:      '',
 
       // The poll for the assistant's answer. Held here so beforeUnmount can end it: a timer
       // still running against an unmounted component is a websocket opened into the pod every
@@ -321,13 +332,15 @@ export default {
       return this.recordedFix;
     },
 
-    /** How the roll-back button should read, given what there actually is to go back to. */
+    /**
+     * How the roll-back button should read, given what there actually is to go back to.
+     *
+     * From the same helper the masthead's copy uses, so the two buttons say the same thing
+     * about the same point rather than one of them printing the design's optimistic label over
+     * a pod whose only way back is a hand-made snapshot.
+     */
     targetLabel() {
-      if (!this.target) {
-        return 'Roll back';
-      }
-
-      return `Roll back to ${ this.target.what }`;
+      return rollBackLabel(this.target);
     },
 
     changesNote() {
@@ -372,7 +385,6 @@ export default {
       this.explainRaw = '';
       this.recordedFix = readProposedFix(this.extension);
       this.applied = '';
-      this.safety = '';
       this.target = null;
       this.targetting = true;
       this.changes = -1;
@@ -383,62 +395,20 @@ export default {
     },
 
     /**
-     * What there is to go back to, in the order of how well it matches "the last working
-     * build" - and the panel says which one it landed on rather than implying the best case.
+     * What there is to go back to, and how many files have changed since.
      *
-     *   1. A snapshot taken the last time a publish succeeded (publish-failure.ts). This is the
-     *      only one that is literally the last working build, and it exists only if whoever ran
-     *      the publish recorded it.
-     *   2. The baseline ref the publish path writes: the tree that was last handed over, or
-     *      last installed into this Rancher.
-     *   3. The most recent snapshot anybody took by hand.
-     *   4. HEAD, which always exists (ensureRepo commits the seeded tree), and which is a real
-     *      way back even though it is not a build.
+     * The resolving is in ../roll-back.ts with the roll back itself, so the sentence this panel
+     * prints under the button and the point the button actually restores can never be two
+     * different answers - and so the masthead's copy of the button reads the same one.
      */
     async findWayBack() {
       this.targetting = true;
 
-      const [working, base, snaps, changes] = await Promise.all([
-        readWorkingBuild(this.extension).catch(() => null),
-        baselineRef(this.extension).catch(() => null),
-        listSnapshots(this.extension).catch(() => []),
-        countChanges(this.extension).catch(() => -1),
-      ]);
+      const { target, changes } = await resolveWayBack(this.extension)
+        .catch(() => ({ target: null, changes: -1 }));
 
+      this.target = target;
       this.changes = changes;
-
-      if (working) {
-        this.target = {
-          ref:  working.ref,
-          what: `the last working build${ working.version ? ` (${ working.version })` : '' }`,
-          note: `Recorded in the pod when that publish succeeded, ${ working.when || 'earlier' }. It is a ref in the extension's own repository, so it is the same point for everybody and it survives this tab.`,
-          kind: 'build',
-        };
-      } else if (base && (base.kind === 'oci' || base.kind === 'local')) {
-        this.target = {
-          ref:  base.sha,
-          what: base.kind === 'oci' ? 'the last version handed over' : 'the last version published into this Rancher',
-          note: 'Recorded by the publish that put it there, so it is a tree that built.',
-          kind: 'baseline',
-        };
-      } else if (snaps.length) {
-        this.target = {
-          ref:  snaps[0].ref,
-          what: `the snapshot "${ snaps[0].label }"`,
-          note: `Taken ${ snaps[0].when }. A snapshot is a point somebody chose, not necessarily a build that worked.`,
-          kind: 'snapshot',
-        };
-      } else if (base && base.sha) {
-        this.target = {
-          ref:  base.sha,
-          what: 'the last commit',
-          note: 'No snapshot was taken before this build, so this is the last committed state rather than the last build that worked.',
-          kind: 'head',
-        };
-      } else {
-        this.target = null;
-      }
-
       this.targetting = false;
     },
 
@@ -761,10 +731,15 @@ export default {
     /**
      * Put the tree back, having first snapshotted what it is now.
      *
-     * The safety snapshot is what makes the design's note true: "Every build is snapshotted.
-     * Nothing you have done is lost" (19:1092). Rolling back is the one action on this panel
-     * that throws work away, so it is the one that has to be reversible, and a tagged commit of
-     * the failed tree is what makes it so.
+     * The doing is in ../roll-back.ts, which the masthead's button calls as well: the required
+     * safety snapshot, the restore and the clearing of the failure record are one action, so
+     * they are one function. What is left here is the panel's part of it - the spinner, the
+     * emits its host listens for, and the toast.
+     *
+     * That safety snapshot is what makes the design's note true: "Every build is snapshotted.
+     * Nothing you have done is lost" (19:1092). Rolling back is the one action here that throws
+     * work away, so it is the one that has to be reversible, and if the snapshot cannot be
+     * taken the roll back does not happen - `done.ok` is false and the reason is the toast.
      */
     async rollBack() {
       if (this.rollingBack || !this.target) {
@@ -772,43 +747,27 @@ export default {
       }
 
       this.rollingBack = true;
-
-      // Read before anything clears it: `clearFailure` announces itself, and the reload that
-      // follows would take `target` away before the toast has quoted it.
-      const { ref, what } = this.target;
+      // Set for the whole call, not just around the clear: `rollBack` clears the failure record
+      // and the record announces itself, so without this the panel would reload itself out from
+      // under the toast that is about to quote where it went.
+      this.settling = true;
 
       try {
-        // First, and it decides whether the rest happens at all. Rolling back is the one
-        // action here that throws work away, and the note under this panel says nothing is
-        // lost because the failed tree is snapshotted first. If that snapshot cannot be taken
-        // - a repository git will not write to is the case this was found in - then the
-        // sentence is false, so the roll back does not happen and the reason is shown instead.
-        // A restore that silently discarded the failed tree would be the worst outcome here.
-        this.safety = await createSnapshot(this.extension, 'the failed build, before rolling back');
-        await restoreSnapshot(this.extension, ref);
+        const done = await rollBackExtension(this.extension, this.target);
 
-        this.settling = true;
-        clearFailure();
-        clearProposedFix();
-        this.settling = false;
+        if (!done.ok) {
+          toastError(this.$store, done.message, { title: done.title });
+
+          return;
+        }
+
         this.failure = null;
         this.recordedFix = null;
         this.$emit('changed');
         this.$emit('resolved');
-        toastSuccess(
-          this.$store,
-          'The failed tree was snapshotted first, so nothing is lost. It is in the Snapshots menu.',
-          { title: `Rolled back to ${ what }` },
-        );
-      } catch (e) {
-        toastError(
-          this.$store,
-          this.safety
-            ? e?.message || String(e)
-            : `Nothing has been rolled back. The failed tree could not be snapshotted first, and this panel will not replace a tree it cannot put back: ${ e?.message || e }`,
-          { title: 'The roll back did not happen' },
-        );
+        toastSuccess(this.$store, done.message, { title: done.title });
       } finally {
+        this.settling = false;
         this.rollingBack = false;
       }
     },
@@ -1117,9 +1076,12 @@ export default {
     <p class="bf__snapshot-note">
       <SIcon name="alert" :size="12" />
       <span>
-        There is no "undo my request" here. Undo is scoped to one file, and nothing in this
-        product records which edits came from which message, so an undo of a whole request
-        cannot be offered honestly yet.
+        There is no "undo my request" here. Nothing ties this failure to the request that
+        caused it - the record holds the build's own output and no turn - and the per-turn file
+        record the review screens read is blind to an edit made in the Terminal tab or through a
+        shell command. Reversing "the request" would be reversing a guess. "Undo the last
+        change" above is the honest neighbour: the most recently edited file, or the assistant's
+        last committed turn when the tree is clean.
       </span>
     </p>
 

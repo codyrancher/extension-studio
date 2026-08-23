@@ -68,7 +68,8 @@ import ActivityTurn from './ActivityTurn.vue';
 import { toastSuccess, toastError } from '../../toast';
 import {
   countChanges, publishedVersion, listExtensionFiles, writePodImage, assistantLogin, assistantTurns,
-  assistantPermissions, devServerLog, interruptAssistant
+  assistantPermissions, devServerLog, interruptAssistant, assistantConversation, assistantModel,
+  setAssistantModel, assistantMode, cycleAssistantMode
 } from '../../extensions';
 
 /**
@@ -125,6 +126,10 @@ const LOG_LINES = 200;
  *
  * The design's label is "Ask before each file edit" (11:226), which is claude's `default`
  * mode - so that wording is here, on the mode it is true of, and the others say what they are.
+ *
+ * Only used for the fallback reading. When there is a session open the chip repeats claude's
+ * own status line instead (see MODE_LABELS), because that is the mode it is in now rather than
+ * the one it was started in.
  */
 const PERMISSION_LABELS = {
   bypass:          'Edits apply without asking',
@@ -132,6 +137,27 @@ const PERMISSION_LABELS = {
   plan:            'Planning only, no edits',
   default:         'Asks before each file edit',
 };
+
+/**
+ * The modes claude's own status line names, and what each one means for your files.
+ *
+ * These are targets to cycle to, not a claim about what this claude has: `cycleAssistantMode`
+ * presses shift+tab until the status line says the wanted one and then reports the line it
+ * ended on, so a claude whose cycle does not include one of these lands somewhere else and the
+ * chip says where. The words are claude's, read off this pod - "bypass permissions", "accept
+ * edits", "auto mode" all came off the pane in front of this - and if it renames one the
+ * reading follows it while the target here stops matching, which shows up as a mode that
+ * cannot be reached rather than as a chip that lies.
+ */
+const MODE_LABELS = {
+  'bypass permissions': 'Edits apply without asking',
+  'accept edits':       'File edits apply, everything else asks',
+  'plan mode':          'Planning only, no edits',
+  'auto mode':          'claude decides what to ask about',
+};
+
+/** How often the mode is re-read. It changes under you: shift+tab in the pane is all it takes. */
+const MODE_POLL_MS = 20000;
 
 export default {
   name: 'AssistantPanel',
@@ -247,6 +273,21 @@ export default {
       podTurns:   [],
       podRead:    false,
       turnsTimer: null,
+      /**
+       * What claude itself wrote, read out of its own transcript.
+       *
+       * The provenance log records that a turn happened; this is what the assistant said while
+       * it was happening, which is the half of the design's turn (11:242) that never existed.
+       * `null` until the first read, so "nothing recorded" and "not asked yet" stay different.
+       */
+      conversation: null,
+      /** The model the pod's claude answers on, and the aliases it accepts. */
+      modelInfo:  null,
+      modelBusy:  '',
+      /** The permission mode it is in now, off its own status line. */
+      modeInfo:   null,
+      modeBusy:   '',
+      modeTimer:  null,
       sendTimer:  null,
       // Ticked so that "2 minutes ago" on a turn counts up rather than freezing at what it
       // said when the pod was last read.
@@ -384,6 +425,132 @@ export default {
     },
 
     /**
+     * Which recorded turn each of claude's replies belongs to, matched on time and nothing else.
+     *
+     * The two records are written by different things and share no id: the provenance hooks
+     * stamp a turn when claude receives a prompt, and claude stamps its own messages in its
+     * transcript. What they do share is a clock, and the rule that follows from it is the only
+     * one this can honestly use - a reply belongs to the last turn that had already started
+     * when it was written. A reply written before any turn was recorded belongs to no turn and
+     * is dropped rather than given to the first one.
+     */
+    repliesByTurn() {
+      const out = new Map();
+      const replies = this.conversation?.replies || [];
+      // Oldest first. `podTurns` is newest first, and only a turn with a recorded prompt has a
+      // start to compare against.
+      const starts = [...this.podTurns].reverse()
+        .map((turn) => ({ turn: turn.turn, at: Date.parse(turn.at || '') }))
+        .filter((entry) => entry.turn && !Number.isNaN(entry.at));
+
+      replies.forEach((reply) => {
+        const at = Date.parse(reply.at || '');
+
+        if (Number.isNaN(at)) {
+          return;
+        }
+
+        let owner = '';
+
+        starts.forEach((entry) => {
+          if (entry.at <= at) {
+            owner = entry.turn;
+          }
+        });
+
+        if (!owner) {
+          return;
+        }
+
+        if (!out.has(owner)) {
+          out.set(owner, []);
+        }
+
+        out.get(owner).push(reply);
+      });
+
+      return out;
+    },
+
+    /**
+     * The model chip in the composer's action bar (11:340, drawn "Claude Opus 5").
+     *
+     * A reading first: what the pod says its claude will answer on, in the pod's own spelling.
+     * Nothing in the pod naming a model is a real answer and is said as one - claude then uses
+     * whatever its account defaults to, and inventing a name for that would be the one thing
+     * this panel does not do.
+     */
+    modelChip() {
+      const info = this.modelInfo;
+
+      if (!info) {
+        return {
+          label: 'Reading the model',
+          title: 'Asking the pod which model its claude answers on.',
+        };
+      }
+
+      if (!info.read) {
+        return {
+          label: 'Model not read',
+          title: 'This extension\'s pod could not be asked which model its claude uses.',
+        };
+      }
+
+      const where = {
+        argv:     'the --model the running claude was started with',
+        env:      'ANTHROPIC_MODEL in the pod',
+        settings: '`model` in the pod\'s ~/.claude/settings.json, which is what claude\'s own /model writes',
+        config:   '`model` in the pod\'s ~/.claude.json',
+      }[info.source] || '';
+
+      if (info.model) {
+        return {
+          label: info.model,
+          title: `Read from ${ where }. Choosing another one sends claude's own /model to this pod's session, which changes the model from the next turn and is written back into the pod's settings, so it survives the pod restarting.`,
+        };
+      }
+
+      return {
+        label: 'Default model',
+        title: 'Nothing in this pod names a model: no --model on the claude that is running, no ANTHROPIC_MODEL in its environment, and no `model` in claude\'s settings. So it answers on whatever that install defaults to, and there is nothing here to read a name off. Choosing one below sends claude\'s own /model, after which this names it.',
+      };
+    },
+
+    /**
+     * What the model menu offers: the aliases this pod's claude documents, and nothing else.
+     *
+     * Parsed out of the pod's own `claude --help` rather than listed here, because a list in
+     * this file would be a claim about a program this bundle does not ship. When the help
+     * cannot be parsed the menu says so and points at claude's own picker in the pane, which
+     * is where the real list lives either way.
+     */
+    modelItems() {
+      const aliases = this.modelInfo?.aliases || [];
+      const current = this.modelInfo?.model || '';
+      const items = aliases.map((alias) => ({
+        id:       `model:${ alias }`,
+        label:    alias,
+        icon:     alias === current ? 'check' : 'sparkle',
+        note:     alias === current ? 'in use' : '',
+        disabled: !!this.modelBusy,
+      }));
+
+      if (!items.length) {
+        items.push({
+          id: 'model:none', label: 'No aliases were read from this pod\'s claude --help', disabled: true,
+        });
+      }
+
+      items.push({ divider: true });
+      items.push({
+        id: 'model:pick', label: 'Choose in the terminal', note: '/model', icon: 'terminal',
+      });
+
+      return items;
+    },
+
+    /**
      * The standing note under the last turn: what the stream is showing and what it is not.
      *
      * The second half is the one that matters and it has to keep being said, because the panel
@@ -392,10 +559,11 @@ export default {
      */
     streamNote() {
       return `Each turn above is what the pod recorded for it: the prompt, when it was sent, the screen and
-        user when the Studio sent it, and the files the turn left behind. The per-step detail the design
-        draws - a status and a duration for each step, and live progress on the one in flight - is not
-        here, because the hooks record a turn's start, the files its editing tools touch and its end, and
-        nothing in between. The replies themselves are in the terminal.`.replace(/\s+/g, ' ');
+        user when the Studio sent it, the assistant's own reply read out of claude's transcript, and the
+        files the turn left behind. The per-step detail the design draws - a status and a duration for
+        each step, and live progress on the one in flight - is not here, because the hooks record a
+        turn's start, the files its editing tools touch and its end, and nothing in between. A reply
+        that is a tool call rather than words has no text to show and is not counted as one.`.replace(/\s+/g, ' ');
     },
 
     /**
@@ -432,36 +600,57 @@ export default {
     },
 
     /**
-     * The permission chip (11:226, 16:557), which reports a mode rather than setting one.
+     * The permission chip (11:226, 16:557): the mode the assistant is in *now*, and the one
+     * control that actually changes it.
      *
-     * Read from the pod: `assistantPermissions` looks at the claude process that is running in
-     * there, and at the session script when no session has been opened yet. The design draws a
-     * picker, and there is nothing here to pick with - the mode is fixed by the arguments claude
-     * is started with, in a script that is seeded from this bundle and re-written on every page
-     * load - so the chip states the mode it found and the tooltip shows the command line it
-     * read it off. A menu that relabelled a chip without changing what the assistant does would
-     * be the one thing this product does not do.
+     * Two readings, and the order between them is the whole point. `assistantMode` reads
+     * claude's own status line in the pane ("bypass permissions on (shift+tab to cycle)"),
+     * which is the mode it is in at this moment - it follows a shift+tab somebody pressed in
+     * the Terminal tab a second ago. `assistantPermissions` reads the command line claude was
+     * *started* with, which is only the mode it began in, and is all there is to read when no
+     * session is open. The live one wins whenever there is one.
+     *
+     * The chip used to be a readout with no menu, on the argument that nothing here could
+     * change the mode. That was half right. What cannot be changed from here is the mode claude
+     * *starts* in: that is the argument in pod/claude-session.sh, which is seeded from this
+     * bundle and written again on every page load, so anything this screen wrote there would be
+     * overwritten by the next visit. What can be changed is the mode the running session is in,
+     * because claude cycles that on shift+tab and a pane can be typed into - so the menu does
+     * exactly that, and the chip then reports what claude's status line says it landed on
+     * rather than what was asked for.
      */
     permissionChip() {
+      const live = this.modeInfo;
       const perms = this.permissions;
 
-      if (!perms) {
+      if (live?.read && live.session && live.mode) {
+        const meaning = MODE_LABELS[live.mode] || '';
+
+        return {
+          label: meaning || live.mode,
+          icon:  live.mode === 'plan mode' ? 'lock' : 'alert',
+          tone:  live.mode === 'plan mode' ? 'info' : 'warning',
+          title: `Read from claude's own status line in this pod's session, which is the mode it is in right now: "${ live.line.trim() }". Choosing another one below presses shift+tab in that session, which is claude's own way of changing it. The mode claude *starts* in is fixed by pod/claude-session.sh, which is seeded from this bundle and written again on every page load, so a session that restarts comes back on that one. Nothing the assistant edits reaches this Rancher until you publish.`,
+        };
+      }
+
+      if (!perms && !live) {
         return {
           label: 'Reading the assistant\'s permissions',
           icon:  'clock',
           tone:  'default',
-          title: 'Asking the pod how its claude was started.',
+          title: 'Asking the pod what mode its claude is in.',
         };
       }
 
-      if (!perms.read || !perms.mode) {
+      if (!perms?.read || !perms?.mode) {
         return {
           label: 'Permissions not read',
           icon:  'alert',
           tone:  'default',
-          title: perms.read
+          title: perms?.read
             ? 'The pod answered, and no claude command line was found in it - neither a running process nor the session script. Open the Terminal tab to start one.'
-            : 'This extension\'s pod could not be asked how its claude was started, so nothing here is known about what it may do.',
+            : 'This extension\'s pod could not be asked what mode its claude is in, so nothing here is known about what it may do.',
         };
       }
 
@@ -473,8 +662,42 @@ export default {
         label: PERMISSION_LABELS[perms.mode] || `Permission mode: ${ perms.mode }`,
         icon:  perms.mode === 'default' ? 'lock' : 'alert',
         tone:  perms.mode === 'default' ? 'info' : 'warning',
-        title: `Read from ${ where }: \`${ perms.argv }\`. The mode is fixed when claude starts, by pod/claude-session.sh, which is seeded from this extension bundle and written again on every page load - so there is nothing on this screen that could change it. Nothing the assistant edits reaches this Rancher until you publish.`,
+        title: `No session is open in this pod, so there is no status line to read. This is the mode claude would start in, read from ${ where }: \`${ perms.argv }\`. Open the Terminal tab and the chip reports the running mode instead.`,
       };
+    },
+
+    /**
+     * The modes the chip's menu offers, and what each does to your files.
+     *
+     * Targets rather than a claim: each one presses shift+tab until claude's status line says
+     * that mode, and reports where it actually landed. One that this claude does not cycle
+     * through is reachable by nothing and says so, which is why the list can be written down
+     * without it becoming a lie about a program this bundle does not ship.
+     */
+    modeItems() {
+      const current = this.modeInfo?.mode || '';
+      const live = !!this.modeInfo?.session;
+      const items = Object.entries(MODE_LABELS).map(([mode, meaning]) => ({
+        id:       `mode:${ mode }`,
+        label:    meaning,
+        note:     mode === current ? 'in use' : mode,
+        icon:     mode === current ? 'check' : 'lock',
+        disabled: !live || !!this.modeBusy,
+      }));
+
+      items.push({ divider: true });
+
+      if (!live) {
+        items.push({
+          id: 'mode:none', label: 'No session is open in this pod, so there is no mode to change', disabled: true,
+        });
+      }
+
+      items.push({
+        id: 'mode:terminal', label: 'Open the terminal', note: 'shift+tab', icon: 'terminal',
+      });
+
+      return items;
     },
 
     /** The dev server's output, tidied enough to be readable in a pre. */
@@ -571,9 +794,18 @@ export default {
     // reports does not move except when somebody edits something.
     this.countTimer = setInterval(() => this.refreshChanges(), 60000);
 
-    // Once, and again when the extension changes: the mode is fixed when claude starts, so
-    // there is nothing here for a poll to notice.
+    // Once, and again when the extension changes: this is the mode claude was *started* in,
+    // which cannot change without a restart, and it is only the fallback anyway.
     this.refreshPermissions();
+
+    // The running mode does change while somebody watches: shift+tab in the Terminal tab is
+    // all it takes, and a chip that went on claiming the old one would be the worst kind of
+    // wrong here.
+    this.refreshMode();
+    this.modeTimer = setInterval(() => this.refreshMode(), MODE_POLL_MS);
+
+    // The model is read once and again after it is changed. Nothing else moves it.
+    this.refreshModel();
 
     this.refreshLogin();
     // Half a minute, because this one does change while somebody is looking at it: running
@@ -592,6 +824,7 @@ export default {
     clearInterval(this.countTimer);
     clearInterval(this.loginTimer);
     clearInterval(this.turnsTimer);
+    clearInterval(this.modeTimer);
     clearInterval(this.nowTimer);
     clearTimeout(this.sendTimer);
   },
@@ -621,10 +854,15 @@ export default {
       this.version = '';
       this.login = null;
       this.permissions = null;
+      this.modeInfo = null;
+      this.modelInfo = null;
+      this.conversation = null;
       this.rawOpen = false;
       this.rawText = '';
       this.rawError = '';
       this.refreshPermissions();
+      this.refreshMode();
+      this.refreshModel();
       this.podTurns = [];
       this.podRead = false;
       this.refreshLogin();
@@ -750,6 +988,111 @@ export default {
 
       this.podTurns = Array.isArray(turns) ? turns : [];
       this.podRead = true;
+
+      // The same beat as the turns, because the two are drawn as one thing: a turn whose reply
+      // arrived a second later would otherwise show as unanswered until the next poll.
+      const said = await assistantConversation(asked, TURN_LIMIT * 2).catch(() => null);
+
+      if (asked === this.extension && said) {
+        this.conversation = said;
+      }
+    },
+
+    async refreshMode() {
+      const asked = this.extension;
+      const mode = await assistantMode(asked).catch(() => ({
+        read: false, session: false, mode: '', line: '',
+      }));
+
+      if (asked === this.extension) {
+        this.modeInfo = mode;
+      }
+    },
+
+    async refreshModel() {
+      const asked = this.extension;
+      const model = await assistantModel(asked).catch(() => ({
+        read: false, model: '', source: '', aliases: [], session: false,
+      }));
+
+      if (asked === this.extension) {
+        this.modelInfo = model;
+      }
+    },
+
+    /**
+     * Point the pod's claude at another model, and then read back what it is on.
+     *
+     * `/model` into the open session when there is one, which is claude's own command and which
+     * claude itself persists into the pod's settings; the same settings key written directly
+     * when there is no session to type into. Either way the chip is re-read afterwards rather
+     * than relabelled, so what it says is what the pod says.
+     */
+    async chooseModel(alias) {
+      if (this.modelBusy) {
+        return;
+      }
+
+      this.modelBusy = alias;
+
+      try {
+        const how = await setAssistantModel(this.extension, alias);
+
+        // claude takes a moment to write its settings after the command lands in the pane.
+        await new Promise((resolve) => setTimeout(resolve, how === 'session' ? 2500 : 0));
+        await this.refreshModel();
+
+        toastSuccess(
+          this.$store,
+          how === 'session'
+            ? `/model ${ alias } went to this pod's session, which is claude's own way of changing it. The chip now shows what the pod reports.`
+            : `No session is open in this pod, so ${ alias } was written into claude's settings there. The next session starts on it.`,
+          { title: 'Model changed' },
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The model did not change' });
+      } finally {
+        this.modelBusy = '';
+      }
+    },
+
+    /**
+     * Cycle the pod's session to a permission mode, the way a person at the pane would.
+     *
+     * shift+tab is claude's own control and there is no other: it moves to the next mode and
+     * prints where it landed. So this presses it until the status line says the wanted mode, and
+     * then says which mode it is actually in - never which one was asked for.
+     */
+    async chooseMode(mode) {
+      if (this.modeBusy) {
+        return;
+      }
+
+      this.modeBusy = mode;
+
+      try {
+        const now = await cycleAssistantMode(this.extension, mode);
+
+        this.modeInfo = now;
+
+        if (now.mode === mode) {
+          toastSuccess(
+            this.$store,
+            `This pod's claude is now in ${ mode }. It stays there until the session restarts, which brings it back on the mode pod/claude-session.sh starts it in.`,
+            { title: 'Permission mode changed' },
+          );
+        } else {
+          toastError(
+            this.$store,
+            `shift+tab did not reach ${ mode } in this claude's cycle. It is in ${ now.mode || 'a mode with no status line' } instead, which is what the chip now says.`,
+            { title: 'That mode was not reached' },
+          );
+        }
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The mode did not change' });
+      } finally {
+        this.modeBusy = '';
+      }
     },
 
     /** The one line `askAssistant` types, which is what the hook on the other end records. */
@@ -810,27 +1153,58 @@ export default {
     },
 
     /**
-     * The assistant's half of a recorded turn: what it ended in, or that it has not ended.
+     * What the assistant said during a turn, as one block of prose.
+     *
+     * The design's assistant turn opens with the assistant's own words (11:242, 11:249) and for
+     * a long time this panel had none to open with: the provenance hooks record that a turn
+     * happened, never what was said in it. These are claude's own messages, out of its own
+     * transcript, joined in the order it wrote them. A turn whose only output was tool calls
+     * has no text and gets none.
+     */
+    saidIn(turn) {
+      const replies = this.repliesByTurn.get(turn.turn) || [];
+      const text = replies.map((reply) => (reply.text || '').trim()).filter(Boolean).join('\n\n');
+      const models = [...new Set(replies.map((reply) => reply.model)
+        .filter((model) => model && model !== '<synthetic>'))];
+
+      return {
+        text,
+        // Only when every one of them is an error, so a turn that failed after saying something
+        // useful is not drawn as nothing but a failure.
+        failed: !!replies.length && replies.every((reply) => !!reply.error),
+        model:  models.join(', '),
+      };
+    },
+
+    /**
+     * The assistant's half of a recorded turn: what it said, what it ended in, or that it has
+     * not ended.
      *
      * No duration for a turn with no end, and no invented result for one. This is the ordinary
      * case in a pod whose claude is signed out: the prompt is delivered, the UserPromptSubmit
-     * hook records it and the Stop hook never fires, so the turn stays open for good.
+     * hook records it and the Stop hook never fires, so the turn stays open for good - and now
+     * that claude's own reply is read too, such a turn shows the reply that explains it
+     * ("Not logged in - Please run /login") instead of only reporting the silence.
      */
     outcomeEntry(turn) {
       const files = Array.isArray(turn.files) ? turn.files : [];
       const commit = (turn.commit || '').slice(0, 7);
       const n = files.length;
       const plural = n === 1 ? '' : 's';
+      const said = this.saidIn(turn);
 
       if (!turn.endedAt) {
+        const why = turn.at
+          ? 'No end was recorded for this turn, so there is nothing yet to show for it.'
+          : 'A turn was recorded with neither a prompt nor an end.';
+        const open = turn.at ? `Started ${ this.ago(turn.at) } · no duration, because nothing recorded its end` : '';
+
         return {
           role:       'assistant',
-          pending:    true,
+          pending:    !said.text || said.failed,
           when:       '',
-          text:       turn.at
-            ? 'No end was recorded for this turn, so there is nothing yet to show for it.'
-            : 'A turn was recorded with neither a prompt nor an end.',
-          note:       turn.at ? `Started ${ this.ago(turn.at) } · no duration, because nothing recorded its end` : '',
+          text:       said.text || why,
+          note:       said.text ? [why, open].filter(Boolean).join(' · ') : open,
           files,
           filesLabel: n ? `${ n } file${ plural } its editing tools have touched so far` : '',
         };
@@ -849,26 +1223,33 @@ export default {
         facts.push(`Commit ${ commit }`);
       }
 
-      let text;
+      if (said.model) {
+        facts.push(`Answered on ${ said.model }`);
+      }
+
+      let outcome;
 
       if (!turn.at) {
         // The rule the whole record is built on: a change nobody watched is reported as
         // unattributed, never handed to the nearest turn that does have a prompt.
-        text = 'Changed in the pod with no prompt recorded.';
+        outcome = 'Changed in the pod with no prompt recorded.';
       } else if (commit) {
-        text = 'Finished, and committed what it left behind.';
+        outcome = 'Finished, and committed what it left behind.';
       } else if (n) {
-        text = 'Finished. No commit was recorded for it.';
+        outcome = 'Finished. No commit was recorded for it.';
       } else {
-        text = 'Finished without changing any files.';
+        outcome = 'Finished without changing any files.';
       }
 
       return {
         role:       'assistant',
         pending:    false,
+        // What the assistant said leads, as the design has it, and what the turn ended in drops
+        // to the caption under it. With nothing said, the caption's sentence is all there is
+        // and it leads instead.
         when:       this.ago(turn.endedAt),
-        text,
-        note:       facts.join(' · '),
+        text:       said.text || outcome,
+        note:       (said.text ? [outcome, ...facts] : facts).join(' · '),
         files,
         filesLabel: n
           ? `${ n } file${ plural } ${ commit ? 'in this turn\'s commit' : 'its editing tools touched' }`
@@ -975,6 +1356,33 @@ export default {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.submit();
+      }
+    },
+
+    onModeSelect(id) {
+      if (id === 'mode:terminal') {
+        this.$emit('update:tab', 'terminal');
+
+        return;
+      }
+
+      if (id.startsWith('mode:')) {
+        this.chooseMode(id.slice('mode:'.length));
+      }
+    },
+
+    onModelSelect(id) {
+      if (id === 'model:pick') {
+        // claude's own picker, in the pane, which is where the whole list lives. Typed without
+        // an argument so it opens rather than choosing something.
+        this.$emit('send', '/model');
+        this.$emit('update:tab', 'terminal');
+
+        return;
+      }
+
+      if (id.startsWith('model:')) {
+        this.chooseModel(id.slice('model:'.length));
       }
     },
 
@@ -1123,16 +1531,30 @@ export default {
       >{{ sessionState.label }}</span>
       <span class="assistant-panel__grow" />
       <!--
-        The mode the pod's claude is actually running in, read from it. Informational, because
-        the mode is fixed when claude starts and nothing on this screen restarts it.
+        The mode the pod's claude is in right now, read off its own status line, and the menu
+        that changes it: each entry presses shift+tab in that session until claude says it is in
+        that mode. The label is what claude reports afterwards, never what was asked for.
+
+        The test id is on the label inside the trigger rather than on the menu, because an
+        attribute on SMenu falls through to its wrapper div and a click there opens nothing. A
+        click on the label is a click on the button it is inside.
       -->
-      <SChip
-        :label="permissionChip.label"
-        :icon="permissionChip.icon"
-        :tone="permissionChip.tone"
-        :title="permissionChip.title"
-        data-testid="barn-permission-chip"
-      />
+      <SMenu
+        :items="modeItems"
+        aria-label="Permission mode"
+        @select="onModeSelect"
+      >
+        <template #trigger>
+          <SIcon :name="permissionChip.icon" :size="13" />
+          <span
+            class="assistant-panel__chip-label"
+            :class="`assistant-panel__chip-label--${ permissionChip.tone }`"
+            :title="permissionChip.title"
+            data-testid="barn-permission-chip"
+          >{{ permissionChip.label }}</span>
+          <SIcon name="chevronDown" :size="12" />
+        </template>
+      </SMenu>
       <SMenu
         :items="sessionItems"
         icon="chevronDown"
@@ -1250,7 +1672,7 @@ export default {
           v-else
           icon="sparkle"
           :title="podRead ? 'No turn has been recorded for this extension' : 'Reading what this pod has recorded'"
-          message="Every prompt this pod's assistant receives is recorded as a turn - from the composer, from another Studio screen, or typed into the Terminal tab - with when it was sent, who sent it and what it left behind. The replies themselves stay in the terminal."
+          message="Every prompt this pod's assistant receives is recorded as a turn - from the composer, from another Studio screen, or typed into the Terminal tab - with when it was sent, who sent it, what it replied and what it left behind."
         >
           <SButton
             variant="secondary"
@@ -1347,6 +1769,29 @@ export default {
             multiple
             @change="onAttach"
           >
+
+          <!--
+            The model chip (11:340). A reading of what the pod says its claude answers on, and a
+            menu of the aliases that pod's own `claude --help` documents. Choosing one sends
+            claude's own /model to the session, so the next turn uses it; the chip is then
+            re-read rather than relabelled.
+          -->
+          <SMenu
+            :items="modelItems"
+            align="left"
+            aria-label="Model"
+            @select="onModelSelect"
+          >
+            <template #trigger>
+              <SIcon :name="modelBusy ? 'clock' : 'sparkle'" :size="13" />
+              <span
+                class="assistant-panel__chip-label"
+                :title="modelChip.title"
+                data-testid="barn-model-chip"
+              >{{ modelChip.label }}</span>
+            </template>
+          </SMenu>
+
           <span class="assistant-panel__grow" />
           <!--
             Stop beside Send, as the design draws it (11:347). It presses Escape in the pane,
@@ -1533,6 +1978,15 @@ export default {
     text-align:  left;
 
     &:hover { background: var(--studio-surface); }
+  }
+
+  // The label inside a menu trigger, so a picker reads as the chip the design draws rather
+  // than as a button. The tone follows the reading, which is the only thing that colours it.
+  &__chip-label {
+    font: var(--studio-caption-12);
+
+    &--warning { color: var(--studio-warning); }
+    &--info    { color: var(--studio-info); }
   }
 
   &__raw-label { font: var(--studio-caption-12-semi); }

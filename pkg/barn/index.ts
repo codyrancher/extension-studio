@@ -122,11 +122,17 @@ export default function(plugin: IPlugin): void {
     component: () => import('./pages/extension-starting.vue'),
   });
 
-  // Nothing is put in Rancher's header. This used to register a component into NavHeaderRight
-  // carrying an Editor button and the extension box, and that slot is a poor place for them:
-  // it is a single global slot, so the last extension to claim it silently wins, and it is
-  // rendered on every page in Rancher whether or not any of this is what you are doing.
+  // Nothing is registered into Rancher's header from here. This used to claim NavHeaderRight
+  // with an Editor button and the extension box, and that slot is a poor place for them: it is
+  // a single global slot, so the last extension to claim it silently wins, and it is rendered
+  // on every page in Rancher whether or not any of this is what you are doing.
   //
   // The flask in the side rail is the way in (see editor-product.ts), and the extension box
   // lives on the editor's own toolbar, where it is next to the thing it changes.
+  //
+  // The one thing the Studio does put in the header is the kebab the design draws on screens
+  // 01, 02 and 11, and it is registered by the pages rather than here for exactly the reason
+  // above: `@shell/mixins/page-actions` commits a menu when a page mounts and clears it when
+  // that page leaves, so the menu belongs to the screen instead of to all of Rancher. See
+  // STUDIO_PAGE_ACTIONS in editor-product.ts.
 }

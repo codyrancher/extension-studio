@@ -126,3 +126,78 @@ export function init($plugin: IPlugin, store: any) {
   // rail. Both calls are synchronous and in this order, so no navigation can land between them.
   markStudioRoutes($plugin);
 }
+
+/**
+ * The Studio's global actions, and the header kebab they hang under.
+ *
+ * The design draws a kebab in the header on screens 01, 02 and 11 (nodes 53:1306, 53:1430,
+ * 53:1926) and does not draw what is inside it. Verifiers looked for it on all three of those
+ * screens over two waves and found nothing, because barn renders no header - but Rancher does render one, and it already has
+ * this exact control: `HeaderPageActionMenu` (an `icon-actions` kebab, testid
+ * `page-actions-menu-action-button`) sits beside the notification bell and the user menu, and
+ * `Header.vue` shows it whenever whatever is currently mounted has committed a non-empty
+ * `pageActions` into the root store. Two things in Rancher do: its home page, and its default
+ * layout, which is why the kebab is there on a cluster explorer route and offers "Set as login
+ * page". The Studio's screens use the `plain` layout, which commits nothing, so on every one
+ * of them the kebab the design draws was missing because nothing had filled it in.
+ *
+ * `@shell/mixins/page-actions` is how a page fills it: it commits on `created` and clears on
+ * `beforeUnmount`, so the menu belongs to the page rather than to every page in Rancher. That
+ * is the distinction that made `NavHeaderRight` the wrong home for the old header controls
+ * (see index.ts) and it is why this one is acceptable.
+ *
+ * What is in it is the part that had to be earned rather than drawn. Each entry is somewhere
+ * Studio-wide that the screen you are standing on has no other way to reach:
+ *
+ *   - The review queue is the sharpest case. `/barn/review` is linked from screen 12 and
+ *     screen 13 only, both of which are reached *through* it, and it has no rail entry - so
+ *     from the Studio's own front door there was no way to it at all.
+ *   - Settings is a route with no nav entry by design (see SETTINGS_ROUTE above); screen 01 has
+ *     a button for it in its masthead and screen 02 has nothing.
+ *   - Rancher's Extensions page is where a published extension actually ends up. Screen 01
+ *     reaches it from its breadcrumb; screen 02 does not.
+ *
+ * Nothing that only makes sense on one screen is here, and nothing here is invented: all three
+ * are pages this product already has.
+ */
+export const STUDIO_ACTION_QUEUE = 'barn-page-action-queue';
+export const STUDIO_ACTION_SETTINGS = 'barn-page-action-settings';
+export const STUDIO_ACTION_INSTALLED = 'barn-page-action-installed';
+
+export const STUDIO_PAGE_ACTIONS = [
+  { label: 'Review queue', action: STUDIO_ACTION_QUEUE },
+  { label: 'Studio settings', action: STUDIO_ACTION_SETTINGS },
+  { divider: true },
+  { label: 'Installed extensions', action: STUDIO_ACTION_INSTALLED },
+];
+
+/**
+ * Run one of them, from whichever page opened the menu.
+ *
+ * Takes the component rather than living on it so the two screens that offer the menu cannot
+ * drift into offering the same labels with different destinations.
+ *
+ * The cluster for Rancher's Extensions page is resolved the way the side menu resolves it, so
+ * this and screen 01's "Extensions" breadcrumb land on the same URL; `_` is Rancher's
+ * cluster-less cluster id and is the fallback when nothing is loaded.
+ */
+export function handleStudioPageAction(vm: any, action: { action?: string }): void {
+  switch (action?.action) {
+  case STUDIO_ACTION_QUEUE:
+    vm.$router.push({ name: REVIEW_QUEUE_ROUTE });
+    break;
+
+  case STUDIO_ACTION_SETTINGS:
+    vm.$router.push({ name: SETTINGS_ROUTE });
+    break;
+
+  case STUDIO_ACTION_INSTALLED: {
+    const cluster = vm.$store.getters['clusterId'] || vm.$store.getters['defaultClusterId'] || '_';
+
+    vm.$router.push({ name: 'c-cluster-uiplugins', params: { cluster } });
+    break;
+  }
+
+  // no default
+  }
+}

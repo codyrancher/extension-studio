@@ -8,8 +8,11 @@
 // what a reviewer expects: a bar per file, a gutter of old and new line numbers, and the two
 // directions coloured across the whole row rather than only on the text.
 //
-// Unified rather than side by side. Side by side needs twice the width to say the same thing,
-// and this is a pane inside a dialog inside a pane.
+// Unified by default, because side by side needs twice the width to say the same thing and
+// this is a pane inside a dialog inside a pane. `mode="split"` is the other one: the design
+// draws the layout as a named, changeable thing (14:433) rather than as a fact about the
+// renderer, so the caller chooses and the reader can change their mind. See `rows()` for how a
+// hunk's runs of removals and additions are paired into two columns.
 //
 // Two optional scoped slots, `hunk-head` and `hunk-foot`, put a caller's own row above and
 // below each hunk's lines - which is how screen 12 hangs a provenance strip and a comment
@@ -115,11 +118,32 @@ export default {
       type:    String,
       default: '',
     },
+
+    /** `unified` (one column, signed rows) or `split` (old on the left, new on the right). */
+    mode: {
+      type:      String,
+      default:   'unified',
+      validator: (v) => ['unified', 'split'].includes(v),
+    },
   },
 
   computed: {
     files() {
       return parsePatch(this.patch);
+    },
+
+    split() {
+      return this.mode === 'split';
+    },
+
+    /**
+     * How wide a full-width row is, which differs between the two layouts.
+     *
+     * The hunk header and the two slot rows span the table, and a colspan that does not match
+     * the number of columns is how a table quietly grows a fourth column of nothing.
+     */
+    cols() {
+      return this.split ? 4 : 3;
     },
 
     /**
@@ -169,6 +193,59 @@ export default {
     sign(kind) {
       return { add: '+', remove: '-' }[kind] || ' ';
     },
+
+    /**
+     * A hunk's lines as side-by-side pairs: what was there, and what is there now.
+     *
+     * A unified hunk is a sequence of runs - some context, then some removals, then some
+     * additions, then more context - and a split view is that same sequence with each run of
+     * removals sat beside the run of additions that replaced it. So this buffers the two runs
+     * and flushes them together whenever the run ends, pairing them off by position and
+     * padding the shorter side with blanks. Anything that is only on one side (a pure
+     * deletion, a pure addition) gets a blank opposite it, which is exactly what makes the
+     * shape of the change visible in this layout.
+     *
+     * "\ No newline at end of file" belongs to neither column, so it stays a full-width row.
+     */
+    rows(hunk) {
+      const out = [];
+      let removed = [];
+      let added = [];
+
+      const flush = () => {
+        for (let i = 0; i < Math.max(removed.length, added.length); i++) {
+          out.push({ left: removed[i] || null, right: added[i] || null, note: null });
+        }
+
+        removed = [];
+        added = [];
+      };
+
+      for (const line of hunk.lines) {
+        if (line.kind === 'remove') {
+          removed.push(line);
+        } else if (line.kind === 'add') {
+          added.push(line);
+        } else {
+          flush();
+
+          if (line.kind === 'note') {
+            out.push({ left: null, right: null, note: line });
+          } else {
+            out.push({ left: line, right: line, note: null });
+          }
+        }
+      }
+
+      flush();
+
+      return out;
+    },
+
+    /** The class for one side of a split row: its own kind, or an empty half. */
+    sideClass(cell) {
+      return `diff__row--${ cell ? cell.kind : 'blank' }`;
+    },
   },
 };
 </script>
@@ -201,7 +278,7 @@ export default {
         <span class="diff__removed">&minus;{{ counts(file).removed }}</span>
       </div>
 
-      <table class="diff__table">
+      <table class="diff__table" :class="{ 'diff__table--split': split }">
         <tbody>
           <template
             v-for="(hunk, h) in file.hunks"
@@ -210,19 +287,42 @@ export default {
             <tr class="diff__hunk">
               <td
                 class="diff__gutter"
-                colspan="2"
+                :colspan="split ? 1 : 2"
               />
-              <td class="diff__hunk-head">
+              <td class="diff__hunk-head" :colspan="cols - 1">
                 {{ hunk.header || '…' }}
               </td>
             </tr>
             <tr v-if="$slots['hunk-head']" class="diff__aside">
-              <td colspan="3" class="diff__aside-cell">
+              <td :colspan="cols" class="diff__aside-cell">
                 <slot name="hunk-head" :file="file" :hunk="hunk" :index="h" />
               </td>
             </tr>
+
+            <!-- side by side: the run that went, beside the run that replaced it -->
+            <template v-if="split">
+              <tr
+                v-for="(row, r) in rows(hunk)"
+                :key="`s${ h }-${ r }`"
+                class="diff__row"
+              >
+                <td v-if="row.note" class="diff__code diff__row--note" :colspan="cols">{{ row.note.text }}</td>
+                <template v-else>
+                  <td class="diff__gutter" :class="sideClass(row.left)">
+                    {{ row.left?.old ?? '' }}
+                  </td>
+                  <td class="diff__code" :class="sideClass(row.left)"><span class="diff__sign">{{ row.left ? sign(row.left.kind) : ' ' }}</span>{{ row.left?.text ?? '' }}</td>
+                  <td class="diff__gutter diff__gutter--right" :class="sideClass(row.right)">
+                    {{ row.right?.new ?? '' }}
+                  </td>
+                  <td class="diff__code" :class="sideClass(row.right)"><span class="diff__sign">{{ row.right ? sign(row.right.kind) : ' ' }}</span>{{ row.right?.text ?? '' }}</td>
+                </template>
+              </tr>
+            </template>
+
+            <!-- unified: one column, the two directions coloured across the whole row -->
             <tr
-              v-for="(line, l) in hunk.lines"
+              v-for="(line, l) in (split ? [] : hunk.lines)"
               :key="`${ h }-${ l }`"
               :class="`diff__row diff__row--${ line.kind }`"
             >
@@ -235,7 +335,7 @@ export default {
               <td class="diff__code"><span class="diff__sign">{{ sign(line.kind) }}</span>{{ line.text }}</td>
             </tr>
             <tr v-if="$slots['hunk-foot']" class="diff__aside">
-              <td colspan="3" class="diff__aside-cell">
+              <td :colspan="cols" class="diff__aside-cell">
                 <slot name="hunk-foot" :file="file" :hunk="hunk" :index="h" />
               </td>
             </tr>
@@ -379,6 +479,27 @@ export default {
 
   &__row--note {
     color: var(--muted);
+  }
+
+  // Side by side. The colour moves off the row and onto the cell, because in this layout the
+  // two halves of one row are a removal and an addition and they are not the same colour. A
+  // half with nothing opposite it is shaded as absent rather than left white, so a pure
+  // addition reads as an addition and not as a line that failed to render.
+  &__table--split {
+    table-layout: fixed;
+
+    .diff__code {
+      width:     50%;
+      max-width: 0;
+    }
+
+    .diff__gutter--right {
+      border-left: 1px solid var(--border);
+    }
+
+    .diff__row--add    { background: var(--studio-diff-added-bg); }
+    .diff__row--remove { background: var(--studio-diff-removed-bg); }
+    .diff__row--blank  { background: var(--studio-surface-subtle); }
   }
 }
 </style>

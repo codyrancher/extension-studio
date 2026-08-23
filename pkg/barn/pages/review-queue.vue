@@ -11,9 +11,12 @@
 // So each row reads three things and says which of them it is. `distributionGate()` is where
 // the two sign-offs stand against the packet that was actually handed over; `readReview()`'s
 // `packets` are the hand-overs themselves, with who pushed each and when; `sinceLastLook()` is
-// what has landed since this reviewer last opened one. A change nobody has handed over is
-// still listed, because it is real work and its next move is its author's, but it is labelled
-// as never handed over and counted as the author's rather than as a review request.
+// what has landed since this reviewer last opened one. A change nobody has handed over is not
+// listed at all: `handedOverExtensions()` filters the enumeration down to the extensions that
+// have a packet, because the guardrail on the flow map is that the packet accumulates quietly
+// and is only assembled and handed to a reviewer at the push. Listing an author's own tree and
+// labelling it "not handed over" was the softer version of that, and a row that explains why
+// it should not be there is still a row, and still counted in "Waiting on you".
 //
 // The footnote in the design states the rule this screen is built around - "rows lead with what
 // the change is for, taken from its brief, not with a file count" - so each row's first line is
@@ -39,11 +42,13 @@ import {
 } from '../extensions';
 import {
   readReview, gateFrom, distributionGate, currentSigner, whoAsked, sinceLastLook, lastLook,
-  migrateDeferral, sameCommit
+  migrateDeferral, sameCommit, handedOverExtensions, assessRisk
 } from '../review';
 import {
-  STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
+  STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE,
+  STUDIO_PAGE_ACTIONS, STUDIO_ACTION_QUEUE, handleStudioPageAction
 } from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -103,56 +108,6 @@ function writeReviewSettings(settings) {
     // A browser with storage turned off keeps the choice for this session and loses it on
     // reload. Nothing here is worth an error dialog.
   }
-}
-
-/** Markdown that is prose rather than code. */
-const PROSE = /\.(md|markdown|txt)$/i;
-/** The files that decide what the extension depends on. */
-const MANIFEST = /(^|\/)package(-lock)?\.json$/;
-/** The files Rancher loads first - a mistake in one of these takes the whole extension down. */
-const ENTRY = /(^|\/)(index|product|routing)\.(ts|js)$/;
-
-/**
- * How much of a reviewer's attention this change wants, and the one line saying why.
- *
- * The rating used to be a file count and nothing else, which cannot tell a ten-file
- * documentation pass from ten files of the extension's entry point. It reads the paths and the
- * diff sizes it already has: whether anything but prose changed, whether the dependency
- * manifest moved, whether the files Rancher loads first are among them, and how many lines.
- *
- * The reason is three clauses because that is what the design draws ("Read-only · no new
- * dependencies · one page"), and every clause is a reading rather than a judgement.
- */
-function assessRisk(files) {
-  if (!files.length) {
-    return { level: 'none', reason: 'Nothing uncommitted since the last commit' };
-  }
-
-  const lines = files.reduce((n, f) => n + (f.added || 0) + (f.removed || 0), 0);
-  const proseOnly = files.every((f) => PROSE.test(f.path));
-  const deps = files.some((f) => MANIFEST.test(f.path));
-  const entry = files.some((f) => ENTRY.test(f.path));
-
-  let level = 'low';
-
-  if (files.length > 8 || lines > 400) {
-    level = 'high';
-  } else if (deps || entry || files.length > 3 || lines > 80) {
-    level = 'medium';
-  }
-
-  if (proseOnly) {
-    // Prose cannot break the extension, however much of it there is.
-    level = 'low';
-  }
-
-  const reason = [
-    proseOnly ? 'Prose only, no code' : `${ lines } line${ lines === 1 ? '' : 's' } changed`,
-    deps ? 'moves the dependencies' : 'no dependency changes',
-    entry ? 'touches the entry point' : `${ files.length } file${ files.length === 1 ? '' : 's' }`,
-  ];
-
-  return { level, reason: reason.join(' · ') };
 }
 
 /**
@@ -225,7 +180,7 @@ export default {
     SButton, SBadge, SChip, SIcon, SEmpty, STabs, SMenu, SModal, SField
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     const settings = readReviewSettings();
@@ -234,6 +189,10 @@ export default {
       rows:          [],
       tab:           'you',
       loading:       true,
+      // How many extensions exist that have never been handed over. Not rows - see `load()` -
+      // but the number the empty state needs so an empty queue reads as "nobody has asked for
+      // a review" rather than as a screen that failed to load.
+      authored:      0,
       // Who the cluster believes is asking, so "waiting on others" can mean "on somebody who
       // is not you". null when Rancher would not say, and the tab says so rather than guessing.
       me:            null,
@@ -297,6 +256,41 @@ export default {
       const elsewhere = new Set(this.waitingOnOthers.map((r) => r.name));
 
       return this.rows.filter((r) => !!r.side && !r.bothIn && !elsewhere.has(r.name));
+    },
+
+    /**
+     * What an empty "Waiting on you" says.
+     *
+     * An empty queue is now the normal state of a Rancher where nobody has pushed a packet, so
+     * it has to read as an answer rather than as a screen that did not load. It names how many
+     * extensions were left out and why, which is the rule this list is built on stated from the
+     * other side.
+     */
+    nothingOnYou() {
+      const n = this.authored;
+
+      if (!n) {
+        return 'Nothing has been handed over for you to review. A change arrives here when somebody pushes it for review as a packet.';
+      }
+
+      return `Nothing has been handed over for you to review. ${ n } extension${ n === 1 ? '' : 's' } in this Rancher ${ n === 1 ? 'has' : 'have' } work in the author's own tree, which is not a review request: a change arrives here when it is pushed for review as a packet.`;
+    },
+
+    /**
+     * What Rancher's header kebab offers here (Figma 53:1430).
+     *
+     * Read by @shell/mixins/page-actions, which commits it on `created` and clears it on
+     * `beforeUnmount`, so the menu is this page's rather than every page in Rancher's. The list
+     * lives in editor-product.ts; see the note there for why those three.
+     *
+     * Minus "Review queue", because this is the review queue. A menu item that navigates to the
+     * page you are standing on is a control that does nothing, and the Studio has already
+     * shipped one of those once - screen 01's breadcrumb pointed at screen 01. Filtered from the
+     * shared list rather than declared as a second list, so the labels and destinations still
+     * cannot drift between the screens that offer the menu.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS.filter((each) => each.action !== STUDIO_ACTION_QUEUE);
     },
 
     signedOffLabel() {
@@ -374,7 +368,24 @@ export default {
 
       const summaries = await listExtensions().catch(() => []);
 
-      this.rows = summaries.map((s) => {
+      // Cross-screen rule 6: "the review packet accumulates quietly in the background. It is
+      // only assembled and handed to a reviewer at the push to a repository". So the queue is
+      // the list of hand-overs, and enumerating the namespace is not that list. Until this,
+      // an author with an uncommitted file was a row in somebody else's queue that counted
+      // toward "Waiting on you", and the row's own words said it should not be there.
+      //
+      // One ConfigMap read per extension and no exec, so this costs the first paint nothing
+      // measurable. `handedOverExtensions` treats a record it cannot read as not handed over,
+      // which is the same answer as no record at all.
+      const names = summaries.map((s) => s.name);
+      const handed = new Set(await handedOverExtensions(names).catch(() => []));
+      const queued = summaries.filter((s) => handed.has(s.name));
+
+      // What is being left out, so the empty state can say so rather than looking broken.
+      // These are real extensions with real work in them; they are just nobody's review yet.
+      this.authored = names.length - queued.length;
+
+      this.rows = queued.map((s) => {
         const existing = this.rows.find((r) => r.name === s.name);
 
         return {
@@ -386,7 +397,7 @@ export default {
       });
       this.loading = false;
 
-      await Promise.all(summaries.map((s) => this.enrich(s.name)));
+      await Promise.all(queued.map((s) => this.enrich(s.name)));
     },
 
     /**
@@ -446,6 +457,8 @@ export default {
       row.bothIn = reading.bothIn;
       row.signedAt = reading.signedAt;
       row.reason = reading.reason;
+      row.pr = reading.pr;
+      row.prError = reading.prError;
       row.asked = asked;
       // The packet model's sentence first, because it is the product's own record of what this
       // reviewer has seen. It says nothing at all until they have opened a packet - somebody
@@ -539,6 +552,12 @@ export default {
         handed:   packet > 0,
         handedAt,
         handover: packet ? this.handoverLine(packet, recorded) : '',
+        // The record of the hand-off, read out of the record. Cross-screen rule 5: the hand-off
+        // to review is a PR and the PR is the record, so the row that represents the hand-off
+        // names it. No token and no network - `handOverForReview` wrote it into the packet at
+        // the moment it opened it, and it stays readable after the PR is merged and closed.
+        pr:       recorded?.pr || null,
+        prError:  recorded?.prError || '',
         stage,
         side,
         code,
@@ -595,8 +614,23 @@ export default {
     handoverLine(packet, recorded) {
       const by = recorded?.byName || recorded?.by || '';
       const when = recorded?.at ? ` ${ this.ago(recorded.at) }` : '';
+      const opened = recorded?.pr
+        ? ` As pull request #${ recorded.pr.number }.`
+        : (recorded?.prError ? ` The pull request could not be opened: ${ recorded.prError }` : '');
 
-      return `Handed over as packet ${ packet }${ when }${ by ? ` by ${ by }` : '' }.`;
+      return `Handed over as packet ${ packet }${ when }${ by ? ` by ${ by }` : '' }.${ opened }`;
+    },
+
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
+
+    /** Open the pull request the hand-over opened. The row's own click opens the change. */
+    openPr(row) {
+      if (row.pr?.url) {
+        window.open(row.pr.url, '_blank', 'noopener');
+      }
     },
 
     /**
@@ -992,7 +1026,7 @@ export default {
         Nothing in this list is live. Everything here is still running only in its author's
         preview, and you are both its author and its only reviewer, so nothing here is waiting
         on anybody else. A change is only a review request once it has been handed over as a
-        packet; until then it is its author's own work, and the row says so.
+        packet; until then it is its author's own work and it is not in this list at all.
       </p>
     </div>
 
@@ -1009,7 +1043,7 @@ export default {
         v-if="!loading && !shown.length && tab === 'you'"
         icon="check"
         title="Nothing is waiting on you"
-        message="Nothing has been handed over for you to review, and nothing of your own is part-way to being handed over. A change arrives here when somebody pushes it for review, or when one of yours has a brief and has not been pushed yet."
+        :message="nothingOnYou"
       />
 
       <SEmpty
@@ -1085,7 +1119,7 @@ export default {
               outstanding. It is the sentence the gate itself wrote, so the queue and the
               publish screen cannot end up saying two different things about one change.
             -->
-            <div v-if="row.reason" class="queue__state" data-testid="queue-state">
+            <div v-if="row.reason || row.handover" class="queue__state" data-testid="queue-state">
               <span v-if="row.handover" class="queue__handover">{{ row.handover }}</span>
               {{ row.reason }}
             </div>
@@ -1116,6 +1150,22 @@ export default {
           </div>
 
           <div class="queue__action">
+            <!--
+              The record of the hand-off (rule 5). Read out of the packet, so it is here with no
+              GitHub token and stays here after the pull request is merged. Absent rather than
+              guessed at when the hand-over never reached GitHub - the handover line above says
+              why in that case.
+            -->
+            <SChip
+              v-if="row.pr"
+              :label="`PR #${ row.pr.number }`"
+              icon="github"
+              tone="success"
+              clickable
+              :data-testid="`queue-pr-${ row.name }`"
+              :title="`Pull request #${ row.pr.number } is the record of packet ${ row.packet }. Opens it on GitHub.`"
+              @click.stop="openPr(row)"
+            />
             <SChip
               v-if="row.deferred"
               label="Deferred"
@@ -1137,9 +1187,10 @@ export default {
             />
             <!--
               The distinction this queue exists to draw: a change nobody has handed over is not
-              a review request, however much of it there is. It is still listed, because the
-              next move on it is real, and it is labelled rather than counted as somebody's
-              review.
+              a review request, however much of it there is. Those are filtered out of the list
+              entirely now (see `load()`), so this is the residue - a record that names a packet
+              the gate cannot find, which is still the author's move and says so rather than
+              rendering as a review nobody asked for.
             -->
             <SChip
               v-else-if="row.part === 'handover'"

@@ -38,8 +38,9 @@ import {
   EXT_NS, extensionObject, listExtensions, githubIdentity, SETTINGS_SECRET
 } from '../extensions';
 import {
-  LEVELS, DEFAULT_POLICY, SETTINGS_OBJECT, TokenRejected, asSentence, githubErrorText,
-  readStudioSettings, writeStudioSettings, connectGithub, disconnectGithub, githubConnected, detectPermission
+  LEVELS, DEFAULT_POLICY, SETTINGS_OBJECT, STUDIO_NEEDS, TokenRejected, asSentence, githubErrorText,
+  readStudioSettings, writeStudioSettings, connectGithub, disconnectGithub, githubConnected, detectPermission,
+  connectionSummary, tokenRejected, readRole
 } from '../studio-settings';
 import { STUDIO_ROUTE } from '../editor-product';
 import { toastError, toastSuccess } from '../toast';
@@ -65,6 +66,12 @@ const EXT_BASE = '/k8s/clusters/local';
  *             sign-off is on the packet whatever this page holds, so a weaker value there
  *             could only ever be recorded and ignored.
  *   neither   settable, written on the click.
+ *
+ * A row may also `omit` a level, which is narrower than locking a cell and is here for one
+ * case: the developer load is ungated by design, so "Required" on that row is a value nothing
+ * can obey. It used to be offered and admitted, in the publish dialog, that it was being
+ * ignored - which is a control that lies with a footnote. The two levels left are both real:
+ * "Off" shows nothing and "Notified" puts the sign-offs on the row in the publish dialog.
  */
 const DESTINATIONS = [
   {
@@ -83,7 +90,8 @@ const DESTINATIONS = [
     icon:     'server',
     note:     'Studio\'s "This Rancher" publish: it builds in the pod and points this Rancher at the result. Reversible with "Remove local install".',
     editable: true,
-    reason:   'Both columns here are recorded and then repeated back to you rather than obeyed. A developer load reaches only this Rancher and is ungated by design, so nothing this row is set to can make it stop and ask anybody: the publish dialog reads the value and says on the row that it is not acting on it.',
+    omit:     ['required'],
+    reason:   'Off and Notified, and no Required, because a developer load reaches only this Rancher and is ungated by design - it is the half of the flow the review system deliberately never interrupts, so nothing can be made to hold it up and a third segment here would be a setting with no effect. The two that are here do something: Notified puts the sign-offs and an advisory chip on this destination in the publish dialog, and Off leaves it bare.',
   },
   {
     id:    'repo',
@@ -140,18 +148,6 @@ const PERMISSION_LEVELS = [
     note:  'The assistant edits files and runs build commands without stopping.',
   },
 ];
-
-/**
- * A date, in the reader's own format.
- *
- * GitHub writes the expiry header as `2026-10-18 12:00:00 UTC`, which Date can read; anything
- * it cannot is passed through rather than shown as "Invalid Date".
- */
-function asDay(value) {
-  const at = Date.parse(value || '');
-
-  return at ? new Date(at).toLocaleDateString() : String(value || '');
-}
 
 /** "4h 12m", from an ISO timestamp. Empty for anything that is not a time. */
 function uptimeSince(iso) {
@@ -213,23 +209,39 @@ export default {
       devServers: [],
       restarting: '',
 
-      // Who can use Studio.
-      access:     [],
-      accessNote: '',
+      // Who can use Studio. `templates` and `bindings` are the two lists every row is read
+      // from, kept so the fourth row can answer about a role without fetching them again.
+      access:        [],
+      accessNote:    '',
+      templates:     [],
+      bindings:      null,
+      roleChoices:   [],
+      customRole:    '',
+      customReading: null,
+      customLoading: false,
     };
   },
 
   computed: {
-    levels() {
-      return LEVELS;
-    },
-
     destinations() {
       return DESTINATIONS;
     },
 
     permissionLevels() {
       return PERMISSION_LEVELS;
+    },
+
+    /**
+     * The three calls Studio is made of, said once.
+     *
+     * Read off `STUDIO_NEEDS` rather than typed out, so the sentence in the banner and the rule
+     * the ticks are computed from cannot come apart. A role that could do two of these still
+     * cannot use Studio, which is why the list is the sentence rather than a summary of it.
+     */
+    needsSentence() {
+      const labels = STUDIO_NEEDS.map((need) => need.label);
+
+      return `${ labels.slice(0, -1).join(', ') } and ${ labels[labels.length - 1] }`;
     },
 
     settingsSecret() {
@@ -255,44 +267,20 @@ export default {
       return this.identity?.login || this.connection?.login || '';
     },
 
-    /** The line under "Connected", or '' when there is nothing to put there. */
+    /**
+     * The line under "Connected", or '' when there is nothing to put there.
+     *
+     * `connectionSummary` rather than a local build of the same sentence, because the dialog in
+     * `EditorSettingsModal` shows the same three facts about the same credential and the two
+     * used to disagree about what could be known at all.
+     */
     connectionDetail() {
-      if (!this.hasToken) {
-        return '';
-      }
-
-      const parts = [];
-      const scopes = this.identity ? this.identity.scopes.join(', ') : (this.connection?.scopes || '');
-
-      if (scopes) {
-        parts.push(`Scopes: ${ scopes }`);
-      } else if (this.identity) {
-        // A fine-grained token lists no scopes at all, which is a fact about the token rather
-        // than a gap in the reading.
-        parts.push('Scopes: none listed, which is what a fine-grained token reports');
-      }
-
-      if (this.identity?.expiresAt) {
-        parts.push(`expires ${ asDay(this.identity.expiresAt) }`);
-      } else if (this.identity) {
-        parts.push('no expiry date');
-      }
-
-      if (this.connection?.authorised) {
-        parts.push(`stored ${ new Date(this.connection.authorised).toLocaleDateString() }`);
-      }
-
-      return parts.join(' · ');
+      return this.hasToken ? connectionSummary(this.identity, this.connection) : '';
     },
 
-    /**
-     * Whether GitHub answered about the token and the answer was no.
-     *
-     * A 401 or a 403 is GitHub saying the credential is bad. Anything else - no egress from the
-     * pod, no pod at all, a timeout - is nobody having asked, which is a different sentence.
-     */
+    /** Whether GitHub answered about the token and the answer was no. */
     rejected() {
-      return /\b40[13]\b/.test(this.identityError);
+      return tokenRejected(this.identityError);
     },
 
     /**
@@ -355,6 +343,7 @@ export default {
       if (stored) {
         this.policy = stored.policy;
         this.connection = stored.github;
+        this.customRole = stored.customRole;
       }
 
       this.hasToken = settings;
@@ -369,15 +358,20 @@ export default {
     },
 
     /**
-     * Put the stored record back in step with the cells this page no longer lets anybody move.
+     * Put the stored record back in step with what this page will now let anybody set.
      *
-     * The repository row's code review used to be settable and is now fixed at Required,
-     * because Required is what `distributionGate()` does. A value stored while it was settable
-     * would otherwise sit in the ConfigMap disagreeing with what this page draws, and the
-     * publish dialog reads the ConfigMap rather than the page - so the two surfaces would say
-     * different things about the same cell, which is the exact failure the "one place" rule
-     * exists to stop. Writes only when they actually differ, and never for a row the policy
-     * does not hold at all.
+     * Two ways it can drift, and both are the same failure. The repository row's code review
+     * used to be settable and is now fixed at Required, because Required is what
+     * `distributionGate()` does. The developer load's two cells used to offer Required and now
+     * do not, because nothing obeys it there. Either way a value stored while it was on offer
+     * would sit in the ConfigMap disagreeing with what this page draws, and the publish dialog
+     * reads the ConfigMap rather than the page - so the two surfaces would say different things
+     * about the same cell, which is the exact failure the "one place" rule exists to stop.
+     *
+     * A dropped level falls back to the strongest one still offered, so "Required" becomes
+     * "Notified" rather than "Off": what somebody meant by it was closer to being told than to
+     * not caring. Writes only when they actually differ, and never for a row the policy does
+     * not hold at all.
      */
     async reconcileFixedCells() {
       const wrong = [];
@@ -390,6 +384,18 @@ export default {
         Object.entries(destination.cells || {}).forEach(([column, cell]) => {
           if (this.policy[destination.id][column] !== cell.value) {
             wrong.push([destination.id, column, cell.value]);
+          }
+        });
+
+        ['code', 'outcome'].forEach((column) => {
+          if (destination.cells?.[column]) {
+            return;
+          }
+
+          const offered = this.levelsFor(destination, column);
+
+          if (!offered.some((level) => level.value === this.policy[destination.id][column])) {
+            wrong.push([destination.id, column, offered[offered.length - 1].value]);
           }
         });
       });
@@ -466,6 +472,21 @@ export default {
       const fixed = this.fixedAt(destination, column);
 
       return fixed === undefined ? this.policy[destination.id]?.[column] : fixed;
+    },
+
+    /**
+     * The segments one cell offers.
+     *
+     * All three for a cell that is a reading, because a reading has to be able to draw whatever
+     * it is reading - the catalog row is fixed at Required and hiding Required would leave it
+     * showing nothing. For a settable cell, only the levels the row can actually honour.
+     */
+    levelsFor(destination, column) {
+      if (this.fixedAt(destination, column) !== undefined || !destination.omit) {
+        return LEVELS;
+      }
+
+      return LEVELS.filter((level) => !destination.omit.includes(level.value));
     },
 
     /**
@@ -670,82 +691,195 @@ export default {
     // ------------------------------------------------------------------ access
 
     /**
-     * How many people each row is, counted from Rancher rather than written here.
+     * Who can actually use Studio, read from Rancher's own RBAC rather than asserted here.
      *
-     * The counts are the only honest half of this card: Studio does not gate access at all, so
-     * the rows say who can already get in, and the number says how many that is.
+     * The card used to say that everyone who can open the dashboard can use Studio, and tick
+     * every row to prove it. Half of that is true and the half that matters is not. Studio's
+     * pages are registered with no permission gate, so anybody signed in can open them - but
+     * every read and every write those pages make goes through Rancher's cluster proxy carrying
+     * the session of whoever is looking, so Kubernetes RBAC on namespace `barn` decides what
+     * happens next. On this Rancher a Cluster Member cannot exec into a pod, which means the
+     * terminal, which means everything: they would get a Studio that renders and then 403s.
      *
-     * The cluster bindings come from Steve rather than from `/v3`. `/v3/clusterRoleTemplateBindings`
-     * answers this Rancher with `{"pagination":{"total":0}}` even for an admin, so the two rows
-     * read a confident "0 users" over two real bindings - and a wrong number is worse here than
-     * no number, because the whole point of the count is the blast radius of the row. The Steve
-     * collection is the CRD itself, so the fields are the Kubernetes ones (clusterName,
-     * roleTemplateName, userName) rather than the v3 ones; both spellings are matched so this
-     * still counts correctly if the v3 shape ever comes back.
+     * So each row is now a reading of one role's own rules against `STUDIO_NEEDS`, and the tick
+     * means "somebody holding this role can use Studio" rather than "the page is reachable".
+     * That is also why Cluster Members comes out unticked, which is how the design draws it.
      *
-     * A read that genuinely fails still says so: `count` returns null for a list that is not
-     * there, and null prints as "Rancher would not say" rather than as a zero.
+     * The counts are unchanged and come from Steve rather than from `/v3`.
+     * `/v3/clusterRoleTemplateBindings` answers this Rancher with `{"pagination":{"total":0}}`
+     * even for an admin, so the rows would read a confident "0 users" over two real bindings -
+     * and a wrong number is worse here than no number, because the whole point of the count is
+     * the blast radius of the row. The Steve collection is the CRD itself, so the fields are the
+     * Kubernetes ones (clusterName, roleTemplateName, userName) rather than the v3 ones; both
+     * spellings are matched so this still counts correctly if the v3 shape ever comes back.
+     *
+     * A read that genuinely fails still says so: a count is null for a list that is not there
+     * and prints as "Rancher would not say" rather than as a zero, and a role whose rules could
+     * not be read is left unticked with the row saying that is what happened.
      */
     async readAccess() {
-      const [globals, bindings, users] = await Promise.all([
+      const [globals, bindings, users, templates] = await Promise.all([
         rancherFetch('/v3/globalRoleBindings').catch(() => null),
         rancherFetch('/v1/management.cattle.io.clusterroletemplatebindings').catch(() => null),
         rancherFetch('/v3/users').catch(() => null),
+        rancherFetch('/v3/roleTemplates?limit=-1').catch(() => null),
       ]);
 
-      const count = (list, match) => {
-        if (!list) {
-          return null;
-        }
+      this.bindings = bindings;
+      this.templates = templates?.data || [];
 
-        const people = new Set();
+      // Cluster context only: a project role cannot carry a rule about namespace `barn` in the
+      // way this question needs, and the hidden ones are the Kubernetes originals Rancher keeps
+      // out of its own pickers.
+      this.roleChoices = this.templates
+        .filter((template) => template.context === 'cluster' && !template.hidden)
+        .map((template) => ({ id: template.id, label: template.name || template.id }))
+        .sort((a, b) => a.label.localeCompare(b.label));
 
-        (list.data || []).filter(match).forEach((binding) => {
-          people.add(binding.userName || binding.userId || binding.userPrincipalName ||
-            binding.userPrincipalId || binding.groupPrincipalName || binding.groupPrincipalId || binding.id);
-        });
-
-        return people.size;
-      };
-
-      /** One role on the local cluster, in either the Steve spelling or the v3 one. */
-      const onLocal = (role) => (b) => (b.clusterName || b.clusterId) === 'local' &&
-        (b.roleTemplateName || b.roleTemplateId) === role;
-
-      const admins = count(globals, (b) => ['admin', 'restricted-admin'].includes(b.globalRoleId));
-      const owners = count(bindings, onLocal('cluster-owner'));
-      const members = count(bindings, onLocal('cluster-member'));
       const everyone = users ? (users.data || []).length : null;
-
-      const say = (n, word) => (n === null ? 'Rancher would not say' : `${ n } ${ n === 1 ? word : `${ word }s` }`);
+      const admins = this.countPeople(globals, (b) => ['admin', 'restricted-admin'].includes(b.globalRoleId));
+      const [owners, members] = await Promise.all([
+        this.readRoleTemplate('cluster-owner'),
+        this.readRoleTemplate('cluster-member'),
+      ]);
 
       this.access = [
         {
-          id: 'admins', label: 'Administrators', count: 'always', detail: say(admins, 'user'),
+          id:      'admins',
+          label:   'Administrators',
+          count:   this.sayPeople(admins),
+          allowed: true,
+          detail:  'Global role admin, which is cluster-admin on every cluster this Rancher has. Ticked because Rancher already says so; nothing here granted it and nothing here can take it away.',
         },
         {
-          id:     'cluster-owners',
-          label:  'Cluster Owners',
-          count:  say(owners, 'user'),
-          detail: 'on the local cluster. Ticked because they can already open Studio, not because anything here granted it, and there is nothing here to untick it with.',
+          id:      'cluster-owners',
+          label:   'Cluster Owners',
+          count:   this.sayPeople(owners.count),
+          allowed: owners.reading ? owners.reading.capable : false,
+          detail:  `On the local cluster. ${ this.roleSentence(owners.reading) }`,
         },
         {
-          id:     'cluster-members',
-          label:  'Cluster Members',
-          count:  say(members, 'user'),
-          detail: 'on the local cluster. Ticked for the same reason as the row above: it is who can already get in, not a grant this page made.',
-        },
-        {
-          id:     'custom-role',
-          label:  'Custom role...',
-          count:  '',
-          detail: 'No picker, because a role chosen here would have nowhere to go: Studio registers its pages with no permission gate, so there is no allow-list for a role to be added to.',
+          id:      'cluster-members',
+          label:   'Cluster Members',
+          count:   this.sayPeople(members.count),
+          allowed: members.reading ? members.reading.capable : false,
+          detail:  `On the local cluster. ${ this.roleSentence(members.reading) }`,
         },
       ];
 
       this.accessNote = everyone === null ?
         'Rancher would not tell this page how many people can sign in.' :
-        `${ everyone } ${ everyone === 1 ? 'person' : 'people' } can sign in to this Rancher, and every one of them can open Studio.`;
+        `${ everyone } ${ everyone === 1 ? 'person' : 'people' } can sign in to this Rancher and open Studio's pages. What each of them can do once it is open is the rows below.`;
+
+      await this.applyCustomRole();
+    },
+
+    /** Distinct people in a binding list, or null when the list could not be read. */
+    countPeople(list, match) {
+      if (!list) {
+        return null;
+      }
+
+      const people = new Set();
+
+      (list.data || []).filter(match).forEach((binding) => {
+        people.add(binding.userName || binding.userId || binding.userPrincipalName ||
+          binding.userPrincipalId || binding.groupPrincipalName || binding.groupPrincipalId || binding.id);
+      });
+
+      return people.size;
+    },
+
+    sayPeople(n) {
+      return n === null ? 'Rancher would not say' : `${ n } ${ n === 1 ? 'user' : 'users' }`;
+    },
+
+    /** One role on the local cluster, in either the Steve spelling or the v3 one. */
+    onLocalRole(role) {
+      return (b) => (b.clusterName || b.clusterId) === 'local' &&
+        (b.roleTemplateName || b.roleTemplateId) === role;
+    },
+
+    /**
+     * One role: how many people hold it here, and what Studio would let them do.
+     *
+     * A RoleTemplate marked `external` carries no rules of its own and defers to the cluster's
+     * ClusterRole of the same name, so those are fetched rather than read as an empty list -
+     * otherwise `cluster-admin`, of all things, would come back as able to do nothing.
+     */
+    async readRoleTemplate(id) {
+      const template = this.templates.find((each) => each.id === id) || null;
+      let rules = Array.isArray(template?.rules) ? template.rules : null;
+
+      if (template && rules === null) {
+        const role = await rancherFetch(`${ EXT_BASE }/apis/rbac.authorization.k8s.io/v1/clusterroles/${ id }`).catch(() => null);
+
+        rules = Array.isArray(role?.rules) ? role.rules : null;
+      }
+
+      return {
+        id,
+        label:   template?.name || id,
+        count:   this.countPeople(this.bindings, this.onLocalRole(id)),
+        reading: rules === null ? null : readRole(rules),
+      };
+    },
+
+    /**
+     * A reading, as the sentence under the row.
+     *
+     * Three outcomes and they are three different facts: the role can do all of it, the role is
+     * missing some of it (and which), or nobody could read the role's rules. The third must not
+     * be worded like the second - an unticked row over an unread role is not a statement that
+     * the role is short of anything.
+     */
+    roleSentence(reading) {
+      if (!reading) {
+        return 'Rancher would not say what this role may do, so this cannot answer for it.';
+      }
+
+      if (reading.capable) {
+        return `Rancher's RBAC lets this role ${ this.needsSentence }, so somebody holding it can use Studio. Ticked because that is already true, not because anything here granted it.`;
+      }
+
+      const missing = reading.missing.length > 1 ?
+        `${ reading.missing.slice(0, -1).join(', ') } or ${ reading.missing[reading.missing.length - 1] }` :
+        reading.missing[0];
+
+      return `Rancher's RBAC does not let this role ${ missing }. Studio's pages still open for them, because nothing gates those, and then every read and write inside them is refused by the apiserver.`;
+    },
+
+    /**
+     * The fourth row: any role on this Rancher, asked the same question.
+     *
+     * A query and not a grant, which is the whole of what this page can honestly offer here -
+     * see the card's banner. The choice is kept in the same ConfigMap as everything else on
+     * this page so the answer is still on the screen after a reload.
+     */
+    async chooseRole(id) {
+      this.customRole = id;
+      this.customReading = null;
+
+      await this.applyCustomRole();
+      await writeStudioSettings((current) => ({ ...current, customRole: id })).catch((e) => {
+        toastError(this.$store, `That choice was not remembered: ${ e?.message || e }`);
+      });
+    },
+
+    async applyCustomRole() {
+      if (!this.customRole || !this.templates.length) {
+        this.customReading = null;
+
+        return;
+      }
+
+      this.customLoading = true;
+
+      try {
+        this.customReading = await this.readRoleTemplate(this.customRole);
+      } finally {
+        this.customLoading = false;
+      }
     },
 
     // -------------------------------------------------------------- navigation
@@ -870,7 +1004,7 @@ export default {
                 :aria-label="`${ destination.label }: ${ column === 'code' ? 'code review' : 'outcome sign-off' }`"
               >
                 <button
-                  v-for="level in levels"
+                  v-for="level in levelsFor(destination, column)"
                   :key="level.value"
                   type="button"
                   role="radio"
@@ -907,8 +1041,9 @@ export default {
       <SCard title="GitHub connection" icon="github" data-testid="settings-github">
         <div class="settings__section">
           <p class="settings__note">
-            Used to import repositories and to push when you publish. Generated extensions are
-            never handed this credential, but the pod they run in can read the Secret it lives in
+            Used to import repositories, to push when you publish, and to open the pull request
+            that records the hand-off. Generated extensions are never handed this credential, but
+            the pod they run in can read the Secret it lives in
             (<code>{{ settingsSecret }}</code> in namespace <code>{{ ns }}</code>, and that pod is
             bound to cluster-admin), so treat it as a credential Studio shares with anything it
             runs and scope it to the repositories you want it to touch.
@@ -1153,11 +1288,23 @@ export default {
           </p>
 
           <SBanner type="warning" data-testid="settings-access-ungated">
-            Studio has no access list. Its pages are registered with no permission gate, so
-            everyone who can open the Rancher dashboard can open Studio and use a terminal in a
-            cluster-admin pod. The rows below are who that is today, with live counts, and none of
-            them can be turned off from here.
+            Studio has no allow-list, and these ticks are a reading of Rancher's rather than a
+            grant of Studio's. Opening the pages is ungated - they are registered with no
+            permission gate, so anybody signed in can reach them - and everything after that is
+            Kubernetes RBAC, because every read and write goes through the cluster proxy carrying
+            the session of whoever is looking. So each row asks that role's own rules whether
+            somebody holding it could {{ needsSentence }} - the third of those being the terminal,
+            which is how every file in an extension gets written. A role that cannot gets a
+            Studio that renders and then 403s.
             <template v-if="accessNote"> {{ accessNote }}</template>
+          </SBanner>
+
+          <SBanner type="info" data-testid="settings-access-no-grant">
+            There is no tickable version of this. A grant would have to write the role's rules,
+            and the third of the three is exec into a pod bound to cluster-admin - so ticking
+            "Cluster Members" would quietly make every cluster member an administrator of this
+            cluster. That belongs in Rancher's own role editor, with Rancher's own warnings on
+            it, and not behind a checkbox on a settings page.
           </SBanner>
 
           <div
@@ -1167,17 +1314,18 @@ export default {
             :data-testid="`settings-access-${ row.id }`"
           >
             <!--
-              Disabled on purpose, and the title says why on the control itself rather than
-              only in the banner above it: the tick is a reading of who can already open
-              Studio, and there is no allow-list for a click to write to.
+              Disabled on purpose, and the title says why on the control itself rather than only
+              in the banner above it. The testid is on the input rather than on the row, because
+              the reading is what somebody checking this has to be able to address.
             -->
             <input
               type="checkbox"
               class="settings__checkbox"
               disabled
-              :checked="row.id !== 'custom-role'"
+              :checked="row.allowed"
               :aria-label="row.label"
-              title="A reading of who can already open Studio. Studio has no access list, so this cannot be ticked or unticked."
+              :data-testid="`settings-access-${ row.id }-check`"
+              title="A reading of Rancher's own RBAC, not a setting. Granting it would mean editing the role itself, and one of the three is exec into a cluster-admin pod."
             >
 
             <div class="settings__row-text">
@@ -1192,6 +1340,66 @@ export default {
             <span v-if="row.count" class="settings__count" :data-testid="`settings-access-${ row.id }-count`">
               {{ row.count }}
             </span>
+          </div>
+
+          <!--
+            Custom role... (21:919). The design opens a role picker here and shows a count once
+            something is chosen, and that half is exactly what this does. What it does not do is
+            grant, for the reason in the banner - so the picker asks the question rather than
+            answering it, which is the only honest thing left for it to be.
+          -->
+          <div class="settings__row settings__row--tight" data-testid="settings-access-custom-role">
+            <input
+              type="checkbox"
+              class="settings__checkbox"
+              disabled
+              :checked="!!customReading && !!customReading.reading && customReading.reading.capable"
+              aria-label="Custom role"
+              data-testid="settings-access-custom-role-check"
+              title="A reading of the chosen role's own RBAC, not a setting."
+            >
+
+            <div class="settings__row-text">
+              <p class="settings__row-head">
+                Custom role...
+              </p>
+              <p class="settings__row-note" data-testid="settings-access-custom-role-detail">
+                <template v-if="customLoading">
+                  Reading what that role may do.
+                </template>
+                <template v-else-if="customReading">
+                  {{ customReading.label }} on the local cluster. {{ roleSentence(customReading.reading) }}
+                </template>
+                <template v-else>
+                  Any cluster role on this Rancher, asked the same question as the rows above.
+                  Choosing one changes nothing about who can get in; it says who already can.
+                </template>
+              </p>
+            </div>
+
+            <select
+              class="settings__select"
+              aria-label="Custom role"
+              data-testid="settings-access-custom-role-select"
+              :value="customRole"
+              :disabled="!roleChoices.length"
+              @change="chooseRole($event.target.value)"
+            >
+              <option value="">
+                {{ roleChoices.length ? 'Choose a role...' : 'No roles read' }}
+              </option>
+              <option
+                v-for="choice in roleChoices"
+                :key="choice.id"
+                :value="choice.id"
+              >{{ choice.label }}</option>
+            </select>
+
+            <span
+              v-if="customReading"
+              class="settings__count"
+              data-testid="settings-access-custom-role-count"
+            >{{ sayPeople(customReading.count) }}</span>
           </div>
         </div>
       </SCard>
@@ -1530,8 +1738,31 @@ export default {
   }
 
   &__count {
-    font:  var(--studio-caption-12);
-    color: var(--studio-text-secondary);
+    font:       var(--studio-caption-12);
+    color:      var(--studio-text-secondary);
+    flex:       0 0 auto;
+    text-align: right;
+    min-width:  56px;
+  }
+
+  // The one real picker on this page. A native select rather than SMenu, because the list is
+  // every cluster role this Rancher has and a native one is keyboard-navigable, filterable by
+  // typing, and addressable as itself rather than as a wrapper.
+  &__select {
+    flex:          0 0 auto;
+    max-width:     220px;
+    font:          var(--studio-body-13);
+    color:         var(--studio-text);
+    background:    var(--studio-surface);
+    border:        1px solid var(--studio-border);
+    border-radius: var(--studio-radius-control);
+    padding:       4px 6px;
+    cursor:        pointer;
+
+    &:disabled {
+      color:  var(--studio-text-tertiary);
+      cursor: default;
+    }
   }
 
   &__servers {

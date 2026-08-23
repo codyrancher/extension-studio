@@ -32,7 +32,10 @@ import PublishModal from '../components/PublishModal.vue';
 import InstallProgress from '../components/InstallProgress.vue';
 import EditorMasthead from '../components/EditorMasthead.vue';
 import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/studio';
-import { BUILD_FAILED_ROUTE, STUDIO_ROUTE } from '../editor-product';
+import {
+  BUILD_FAILED_ROUTE, STUDIO_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+} from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import { SButton, SModal } from '../components/ui';
 import StartingExtensions from '../components/StartingExtensions.vue';
 import BuildFailure from '../components/BuildFailure.vue';
@@ -139,7 +142,7 @@ export default {
     SModal
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -241,6 +244,30 @@ export default {
      */
     routes() {
       return { BUILD_FAILED_ROUTE, STUDIO_ROUTE };
+    },
+
+    /**
+     * What Rancher's header kebab offers on this screen (Figma 53:1368).
+     *
+     * The design draws a three-dot in the top bar of the workspace and does not draw what is
+     * inside it. Rancher's header already has that control - `HeaderPageActionMenu`, beside the
+     * bell and the user menu - and shows it whenever the mounted page has committed a non-empty
+     * `pageActions`. The Studio's routes use the `plain` layout, which commits nothing, so on
+     * this screen the kebab was simply absent rather than empty.
+     *
+     * `@shell/mixins/page-actions` commits this on `created` and clears it on `beforeUnmount`,
+     * so the menu belongs to the workspace and not to every page in Rancher - which is the
+     * distinction that made `NavHeaderRight` the wrong home for the Studio's old header
+     * controls (see index.ts).
+     *
+     * The list is the Studio-wide one from editor-product.ts, shared with screens 01, 02 and
+     * 11 so the same kebab cannot mean different things on different screens. It is not the
+     * masthead's overflow and does not duplicate it: that one is the other screens *about this
+     * extension*, and these are the three places in the Studio a workspace has no other way to
+     * reach.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
     },
 
     /** The divider's position as a number, which before a drag is the token width's. */
@@ -354,6 +381,11 @@ export default {
   },
 
   methods: {
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
+
     /**
      * Is there anything left to make before this is an editor?
      *

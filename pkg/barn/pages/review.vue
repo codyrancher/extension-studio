@@ -41,7 +41,7 @@ import {
   baselineRef, changeProvenance, fileProvenance, DEFAULT_EXTENSION
 } from '../extensions';
 import { sameCommit } from '../review';
-import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
+import { EDITOR_ROUTE, STUDIO_ROUTE, FILES_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -52,6 +52,15 @@ import fullBleed from '../design/full-bleed';
 // to untick a box again. Persisting it at all is what stops a reload quietly re-ticking every
 // box while the action bar's promise ("2 of 3 files will be kept") is still on the screen.
 const UNKEPT_KEY = 'barn.review.unkept';
+
+/**
+ * Where the diff's layout is remembered.
+ *
+ * localStorage rather than sessionStorage, and not per extension: how somebody reads a diff is
+ * a preference about them, not a fact about one change, and having to set it again on the next
+ * file is what makes a layout switch feel like a toy.
+ */
+const DIFF_MODE_KEY = 'barn.review.diffMode';
 
 /**
  * What a line of a diff declares, in words, or '' for a line that declares nothing.
@@ -153,6 +162,11 @@ export default {
       // Whether the "are you sure" in front of publishing is up. The action bar's label ends in
       // an ellipsis (14:548) and an ellipsis is a promise: this is the step it promises.
       confirmingPublish: false,
+      // How the diff is laid out (14:433): `unified` or `split`. Read from localStorage on
+      // mount, so the chip's label is the layout on screen and not a default that lies.
+      diffMode: 'unified',
+      // Whether the per-file revert is in flight, so its button cannot be pressed twice.
+      reverting: false,
     };
   },
 
@@ -166,7 +180,7 @@ export default {
      * looks live and does nothing, silently - which is exactly how these were found.
      */
     routes() {
-      return { STUDIO_ROUTE };
+      return { STUDIO_ROUTE, FILES_ROUTE };
     },
 
     extension() {
@@ -253,6 +267,43 @@ export default {
       return `${ n } of these ${ this.count } files ${ n === 1 ? 'is' : 'are' } already committed - this list is ${
         this.baseline.label || 'measured from the last published version' }, and discarding puts the working tree back to the last commit. A commit cannot be discarded, so ${
         n === 1 ? 'it stays' : 'they stay' } listed.`;
+    },
+
+    /** The other layout, which is what the chip's press switches to. */
+    otherDiffMode() {
+      return this.diffMode === 'unified' ? 'split' : 'unified';
+    },
+
+    /** The chip reads as the layout it is in (14:433), and its title says what pressing it does. */
+    diffModeLabel() {
+      return this.diffMode === 'unified' ? 'Unified' : 'Split';
+    },
+
+    diffModeTitle() {
+      return this.diffMode === 'unified'
+        ? 'One column, additions and removals signed. Switch to side by side.'
+        : 'Side by side: what was there on the left, what is there now on the right. Switch to unified.';
+    },
+
+    /**
+     * Whether "Revert this file" can do anything to the file on screen.
+     *
+     * The same reading the tick boxes use. A committed file is listed because the baseline is
+     * behind HEAD, and a revert puts the working tree back to HEAD - so on that file the
+     * button would run, report success and change nothing.
+     */
+    canRevertSelected() {
+      return !!this.selected && this.discardable.includes(this.selected);
+    },
+
+    revertTitle() {
+      if (!this.selected) {
+        return 'No file is selected';
+      }
+
+      return this.canRevertSelected
+        ? `Throw away the changes to ${ this.selected } and leave the other files alone`
+        : `${ this.selected } is already committed - a revert puts the working tree back to the last commit, so it cannot reach this file`;
     },
 
     /**
@@ -445,6 +496,7 @@ export default {
   },
 
   mounted() {
+    this.readDiffMode();
     this.load();
   },
 
@@ -677,6 +729,89 @@ export default {
         toastError(this.$store, e?.message || String(e), { title: 'Could not discard the changes' });
       } finally {
         this.discarding = false;
+      }
+    },
+
+    /** Read the remembered diff layout. A browser with storage off simply gets unified. */
+    readDiffMode() {
+      try {
+        const stored = window.localStorage.getItem(DIFF_MODE_KEY);
+
+        this.diffMode = stored === 'split' ? 'split' : 'unified';
+      } catch {
+        this.diffMode = 'unified';
+      }
+    },
+
+    /** 14:433. Change the layout, and remember it. */
+    toggleDiffMode() {
+      this.diffMode = this.otherDiffMode;
+
+      try {
+        window.localStorage.setItem(DIFF_MODE_KEY, this.diffMode);
+      } catch {
+        // Storage off: the layout holds for this visit and resets on the next one.
+      }
+    },
+
+    /**
+     * 14:447. Open the file being read on the Files screen, with it selected.
+     *
+     * `?file=` is the query that screen already answers to, so this is the same door the
+     * brief's prior-art card uses rather than a second way in.
+     */
+    openInFiles() {
+      this.$router.push({
+        name:   FILES_ROUTE,
+        params: { extension: this.extension },
+        query:  this.selected ? { file: this.selected } : {},
+      });
+    },
+
+    /**
+     * 14:442. Throw away the changes to the file on screen, and nothing else.
+     *
+     * `discardChanges` with one path, which is the same call the Discard button and the tick
+     * boxes make - one way of throwing work away, aimed differently. It asks first, because it
+     * cannot be undone, and it re-reads afterwards rather than subtracting the file from the
+     * list on paper: a file can be both edited and ahead of the baseline, in which case the
+     * edit goes and the file stays listed, and a screen that removed the row would be lying.
+     */
+    async revertFile() {
+      const path = this.selected;
+
+      if (!path || !this.canRevertSelected || this.reverting) {
+        return;
+      }
+
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(`Revert ${ path } in ${ this.extension } to the last commit? This cannot be undone. The other changed files are left alone.`)) {
+        return;
+      }
+
+      this.reverting = true;
+
+      try {
+        await discardChanges(this.extension, [path]);
+        // Spent: the box for a file that is no longer changed must not be remembered as
+        // unticked, or the route guard would try to revert it again on the way out.
+        this.kept = this.kept.filter((p) => p !== path);
+        this.writeUnkept();
+        await this.load();
+
+        const still = this.files.some((f) => f.path === path);
+
+        toastSuccess(
+          this.$store,
+          still
+            ? `${ path } is back to the last commit. It is still listed, because it also differs from the point this list is measured from.`
+            : `${ path } is back to the last commit. ${ plural(this.count, 'file') } still changed.`,
+          { title: 'File reverted' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: `Could not revert ${ path }` });
+      } finally {
+        this.reverting = false;
       }
     },
 
@@ -933,6 +1068,40 @@ export default {
           <SIcon name="code" :size="14" />
           <span class="review__panel-title">{{ selected || 'No file selected' }}</span>
           <span class="review__grow" />
+          <!-- 14:433: the layout, as a readout that can be changed -->
+          <SChip
+            :label="diffModeLabel"
+            tone="subtle"
+            icon="compare"
+            clickable
+            :title="diffModeTitle"
+            data-testid="review-diff-mode"
+            @click="toggleDiffMode"
+          />
+          <!-- 14:447 -->
+          <SButton
+            variant="ghost"
+            size="sm"
+            icon="code"
+            :disabled="!selected"
+            title="Open this file on the Files screen, with it selected"
+            data-testid="review-open-in-files"
+            @click="openInFiles"
+          >
+            Open in Files
+          </SButton>
+          <!-- 14:442 -->
+          <SButton
+            variant="ghost"
+            size="sm"
+            icon="undo"
+            :disabled="!canRevertSelected || reverting"
+            :title="revertTitle"
+            data-testid="review-revert-file"
+            @click="revertFile"
+          >
+            {{ reverting ? 'Reverting…' : 'Revert this file' }}
+          </SButton>
           <SButton
             variant="ghost"
             size="sm"
@@ -960,7 +1129,7 @@ export default {
             Reading {{ selected }}
           </div>
 
-          <DiffView v-else :patch="patch" />
+          <DiffView v-else :patch="patch" :mode="diffMode" />
         </div>
       </div>
 

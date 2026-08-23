@@ -1099,9 +1099,24 @@ export default {
         at--;
       }
 
-      out.splice(at, 0,
+      const footer = [
         '', '---', '', 'Written in the Extension Studio before any code existed.',
-        ...(agreed ? ['', `_Agreed in the Extension Studio on ${ agreed }._`] : []));
+        ...(agreed ? ['', `_Agreed in the Extension Studio on ${ agreed }._`] : []),
+      ];
+
+      // And a blank line under it when something follows, or the footer is welded to whatever
+      // was appended after the brief. `at` is an index taken while the block above the footer
+      // still carried its own trailing blank line; `pushBlock` pops that blank and re-emits it
+      // for the next block, so the index is one line late and lands on the next heading rather
+      // than on the blank above it. The loop above then eats that blank as the footer's own.
+      // Net effect before this: an agreed brief with a section under the footer - which is
+      // every brief screen 13 has appended `## Verification` to - lost the blank line above
+      // that heading on the first autosave.
+      if (out[at] !== undefined && out[at].trim()) {
+        footer.push('');
+      }
+
+      out.splice(at, 0, ...footer);
 
       return `${ out.join('\n').replace(/\n+$/, '') }\n`;
     },
@@ -2041,8 +2056,18 @@ export default {
               <h2 class="brief__card-title">
                 This already exists, partly
               </h2>
-              <p class="brief__card-note">
-                A word search over the source of every extension in this Studio.
+              <!--
+                34:1144 and 34:1149 draw two entries this cannot produce: a named Rancher page
+                with a note on what it does and does not cover, and a named installed extension
+                drawing the same pattern. Nothing in the Studio can enumerate Rancher's own
+                screens, and nothing can write the editorial half. Rather than leave the gap for
+                a reader to discover, the card says where it stops looking - an empty result
+                here is not evidence that nothing like this exists.
+              -->
+              <p class="brief__card-note" data-testid="brief-prior-art-scope">
+                A word search over the source of every extension in this Studio. It cannot see
+                Rancher's own pages, or extensions installed outside the Studio, so a screen
+                that already does part of this may exist and not be listed here.
               </p>
             </header>
             <div class="brief__card-body">

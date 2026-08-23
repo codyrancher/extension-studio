@@ -66,10 +66,12 @@ import fullBleed from '../design/full-bleed';
 // bar exists to make, and tells a screen reader that every criterion nobody has read yet is
 // answered "Can't tell, pressed".
 //
-// The design draws three of the four: 39:1233 and 39:1287 are the saturated status fill a
-// chosen segment gets, and 39:1330 is the weak wash on the row nobody has looked at. A
-// deliberate "Can't tell" is that same selection rule in the hue this token set already keeps
-// for "we do not know" - warning.
+// The design draws three of the four, one per criterion in the mock: 39:1233 and 39:1287 are
+// the saturated status fill a chosen segment gets, and 39:1330 is the grey #F2F3F5 fill on the
+// chosen "Can't tell" - "styled neutrally (grey, not red)", in the feature's own words. Grey is
+// that state's colour and it has it back; the fourth state, which the mock never draws, is
+// styled as the empty control it is rather than borrowing the grey. See the badge rules at the
+// foot of this file for the whole argument.
 const VERDICTS = [
   { id: 'pass', label: 'Yes' },
   { id: 'fail', label: 'No' },
@@ -255,6 +257,10 @@ export default {
       // the wrong one on the wrong button.
       accepting:  '',
       rejecting:  '',
+      // The drift term whose "this is what will move" preview is open, if any. One at a time:
+      // the preview is a decision about one rule, and two of them open is two decisions
+      // half-made.
+      confirming: '',
       // A "Send the whole list back" is in flight.
       handing:    false,
       VERDICTS,
@@ -669,6 +675,16 @@ export default {
           return { term, files };
         })
         .filter((hit) => hit.files.length);
+    },
+
+    /**
+     * The provenance an accepted non-goal is stamped with, and the same string the preview
+     * shows, so what is read is what is written.
+     */
+    driftStamp() {
+      const who = this.signedInAs;
+
+      return `accepted during verification on ${ today() }${ who ? ` by ${ who }` : '' }`;
     },
 
     /** Which of the four things the scope card has to say. */
@@ -1163,14 +1179,29 @@ export default {
     },
 
     /**
-     * The brief with one ruled-out line moved into what this change does (39:1348).
+     * What accepting one drifted term would do to the brief (39:1348).
      *
      * Accepting drift is not "dismiss the warning". The warning is true - the change does
      * something the brief said it would not - and the only honest way to make it stop being
-     * true is to change the brief, which is what this does: the line comes out of
+     * true is to change the brief: the text comes out of
      * `## What we are deliberately not doing` and goes into `## What changes for them`, stamped
      * with the day and the person, so the document now declares the behaviour and the next
      * reader can see it was agreed here rather than always having been in scope.
+     *
+     * Two things this returns rather than does, and both matter.
+     *
+     * It returns a plan, not a written file, so the screen can show exactly what will move
+     * before anything moves. That was the bug: base's non-goals were one line, "No alerting,
+     * and no history beyond 24 hours. Both belong in monitoring.", and accepting "alerting"
+     * moved the whole line - so the untouched non-goal about 24-hour history was accepted by
+     * nobody, the section was left `_not stated_`, and every later scope check on that
+     * extension answered "there is nothing to measure against".
+     *
+     * And the unit it moves is the sentence the term is in, not the line. A non-goals section
+     * is prose people write several rules into, and the line is whatever the author's wrapping
+     * happened to make it. The sentence is the smallest piece that still reads as a rule.
+     * It is not always small enough - the base sentence above states two rules in one - which
+     * is why the plan is shown and confirmed rather than applied on the first press.
      *
      * Nothing else in the file is touched. The section this screen normally writes is
      * `## Verification` and this write leaves it exactly as it found it, because an unsaved
@@ -1178,14 +1209,14 @@ export default {
      * moment to write one.
      *
      * Pure, and separate from the write, so it can be run against a real brief without a
-     * cluster.
+     * cluster, and so the preview and the write cannot disagree about what happens.
      */
-    withDriftAccepted(brief, term, stamp) {
+    driftPlan(brief, term, stamp = '') {
       const lines = brief.split('\n');
       const ruled = this.sectionRange(lines, 'What we are deliberately not doing');
 
       if (!ruled) {
-        throw new Error('This brief has no "What we are deliberately not doing" section, so there is nothing to move out of it.');
+        return { error: 'This brief has no "What we are deliberately not doing" section, so there is nothing to move out of it.' };
       }
 
       const needle = String(term).toLowerCase();
@@ -1194,31 +1225,40 @@ export default {
 
       for (let i = ruled.at; i < ruled.end; i++) {
         const line = lines[i];
+        const hit = line.trim() && line.toLowerCase().includes(needle);
 
-        if (line.trim() && line.toLowerCase().includes(needle)) {
-          // The list marker and any checkbox go: this is becoming a statement of what the
-          // change does, and a stray `- [ ]` in that section is a box somebody will tick.
-          const prose = line.replace(/^\s*[-*+]\s*(\[[ xX]\]\s*)?/, '').trim();
-
-          if (prose) {
-            moved.push(prose);
-          }
-        } else {
+        if (!hit) {
           kept.push(line);
+          continue;
+        }
+
+        // The list marker and any checkbox stay with whatever is left on the line, and are
+        // dropped from what moves: the moved text becomes a statement of what the change
+        // does, and a stray `- [ ]` in that section is a box somebody will tick.
+        const marker = /^\s*[-*+]\s*(\[[ xX]\]\s*)?/.exec(line)?.[0] || '';
+        const parts = this.sentences(line.slice(marker.length));
+        const out = parts.filter((s) => s.toLowerCase().includes(needle));
+        const stay = parts.filter((s) => !s.toLowerCase().includes(needle));
+
+        out.forEach((s) => moved.push(s));
+
+        if (stay.length) {
+          kept.push(`${ marker }${ stay.join(' ') }`);
         }
       }
 
       if (!moved.length) {
-        throw new Error(`"${ term }" is not on a line of its own in what the brief ruled out, so there is no line to move.`);
+        return { error: `"${ term }" is not in a sentence of its own in what the brief ruled out, so there is no rule to move.` };
       }
 
       // `_not stated_` rather than nothing, because that is the word screen 10 writes for an
       // empty section and the word its parser reads back as empty.
-      const body = kept.join('\n').trim() ? kept : ['_not stated_', ''];
+      const staying = kept.filter((l) => l.trim() && l.trim() !== '_not stated_');
+      const body = staying.length ? kept : ['_not stated_', ''];
 
       lines.splice(ruled.at, ruled.end - ruled.at, ...body);
 
-      const items = moved.map((text) => `- ${ text } (${ stamp })`);
+      const items = moved.map((text) => `- ${ text }${ stamp ? ` (${ stamp })` : '' }`);
       // Recomputed after the splice: the ranges above are indices into the array as it was.
       const changes = this.sectionRange(lines, 'What changes for them');
 
@@ -1232,14 +1272,66 @@ export default {
         lines.splice(end, 0, '', ...items);
       } else {
         // No such section - a brief written by hand, or by something older than the form. It
-        // goes immediately above the section the line came out of, which is the order screen
+        // goes immediately above the section the text came out of, which is the order screen
         // 10 writes the two in.
         const head = this.sectionRange(lines, 'What we are deliberately not doing').head;
 
         lines.splice(head, 0, '## What changes for them', '', ...items, '');
       }
 
-      return `${ lines.join('\n').replace(/\n+$/, '') }\n`;
+      return {
+        term,
+        moving:  moved,
+        staying: staying.map((l) => l.replace(/^\s*[-*+]\s*(\[[ xX]\]\s*)?/, '').trim()),
+        text:    `${ lines.join('\n').replace(/\n+$/, '') }\n`,
+      };
+    },
+
+    /**
+     * One line of the non-goals section as the sentences it is made of.
+     *
+     * Split on a full stop, question mark or exclamation that is followed by whitespace or the
+     * end of the line, keeping the punctuation on the sentence it closes. The lookahead is what
+     * keeps `2.5` and `v1.2` in one piece. A line with no terminator at all - which is most
+     * bulleted non-goals - comes back as a single sentence, so the old whole-line behaviour is
+     * still what happens whenever the author wrote one rule per line.
+     */
+    sentences(text) {
+      return (text.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [])
+        .map((s) => s.trim())
+        .filter(Boolean);
+    },
+
+    /**
+     * Show what accepting one drifted term would move, before it moves (39:1348).
+     *
+     * The first press does not write. It puts the plan on the card - the exact text leaving
+     * `## What we are deliberately not doing` and the exact text still ruled out afterwards -
+     * and asks for a second press. That is the fix for accepting one term quietly accepting
+     * every other rule that shared its sentence: it can still happen, because a sentence can
+     * state two rules, but it can no longer happen without the reviewer reading the sentence
+     * that is about to move.
+     */
+    previewDrift(hit) {
+      if (this.accepting || this.rejecting) {
+        return;
+      }
+
+      this.confirming = this.confirming === hit.term ? '' : hit.term;
+    },
+
+    /**
+     * The plan for the term whose preview is open, or null.
+     *
+     * Computed rather than stored, so it follows `this.brief`: a write elsewhere on this screen
+     * cannot leave a stale preview offering to move a line that is no longer there.
+     */
+    planFor(term) {
+      if (!term) {
+        return null;
+      }
+
+      return this.driftPlan(this.brief, term, this.driftStamp);
     },
 
     /**
@@ -1249,25 +1341,36 @@ export default {
      * verdicts and notes on the page survive: `load()` re-reads the criteria and would throw
      * away anything unsaved. The scope card is computed off `this.brief`, so the row this
      * button was on goes as soon as the write lands.
+     *
+     * The plan is recomputed here rather than taken from the preview, for the same reason the
+     * preview is a computed: the file may have moved under both of them, and the write has to
+     * be the plan against the brief as it is now or not happen at all.
      */
     async acceptDrift(hit) {
       if (this.accepting || this.rejecting) {
         return;
       }
 
+      const plan = this.driftPlan(this.brief, hit.term, this.driftStamp);
+
+      if (plan.error) {
+        toastError(this.$store, plan.error, { title: 'Could not add it to the brief' });
+
+        return;
+      }
+
       this.accepting = hit.term;
 
       try {
-        const who = this.signedInAs;
-        const stamp = `accepted during verification on ${ today() }${ who ? ` by ${ who }` : '' }`;
-        const next = this.withDriftAccepted(this.brief, hit.term, stamp);
-
-        await writeExtensionFile(this.extension, 'BRIEF.md', next);
-        this.brief = next;
+        await writeExtensionFile(this.extension, 'BRIEF.md', plan.text);
+        this.brief = plan.text;
+        this.confirming = '';
 
         toastSuccess(
           this.$store,
-          `"${ hit.term }" is now part of what the brief says this change does, so it is no longer drift.`,
+          plan.staying.length
+            ? `Moved into what the brief says this change does. Still ruled out: ${ plan.staying.join(' ') }`
+            : `"${ hit.term }" is now part of what the brief says this change does, and the brief no longer rules anything out.`,
           { title: 'Added to the brief' }
         );
       } catch (e) {
@@ -1878,45 +1981,134 @@ export default {
                 </SBanner>
 
                 <div class="verify__drift">
-                  <div v-for="hit in scopeDrift" :key="hit.term" class="verify__drift-row">
-                    <code class="verify__term">{{ hit.term }}</code>
-                    <span class="verify__drift-files">{{ hit.files.join(', ') }}</span>
+                  <div
+                    v-for="hit in scopeDrift"
+                    :key="hit.term"
+                    class="verify__drift-hit"
+                  >
+                    <div class="verify__drift-row">
+                      <code class="verify__term">{{ hit.term }}</code>
+                      <span class="verify__drift-files">{{ hit.files.join(', ') }}</span>
+
+                      <!--
+                        39:1348 and 39:1350, per hit rather than per card: the card can be
+                        warning about three different words found in three different files, and
+                        one button for all of them would accept or reject work nobody looked at.
+                      -->
+                      <div class="verify__drift-actions">
+                        <SButton
+                          variant="neutral"
+                          size="sm"
+                          :data-testid="`verify-accept-drift-${ hit.term }`"
+                          :disabled="!!accepting || !!rejecting"
+                          :aria-expanded="confirming === hit.term"
+                          title="Shows exactly which sentence would leave what the brief rules out, and what would still be ruled out afterwards. Nothing is written until you confirm."
+                          @click="previewDrift(hit)"
+                        >
+                          That is fine - add it to the brief
+                        </SButton>
+                        <SButton
+                          variant="ghost"
+                          size="sm"
+                          icon="undo"
+                          :data-testid="`verify-remove-drift-${ hit.term }`"
+                          :loading="rejecting === hit.term"
+                          :disabled="!!accepting || !!rejecting"
+                          title="Asks the assistant working on this extension to take the behaviour back out. It answers in the workspace terminal."
+                          @click="removeDrift(hit)"
+                        >
+                          Remove it
+                        </SButton>
+                      </div>
+                    </div>
 
                     <!--
-                      39:1348 and 39:1350, per hit rather than per card: the card can be
-                      warning about three different words found in three different files, and
-                      one button for all of them would accept or reject work nobody looked at.
+                      Exactly what will move, before it moves.
+                      Accepting used to take the whole line the term sat on, so a second rule
+                      written in the same sentence was accepted by nobody. The unit is now the
+                      sentence, and a sentence can still hold two rules - so the sentence is
+                      put on the screen and read before the file changes.
                     -->
-                    <div class="verify__drift-actions">
-                      <SButton
-                        variant="neutral"
-                        size="sm"
-                        :data-testid="`verify-accept-drift-${ hit.term }`"
-                        :loading="accepting === hit.term"
-                        :disabled="!!accepting || !!rejecting"
-                        title="Moves the line that ruled this out into what the brief says this change does, so the brief covers it and this warning has nothing left to warn about."
-                        @click="acceptDrift(hit)"
-                      >
-                        That is fine - add it to the brief
-                      </SButton>
-                      <SButton
-                        variant="ghost"
-                        size="sm"
-                        icon="undo"
-                        :data-testid="`verify-remove-drift-${ hit.term }`"
-                        :loading="rejecting === hit.term"
-                        :disabled="!!accepting || !!rejecting"
-                        title="Asks the assistant working on this extension to take the behaviour back out. It answers in the workspace terminal."
-                        @click="removeDrift(hit)"
-                      >
-                        Remove it
-                      </SButton>
+                    <div
+                      v-if="confirming === hit.term"
+                      class="verify__drift-plan"
+                      :data-testid="`verify-drift-plan-${ hit.term }`"
+                    >
+                      <template v-if="planFor(hit.term).error">
+                        <p class="verify__drift-plan-error">
+                          {{ planFor(hit.term).error }}
+                        </p>
+                      </template>
+
+                      <template v-else>
+                        <p class="verify__drift-plan-head">
+                          This moves out of <em>What we are deliberately not doing</em> and into
+                          <em>What changes for them</em>. Read it before you press: whatever else
+                          the sentence rules out is accepted with it.
+                        </p>
+
+                        <ul class="verify__drift-plan-list">
+                          <li
+                            v-for="(line, n) in planFor(hit.term).moving"
+                            :key="n"
+                            class="verify__drift-plan-move"
+                          >
+                            {{ line }}
+                            <span class="verify__drift-plan-stamp">({{ driftStamp }})</span>
+                          </li>
+                        </ul>
+
+                        <p class="verify__drift-plan-head">
+                          Still ruled out afterwards:
+                        </p>
+
+                        <ul
+                          v-if="planFor(hit.term).staying.length"
+                          class="verify__drift-plan-list"
+                        >
+                          <li
+                            v-for="(line, n) in planFor(hit.term).staying"
+                            :key="n"
+                            class="verify__drift-plan-stay"
+                          >
+                            {{ line }}
+                          </li>
+                        </ul>
+
+                        <p v-else class="verify__drift-plan-empty">
+                          Nothing. The section becomes <code class="verify__term">_not stated_</code>,
+                          and every later scope check on this extension will say there is nothing
+                          to measure against.
+                        </p>
+
+                        <div class="verify__drift-actions">
+                          <SButton
+                            variant="primary"
+                            size="sm"
+                            :data-testid="`verify-confirm-drift-${ hit.term }`"
+                            :loading="accepting === hit.term"
+                            :disabled="!!accepting || !!rejecting"
+                            @click="acceptDrift(hit)"
+                          >
+                            Move it into the brief
+                          </SButton>
+                          <SButton
+                            variant="ghost"
+                            size="sm"
+                            :data-testid="`verify-cancel-drift-${ hit.term }`"
+                            :disabled="!!accepting || !!rejecting"
+                            @click="confirming = ''"
+                          >
+                            Leave it ruled out
+                          </SButton>
+                        </div>
+                      </template>
                     </div>
                   </div>
                 </div>
 
                 <p class="verify__drift-note">
-                  Accepting rewrites <strong>BRIEF.md</strong>: the line that ruled this out
+                  Accepting rewrites <strong>BRIEF.md</strong>: the sentence that ruled this out
                   moves into <em>What changes for them</em>, stamped with today's date, so the
                   brief now covers the behaviour and the warning goes. Removing it does not
                   touch the brief - it puts the behaviour to the assistant in this extension's
@@ -1924,6 +2116,22 @@ export default {
                   terminal.
                 </p>
               </template>
+
+              <!--
+                What this card can and cannot see, said in every one of its four states.
+                The design's clause is "the build is compared back to its own brief, and
+                anything outside it is flagged". This is not that, and saying so on the card is
+                the difference between evidence and a claim: a word match over one section
+                cannot see work that goes outside the brief in words the brief never used, and
+                a green banner that did not say so would read as "nothing is out of scope".
+              -->
+              <p class="verify__scope-limit" data-testid="verify-scope-limit">
+                <strong>What this can see:</strong> the words the brief used in
+                <em>What we are deliberately not doing</em>, looked for in the lines this change
+                adds. Nothing here reads the change, so work that goes outside the brief without
+                reusing one of those words is not flagged - a clear result means those words did
+                not turn up, not that the change stayed inside the brief.
+              </p>
             </div>
 
             <div class="verify__notes">
@@ -1941,6 +2149,22 @@ export default {
               Recording the result ticks these boxes in <strong>BRIEF.md</strong> and appends a
               verification block, so the record lives in the repository next to the code.
             </SBanner>
+
+            <!--
+              39:1306, 39:1384 and 39:1385 are one feature and it is not here. Said out loud
+              rather than left as an absence: the design draws an attach control, a capture
+              button and a sentence promising that what you see is captured with your answer,
+              and a reviewer who half-remembers the mock will go looking for all three.
+            -->
+            <p class="verify__evidence-note" data-testid="verify-evidence-note">
+              <strong>What a verdict can carry:</strong> your note, the clock, and the route the
+              preview was on when you answered. Not a file. There is no capture button and no
+              screenshot upload - nothing in the browser can rasterise the preview frame, and
+              the two places this screen writes to are the brief, which is markdown in the
+              repository under review, and the review record. A PNG in either makes the evidence
+              part of the thing being reviewed. If a picture is the evidence, keep it where your
+              team already keeps them and name it in the note.
+            </p>
           </template>
         </div>
       </div>
@@ -1977,6 +2201,18 @@ export default {
             Back to the workspace
           </SButton>
         </div>
+
+        <!--
+          39:1364 draws a cluster row with an annotation about the current one. There is no
+          chooser here and the reason is the same one screen 02 gives for its static build
+          target: this frame is the extension's own dev server inside its own pod, not a
+          deployment somewhere, so the only place it can run is where the pod runs. A list of
+          other clusters would list places the preview cannot go.
+        -->
+        <p class="verify__where" data-testid="verify-preview-where">
+          Running in <strong>local</strong>, in this extension's own pod. Not a cluster you can
+          change: the frame is the pod's dev server, so it runs where the pod runs.
+        </p>
 
         <PreviewPanel
           v-if="previewUrl"
@@ -2176,6 +2412,18 @@ $verdicts-edge:   1px;
 
   &__panel-title { font: var(--studio-heading-14); color: var(--studio-text); flex: 0 0 auto; }
 
+  // Where the frame is running, and why that is not a choice. Sits between the pane head and
+  // the frame, so it is read once on the way to the preview rather than competing with it.
+  &__where {
+    margin:        0;
+    padding:       var(--studio-space-6) 14px;
+    background:    var(--studio-surface-subtle);
+    border-bottom: 1px solid var(--studio-border-subtle);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-tertiary);
+    flex:          0 0 auto;
+  }
+
   // The criterion the preview is bound to, next to its number. Truncated rather than wrapped:
   // the pane head is one line and the number carries the identity.
   &__showing {
@@ -2311,7 +2559,7 @@ $verdicts-edge:   1px;
     flex:            0 0 22px;
     border-radius:   var(--studio-radius-pill);
     background:      var(--studio-surface-nav);
-    color:           var(--studio-neutral);
+    color:           var(--studio-text);
     font:            var(--studio-caption-12-semi);
 
     // One hue per state, the same hue the chosen segment takes, so the badge and the control
@@ -2321,7 +2569,37 @@ $verdicts-edge:   1px;
     // value would sit a tier below the fail and unsure badges beside it.
     &--pass { background: var(--studio-success); color: var(--studio-on-success); }
     &--fail { background: var(--studio-error); color: var(--studio-on-error); }
-    &--unsure { background: var(--studio-warning); color: var(--studio-on-warning); }
+
+    // Grey belongs to "Can't tell", and this is where it was taken back.
+    //
+    // The design assigns it and says why: 39:1316 is a grey #F2F3F5 circle holding the literal
+    // "4", and the feature's own wording is "styled neutrally (grey, not red)". Grey is the
+    // point of the state - a criterion nobody could settle is not a warning, it is an absence
+    // of judgement, and warning amber (the token this product keeps for something that needs
+    // attention) over-stated it on every row a reviewer had honestly answered.
+    //
+    // The product's fourth state - nobody has answered yet - is ours, not the mock's: "No
+    // 'unanswered' state of the control is drawn: every criterion in the mock carries a
+    // verdict." It had been wearing the design's grey, which is what forced Can't tell onto
+    // amber. So the two swap roles below, and the distinction survives because the fourth
+    // state stops being a fill at all: an answer is a filled badge (green, red, grey), and no
+    // answer is an empty outline waiting for one. That reads better than the two greys of
+    // different weight it replaces, where an unanswered row wore a solid chip that looked
+    // like somebody had decided something.
+    //
+    // Ink is --studio-text rather than --studio-on-status: this fill is a pale wash in light
+    // and a faint lift in dark, so the ink has to flip with the theme instead of being pinned
+    // to the near-black the saturated fills carry.
+    &--unsure {
+      background: var(--studio-surface-nav);
+      color:      var(--studio-text);
+    }
+
+    &--unanswered {
+      background: transparent;
+      border:     1px dashed var(--studio-control-empty-border);
+      color:      var(--studio-control-empty-text);
+    }
   }
 
   // The criterion and its provenance line - a column between the badge and the controls, so
@@ -2387,12 +2665,18 @@ $verdicts-edge:   1px;
     overflow:      hidden;
     overflow:      clip;
 
-    // 39:1330: the row nobody has answered wears the wash across the whole control, rather
-    // than one segment looking chosen. Fill, edge and label all come from the empty-control
-    // tokens, which is what makes the state survive the dark theme - see studio.css: the
-    // frame's three light values leave it reading as a disabled control on a dark panel.
+    // The row nobody has answered, which the mock never draws: no segment is filled, so the
+    // whole control is drawn as the empty thing it is. A dashed edge rather than the grey wash
+    // it used to wear, because 39:1330's grey is the fill a *chosen* "Can't tell" segment takes
+    // (see --on-unsure below) and two greys a tier apart is not a distinction anybody reads at
+    // a glance. Dashed says unfilled, and it is the same rule the badge follows.
+    //
+    // Colours come from the empty-control tokens, which is what makes the state survive the
+    // dark theme - see studio.css: the frame's light values leave it reading as a disabled
+    // control on a dark panel.
     &--unanswered {
-      background:   var(--studio-control-empty);
+      background:   transparent;
+      border-style: dashed;
       border-color: var(--studio-control-empty-border);
 
       .verify__verdict { color: var(--studio-control-empty-text); }
@@ -2441,8 +2725,23 @@ $verdicts-edge:   1px;
     &--on-fail,
     &--on-fail:hover { background: var(--studio-error); color: var(--studio-on-error); }
 
+    // The third hue is the design's own: 39:1330 fills the chosen "Can't tell" segment with
+    // grey #F2F3F5, and that is --studio-surface-nav here. It is the one selected fill that is
+    // not a status colour, deliberately - "I looked and I cannot tell" is not a warning - so it
+    // takes body ink rather than --studio-on-status, which is pinned near-black for saturated
+    // fills and would vanish on the dark theme's version of this wash.
+    //
+    // The inset ring is the one addition. A #F2F3F5 fill on the control's white is 1.06:1, so
+    // the mock's own grey selection is all but invisible where the green and the red are
+    // obvious; aria-pressed carries it for a screen reader and nothing carried it for an eye.
+    // Same departure-on-accessibility-grounds as --studio-on-status, and it leaves the design's
+    // fill exactly as drawn rather than substituting a colour of our own.
     &--on-unsure,
-    &--on-unsure:hover { background: var(--studio-warning); color: var(--studio-on-warning); }
+    &--on-unsure:hover {
+      background: var(--studio-surface-nav);
+      color:      var(--studio-text);
+      box-shadow: inset 0 0 0 1px var(--studio-border-strong);
+    }
   }
 
   // 39:1336: the card that asks whether the change is still the change the brief describes.
@@ -2483,12 +2782,64 @@ $verdicts-edge:   1px;
     gap:            var(--studio-space-6);
   }
 
+  &__drift-hit {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
+    min-width:      0;
+  }
+
   &__drift-row {
     display:     flex;
     align-items: baseline;
     flex-wrap:   wrap;
     gap:         var(--studio-space-8);
     min-width:   0;
+  }
+
+  // What accepting would move, shown before it moves. Indented and boxed so it reads as
+  // belonging to the row above it rather than as another hit.
+  &__drift-plan {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
+    margin-left:    var(--studio-space-12);
+    padding:        var(--studio-space-8) var(--studio-space-12);
+    background:     var(--studio-surface-subtle);
+    border-left:    3px solid var(--studio-warning);
+    border-radius:  0 var(--studio-radius-control) var(--studio-radius-control) 0;
+  }
+
+  &__drift-plan-head,
+  &__drift-plan-empty,
+  &__drift-plan-error {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
+  }
+
+  &__drift-plan-error { color: var(--studio-error); }
+
+  &__drift-plan-list {
+    margin:  0;
+    padding: 0 0 0 18px;
+    display: flex;
+    flex-direction: column;
+    gap:     var(--studio-space-4);
+  }
+
+  &__drift-plan-move,
+  &__drift-plan-stay {
+    font:       var(--studio-body-13);
+    color:      var(--studio-text);
+    word-break: break-word;
+  }
+
+  &__drift-plan-stay { color: var(--studio-text-secondary); }
+
+  &__drift-plan-stamp {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
   }
 
   &__drift-files {
@@ -2512,6 +2863,21 @@ $verdicts-edge:   1px;
     margin: 0;
     font:   var(--studio-caption-12);
     color:  var(--studio-text-tertiary);
+  }
+
+  // The card's own disclaimer, under every state it can be in.
+  &__evidence-note {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-tertiary);
+  }
+
+  &__scope-limit {
+    margin:     0;
+    padding-top: var(--studio-space-8);
+    border-top: 1px solid var(--studio-border-subtle);
+    font:       var(--studio-caption-12);
+    color:      var(--studio-text-tertiary);
   }
 
   &__notes {

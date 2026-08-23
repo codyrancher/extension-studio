@@ -26,7 +26,7 @@ import {
   createPullRequest, commentOnPullRequest, githubDefaultBranch, provenanceFor,
   findOpenPullRequest, extensionSource, parseGithubSource,
   BASELINE_OCI_REF, BASELINE_LOCAL_REF, PublishError,
-  type PublishProgress, type GithubPublishResult,
+  type PublishProgress, type GithubPublishResult, type ChangedFile,
 } from './extensions';
 
 // The same cluster and the same base path `extensions.ts` addresses, which does not export it.
@@ -1057,6 +1057,72 @@ export async function handedOverExtensions(names: string[]): Promise<string[]> {
   }));
 
   return answers.filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
+// How much attention a change wants
+// ---------------------------------------------------------------------------
+
+/** Markdown that is prose rather than code. */
+const PROSE = /\.(md|markdown|txt)$/i;
+/** The files that decide what the extension depends on. */
+const MANIFEST = /(^|\/)package(-lock)?\.json$/;
+/** The files Rancher loads first - a mistake in one of these takes the whole extension down. */
+const ENTRY = /(^|\/)(index|product|routing)\.(ts|js)$/;
+
+export interface Risk {
+  level:  'none' | 'low' | 'medium' | 'high';
+  /** Three clauses, each of them a reading rather than a judgement. */
+  reason: string;
+}
+
+/**
+ * How much of a reviewer's attention this change wants, and the one line saying why.
+ *
+ * It lives here because two screens rate the same change and they were rating it differently.
+ * Screen 11's queue read the paths and the diff sizes; screen 12's masthead counted files and
+ * nothing else, so one minute's work on eight lines of an entry point was "medium (8 lines,
+ * touches the entry point)" in the queue and "low risk" in the masthead. Two readings of one
+ * change, from one set of files, in one product. There is one reading now and both screens
+ * call it.
+ *
+ * A file count cannot tell a ten-file documentation pass from ten files of the entry point, so
+ * this reads what it already has: whether anything but prose changed, whether the dependency
+ * manifest moved, whether the files Rancher loads first are among them, and how many lines.
+ *
+ * The reason is three clauses because that is what the design draws ("Read-only · no new
+ * dependencies · one page").
+ */
+export function assessRisk(files: ChangedFile[]): Risk {
+  if (!files.length) {
+    return { level: 'none', reason: 'Nothing uncommitted since the last commit' };
+  }
+
+  const lines = files.reduce((n, f) => n + (f.added || 0) + (f.removed || 0), 0);
+  const proseOnly = files.every((f) => PROSE.test(f.path));
+  const deps = files.some((f) => MANIFEST.test(f.path));
+  const entry = files.some((f) => ENTRY.test(f.path));
+
+  let level: Risk['level'] = 'low';
+
+  if (files.length > 8 || lines > 400) {
+    level = 'high';
+  } else if (deps || entry || files.length > 3 || lines > 80) {
+    level = 'medium';
+  }
+
+  if (proseOnly) {
+    // Prose cannot break the extension, however much of it there is.
+    level = 'low';
+  }
+
+  const reason = [
+    proseOnly ? 'Prose only, no code' : `${ lines } line${ lines === 1 ? '' : 's' } changed`,
+    deps ? 'moves the dependencies' : 'no dependency changes',
+    entry ? 'touches the entry point' : `${ files.length } file${ files.length === 1 ? '' : 's' }`,
+  ];
+
+  return { level, reason: reason.join(' · ') };
 }
 
 // ---------------------------------------------------------------------------

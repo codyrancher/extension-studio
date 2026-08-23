@@ -135,5 +135,31 @@ drive it only if you can do it against something you created yourself, and if yo
 it safely record `blocked` with the reason. A `blocked` on a destructive action is a better
 outcome than a `pass` bought by wrecking four other verifications.
 
-**Your own page, always.** `ctx.newPage()` at the start, `page.close()` at the end. Do not use
-`contexts()[0].pages()[0]` - that is somebody's live tab, possibly a human's.
+**One page, opened once and reused.** `ctx.newPage()` at the start of your script, `page.close()`
+in a `finally` at the end, and `page.goto()` between checks. Do not use `contexts()[0].pages()[0]` -
+that is somebody's live tab, possibly a human's.
+
+Reuse matters more than closing. "Close what you open" is easy to agree with and easy to lose to an
+exception, and a page per check adds up fast: with five agents running, 35 pages were open at once,
+which is around six each. The browser sidecar has already become unresponsive once in this project
+with a number like that, and when it goes it takes every agent's run with it, not just the one that
+leaked.
+
+So write your script as one page driven through many navigations:
+
+```js
+const page = await ctx.newPage();
+
+try {
+  for (const [name, route, ready] of CHECKS) {
+    await page.goto(`${ RANCHER }/dashboard${ route }`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector(ready, { timeout: 45000 }).catch(() => {});
+    // ... assert ...
+  }
+} finally {
+  await page.close();
+}
+```
+
+If you genuinely need a second page (comparing two screens side by side, or a popup), take it and
+close it as soon as the comparison is done, rather than at the end of the run.
