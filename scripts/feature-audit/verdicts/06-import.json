@@ -1,0 +1,174 @@
+{
+  "screen": "06-import",
+  "verdicts": [
+    {
+      "id": "06-import-launch",
+      "status": "pass",
+      "evidence": "On /dashboard/barn/extensions the title row holds exactly two buttons: 'Import' (s-btn--neutral) and 'New extension' (s-btn--primary), in that order. Clicking Import opened a modal over the list; the URL stayed https://magic-closet-rancher/dashboard/barn/extensions and the table stayed painted behind. The launch works; the button reads 'Import' not 'Import from GitHub' and what opens is a single form, not a three-step wizard (see 06-import-dialog-header and 06-import-step-markers).",
+      "defect": null
+    },
+    {
+      "id": "06-import-dialog-header",
+      "status": "fail",
+      "evidence": "The dialog header reads 'Import from GitHub' with a github icon and a close button. The whole modal body is: a warning banner about the missing token, then the Name, GitHub repository and Branch fields. There is no caption of any kind under the title.",
+      "defect": "Title is 'Import from GitHub' where the design draws 'Import an extension from GitHub', and the one-way clone reassurance ('the repo is cloned into the workspace, nothing is pushed back until you publish') is not rendered anywhere in the dialog. The header is SModal's generic chrome (components/ui/SModal.vue), which supports only title + icon and has no subtitle slot, so the caption has nowhere to go today. Card width is 620px (:width=\"620\" in ImportExtensionModal.vue) against the drawn 680px."
+    },
+    {
+      "id": "06-import-step-markers",
+      "status": "not-implemented",
+      "evidence": "Counted elements matching [class*=\"step\"] inside .s-modal: 0. grep -ri 'step-marker|wizard' over pkg/barn (excluding node_modules) returns nothing, and ImportExtensionModal.vue is 159 lines containing three SFields and two footer buttons.",
+      "defect": "There is no wizard. The dialog is one flat form, so there are no numbered markers, no green completion check for step 1 and no blue markers for steps 2 and 3."
+    },
+    {
+      "id": "06-import-connected-account",
+      "status": "not-implemented",
+      "evidence": "The modal renders nothing about the GitHub identity. The only token-aware markup is the SBanner shown when hasToken is false ('There is no GitHub token yet...'). readSettings() in extensions.ts:2255 returns only { hasToken: boolean, repo } and deliberately never returns the token; nothing calls api.github.com/user. grep -ri 'read:org|scopes|GitHub connected|expires' over pkg/barn: no hits outside the generated seed.",
+      "defect": "Step 1's connected-account row (handle, granted scopes, relative expiry) does not exist. The product knows only whether some token is stored, not whose it is, what it can do or when it dies, and the stored token is never read back out of the Secret to be inspected."
+    },
+    {
+      "id": "06-import-change-connection",
+      "status": "not-implemented",
+      "evidence": "The dialog has three buttons total: the header X, footer Cancel and footer Import. No 'Change' control exists. grep -ri 'Change' over ImportExtensionModal.vue: no hits.",
+      "defect": "No way to swap the GitHub connection from inside the import dialog. The only route to the credential is the banner's 'Add one in settings' link, which closes this dialog and opens the separate Editor settings modal (pages/extensions.vue:493 openSettings sets importing = false)."
+    },
+    {
+      "id": "06-import-repo-search",
+      "status": "not-implemented",
+      "evidence": "No input with a search placeholder or magnifier exists inside .s-modal (queried input[placeholder*=Search|search]: none; the modal's only three inputs are Name/GitHub repository/Branch). No request to api.github.com was made while the modal was open (listened for /github/ on page requests: zero).",
+      "defect": "There is no repository listing to search. The product never calls GitHub to enumerate repositories, so a search field would have nothing to filter."
+    },
+    {
+      "id": "06-import-repo-pick",
+      "status": "fail",
+      "evidence": "There is no row list. In its place is a single text field labelled 'GitHub repository', placeholder 'owner/name', validated by /^[\\w.-]+\\/[\\w.-]+$/. Typed 'rancher/nodehealth-costs' and the field accepted it; typed 'not-a-repo' and got the inline error 'That has to be owner/name.' with Import disabled.",
+      "defect": "The step 2 repository list (clickable rows, #EAF4FB selected fill, check icon, single selection) is not implemented; the user must know and type owner/name by hand. Nothing lists what they have access to, so a repo whose exact name they cannot recall is unreachable."
+    },
+    {
+      "id": "06-import-repo-meta",
+      "status": "not-implemented",
+      "evidence": "No repository rows exist to carry metadata (see 06-import-repo-pick). grep -ri 'private|public' over pkg/barn only hits ImportExtensionModal.vue's warning-banner sentence about private repos and unrelated code in extensions.ts.",
+      "defect": "Visibility icon, visibility word and relative last-updated per repository are absent because there is no repository listing at all."
+    },
+    {
+      "id": "06-import-paste-url",
+      "status": "fail",
+      "evidence": "There is no 'Not listed? Paste a repository URL instead' link (the modal's only link is 'Add one in settings'). Pasting the real thing into the repository field is rejected: 'https://github.com/rancher/dashboard' -> inline error 'That has to be owner/name.', Import disabled; 'git@github.com:rancher/dashboard.git' -> same error.",
+      "defect": "The escape hatch the design draws is absent, and the field it would fall back to actively rejects a pasted repository URL. Only the bare owner/name form is accepted, so the most natural paste (the URL out of the browser bar) fails with an error rather than being normalised."
+    },
+    {
+      "id": "06-import-branch",
+      "status": "fail",
+      "evidence": "The Branch control is a plain text input (INPUT, not readonly), placeholder \"the repository's default\", hint 'Leave blank to take whatever the repository opens on.' Clicking it opened nothing: 0 listboxes/selects/menus and 0 svg elements inside the Branch s-field. It is not pre-filled with 'main' and no request is made to list the repository's branches. Typing 'main' is carried into the source string as github:owner/repo#main (ImportExtensionModal.create), which githubFiles() turns into `git clone --depth 1 --branch main` in the pod (extensions.ts:491-508).",
+      "defect": "Designed as a select with a chevron listing the repository's branches with the default pre-selected; implemented as free text with no chevron, no listing, no pre-fill and no validation. A typo in the branch name is only discovered when the clone fails during import. The wording of the hint also differs from the drawn 'the repository's default', which the product uses as the placeholder instead."
+    },
+    {
+      "id": "06-import-name",
+      "status": "fail",
+      "evidence": "The Name field is the FIRST field in the dialog and is never derived from the repository: with the modal fresh, typed only 'rancher/nodehealth-costs' into the repository field and the Name field stayed empty (value: '') with Import still disabled. Name is editable and is normalised: typing 'Verify 06 Import' shows the hint 'It will be called verify-06-import.', and typing an existing extension's name shows 'nodehealth already exists here.' and disables Import.",
+      "defect": "No pre-fill from the repository name and no 'taken from the repository' hint - the name is required input rather than a suggested default, and the field is ordered before the repository so there is nothing to derive from at the time it is filled. Note also extensions.ts:407-413: the package name inside the clone comes from the repository's own package.json, not from what was typed here, so the typed name only ever names the Studio object."
+    },
+    {
+      "id": "06-import-precheck",
+      "status": "not-implemented",
+      "evidence": "With Name and 'rancher/nodehealth-costs' filled and the modal settled, the modal body text was only the token banner plus the three field labels/hints - no panel, and the single .s-banner present was the token warning. grep -ri 'compatibility|precheck|pre-import' over pkg/barn: no hits.",
+      "defect": "Nothing inspects the chosen repo/branch before import: no marker-file report, no 'looks like a Rancher extension' verdict, no Rancher version-skew comparison. The first thing that examines the repository is `git clone` during the import itself, and a repository that is not an extension is only discovered afterwards."
+    },
+    {
+      "id": "06-import-submit",
+      "status": "blocked",
+      "evidence": "Deliberately stopped short of importing: a real import creates an extension, a ConfigMap and a pod in the shared barn namespace that other agents are working against. What I did verify: the footer's Import button is s-btn--primary with a download icon; it is disabled (opacity 0.5) while empty, stays disabled for an invalid repo and for a name that already exists, and becomes enabled (opacity 1) as soon as a valid name plus owner/name are present. Clicking it while disabled did nothing (button.disabled true, modal still open, row count unchanged). Reading the wiring: create() emits { name, source: `github:owner/repo#branch` } to pages/extensions.vue onCreate, which calls ensureExtension(name, source); that reaches githubFiles() (extensions.ts:491) which git-clones the repo in an already-running extension pod using the stored token if there is one.",
+      "defect": "Not proven end to end. Two deviations are visible without importing: the button enables on name+repo validity rather than on a repo being chosen and a pre-import check having run (there is no check), and it also requires a name, which the design pre-fills."
+    },
+    {
+      "id": "06-import-cancel",
+      "status": "pass",
+      "evidence": "Filled Name 'Verify 06 Import', repository 'rancher/dashboard', branch 'main', then clicked the footer's ghost Cancel (s-btn--ghost). The modal disappeared (.s-modal count 0), the Studio list was unchanged (same three rows before and after) and no verify-06-import extension appeared; kubectl -n barn get configmaps still shows only base/demo/nodehealth. Escape also closes it (SModal's keydown handler).",
+      "defect": null
+    },
+    {
+      "id": "06-import-close",
+      "status": "pass",
+      "evidence": "Re-opened the dialog, typed a name, then clicked the single icon button in .s-modal__head: the modal closed and the extension list was unchanged with no new row. The icon is SModal's ghost close button at :size=\"16\" (design draws 18px) and it is hidden while :busy is true.",
+      "defect": null
+    },
+    {
+      "id": "06-import-scrim",
+      "status": "pass",
+      "evidence": "The .s-modal root is position:fixed inset:0, measured 1440x900 at 0,0 with background rgba(0, 0, 0, 0.45). Controls behind it are unreachable: document.elementFromPoint over the 'New extension' button and over the table both return the s-modal element, and Playwright refused a click on the masthead Import button with '<div class=\"s-modal\"> intercepts pointer events'. Colour is rgba(0,0,0,0.45) where the design specifies rgba(20,20,26,0.42).",
+      "defect": null
+    },
+    {
+      "id": "06-import-list-behind",
+      "status": "pass",
+      "evidence": "With the dialog open, .studio-home__table was still in the DOM and laid out (rect 94,199 1322x251) with its masthead, search box, sortable headers and all three extension rows, and the URL was still /dashboard/barn/extensions (identical before and after opening). Nothing navigated. The list holds three extensions here rather than the six drawn, which is data, not a defect.",
+      "defect": null
+    },
+
+    {
+      "id": "06a-import-first-header",
+      "status": "fail",
+      "evidence": "This Rancher currently has no GitHub token stored (readSettings().hasToken false - the modal shows the 'There is no GitHub token yet' banner), so everything below was observed in the genuine unconnected state. The dialog is the same SModal with the same title 'Import from GitHub' and no redirect. But the only route to connecting is the banner's 'Add one in settings' link, and clicking it swapped the dialog out: title changed to 'Editor settings' (pages/extensions.vue:493 sets importing = false, showSettings = true). Cancelling that brought the import dialog back but with every field cleared - Name and repository I had typed ('verify-06-import-roundtrip', 'rancher/nodehealth-costs') were both '' and Import was disabled again.",
+      "defect": "Connecting GitHub IS a separate dialog, which is what the design set out to avoid, and the round trip destroys whatever was typed because the import modal is remounted rather than kept alive. The dialog is also 620px wide, not the drawn 680px, and carries no one-way clone caption."
+    },
+    {
+      "id": "06a-import-first-connect-copy",
+      "status": "fail",
+      "evidence": "With no token stored, step 1 does not exist. What the unconnected dialog shows instead is a single warning SBanner: 'There is no GitHub token yet. A public repository imports without one; a private one does not. Add one in settings, then come back.' There is no 'Connect GitHub' heading in the import modal (grep -ri 'Connect GitHub' over pkg/barn hits only pages/new-extension.vue:305, a different screen).",
+      "defect": "The explanatory copy the design draws (what the access is for - listing repositories and cloning one; that it takes about fifteen seconds; that you are not navigated away) is replaced by a one-sentence warning about private repositories. It says nothing about what the access buys, how long it takes, or where you end up - and its own promise is wrong for this product, because the link does navigate you out of the dialog."
+    },
+    {
+      "id": "06a-import-first-authorise",
+      "status": "not-implemented",
+      "evidence": "No authorise button exists in the dialog (footer holds only Cancel and Import; the body holds only the banner link). grep -rli 'authorise|authorize|oauth' over pkg/barn excluding node_modules: no hits at all.",
+      "defect": "There is no GitHub OAuth flow anywhere in the product. The only credential path is pasting a personal access token into the Editor settings modal."
+    },
+    {
+      "id": "06a-import-first-token-choice",
+      "status": "fail",
+      "evidence": "There is no 'or paste a personal access token' ghost button, and no 'or' separator, because there is no authorise button to sit beside. The equivalent path is the banner's inline link 'Add one in settings', which does not reveal a disclosure panel in place: it closes the import dialog and opens the 'Editor settings' modal (observed: modal count stayed 1, title changed).",
+      "defect": "The token path is a link to another dialog rather than a disclosure inside step 1, and it is the ONLY path rather than the alternative to OAuth. Taking it loses the import form's state (see 06a-import-first-header)."
+    },
+    {
+      "id": "06a-import-first-token-field",
+      "status": "fail",
+      "evidence": "A token field does exist, but in components/EditorSettingsModal.vue, not in the import dialog: label 'GitHub token', type=\"password\" (so fully masked), placeholder 'ghp_...', computed font-family Lato/Helvetica Neue/Arial - not monospace. I did not save a token: the Secret it writes (extensions.ts saveSettings, one shared barn-namespace Secret) is shared with every other agent on this Rancher, so storing one would change their environment.",
+      "defect": "Wrong place and wrong rendering. It is not inside the dialog's step 1, the value is masked in full rather than showing the ghp_ prefix, and the face is the body sans-serif rather than monospace. Saving it also cannot 'unlock steps 2 and 3' because there are no steps; it only stops the warning banner appearing. Whether saving connects GitHub was not exercised, by choice, for the shared-state reason above."
+    },
+    {
+      "id": "06a-import-first-token-help",
+      "status": "not-implemented",
+      "evidence": "The Editor settings modal's entire body is 'Used to import and publish extensions to GitHub.' plus the GitHub token field (and, when one is stored, 'One is stored; typing here replaces it. Remove it'). There are no links in it at all (queried a[href]: none). grep -ri 'read:org|personal access token' over pkg/barn: no hits.",
+      "defect": "No minimum-scope guidance, no link to github.com/settings/tokens/new?scopes=repo, and no storage promise. Worse for the promise the design makes: the token is NOT stored per user. saveSettings writes it into a single Secret in the barn namespace (extensions.ts, SETTINGS_SECRET) shared by everyone using this Rancher's Studio, and the pods spend it - so 'stored per user' would be false if it were written."
+    },
+    {
+      "id": "06a-import-first-steps-locked",
+      "status": "not-implemented",
+      "evidence": "With no token stored, all three fields (Name, GitHub repository, Branch) are rendered, enabled and focusable - I typed into every one of them in the unconnected state. There are no step containers or headings of any kind (0 elements matching [class*=step] in the modal).",
+      "defect": "Steps 2 and 3 do not exist as concepts, so nothing is locked: the repository and branch inputs are live before any GitHub credential is present. That is intentional in the code (the banner says a public repo imports without a token), but it means the design's gating - and the greyed headings that communicate it - are absent."
+    },
+    {
+      "id": "06a-import-first-step-markers",
+      "status": "not-implemented",
+      "evidence": "Same as 06-import-step-markers, checked in the unconnected state: zero step markers in the modal, so there is no blue-1 / grey-2 / grey-3 progression and nothing to turn into a green check after connecting.",
+      "defect": "No step markers exist in either state of the dialog."
+    },
+    {
+      "id": "06a-import-first-import-disabled",
+      "status": "fail",
+      "evidence": "In the unconnected state the Import button starts disabled at opacity 0.5 and clicking it via script did nothing (button.disabled true, modal stayed open, list unchanged) - so it is correctly inert. But the gate is the wrong one: with NO token stored, filling Name 'verify-06-import-roundtrip' and repository 'rancher/nodehealth-costs' made it fully enabled (disabled false, opacity 1). canImport in ImportExtensionModal.vue is `!!normalized && !!repo && !repoInvalid && !nameTaken` - the GitHub connection is not part of it.",
+      "defect": "Import is gated on name + repository validity, not on GitHub being connected, so the wizard is fully usable with no credential at all (deliberate: a public repo clones without a token, and a private one fails later in git clone with GitHub's own message). Dimmed opacity is 0.5 against the drawn 0.4."
+    },
+    {
+      "id": "06a-import-first-cancel",
+      "status": "pass",
+      "evidence": "In the unconnected state (banner present, no token stored) the footer Cancel is enabled (disabled false, opacity 1) and clicking it closed the dialog. Re-opening showed the 'There is no GitHub token yet' banner again, i.e. no token was stored on the way out, and the extension list was unchanged.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-close",
+      "status": "pass",
+      "evidence": "In the same unconnected state, clicking the header X closed the dialog with no token written - the warning banner is still shown on the next open, and readSettings still reports no token. No extension row appeared. Escape does the same thing.",
+      "defect": null
+    }
+  ]
+}

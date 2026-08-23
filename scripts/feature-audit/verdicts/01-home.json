@@ -1,0 +1,215 @@
+{
+  "screen": "01-home",
+  "verdicts": [
+    {
+      "id": "01-home-actions-column",
+      "status": "pass",
+      "evidence": "Read the six .studio-home__th elements: the last has label \"\", no .studio-home__sort caret, title=null and aria-sort stays \"none\". Clicked it and the sort stayed on the previously selected column (State remained the only .studio-home__th--sorted, row order unchanged). toggleSort() returns early on a column with no label.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-current",
+      "status": "pass",
+      "evidence": "The trailing crumb renders as <span class=\"studio-home__crumb-current\">Studio</span> after the chevronRight icon. Clicked it: URL stayed /dashboard/barn/extensions and the h1 stayed \"Extension Studio\". It is not an anchor and has no handler.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-extensions",
+      "status": "fail",
+      "evidence": "Clicked the 'Extensions' crumb. It navigated to /dashboard/home (h1 \"Welcome to Rancher Prime\"), not to the Rancher Extensions page. Rancher's Extensions page in this instance is /dashboard/c/local/uiplugins (reached from the side menu's Extensions entry).",
+      "defect": "pages/extensions.vue line 511 pushes { name: 'home' }. The crumb says \"Extensions\" and lands on the Rancher home page. It should push the uiplugins route (c-cluster-uiplugins / '/dashboard/c/local/uiplugins') so the crumb goes where its label says."
+    },
+    {
+      "id": "01-home-count",
+      "status": "fail",
+      "evidence": "With 3 rows the pill read 3. Typed 'node' into the search box: the table narrowed to 1 row (nodehealth) but the pill still read 3. Same with 'base' (1 row, pill 3) and 'zzzzz' (0 rows plus the \"Nothing matches\" empty state, pill still 3).",
+      "defect": "The template binds {{ rows.length }} (pages/extensions.vue line 520) instead of {{ filtered.length }}, so the pill counts everything loaded rather than what the table holds and never follows the filter."
+    },
+    {
+      "id": "01-home-filter",
+      "status": "pass",
+      "evidence": "Bordered .studio-home__search with an icon-search glyph and an input (placeholder 'Search', aria-label 'Search extensions'). Typed 'node': rows went from [base, demo, nodehealth] to [nodehealth] - the two non-matching rows were removed from the DOM, not just de-emphasised. 'base' -> [base]; 'demo' -> [demo]; 'no repo' -> all three (it also matches the Source cell text); 'zzzzz' -> zero rows and the \"No extension matches “zzzzz”.\" empty state. Clearing restored every row.",
+      "defect": null
+    },
+    {
+      "id": "01-home-header-apps",
+      "status": "not-implemented",
+      "evidence": "There is no grid/app-switcher control in the header. Enumerated every child of <header> (side-menu, menu-spacer, simple-title logo, spacer, rd-header-right) and every i/svg/img/button inside it: only the hamburger, the brand image, the notifications bell (data-testid=notifications-center) and the user menu (data-testid=nav_header_showUserMenu). Queried all i/svg classNames on the page for /grid|apps|dots|kebab|more|ellipsis/ and got an empty list. grep over pkg/barn for 'appSwitcher|app-switcher|grid' found only CSS display:grid; barn does not render the header at all.",
+      "defect": "The only product switcher in this Rancher is the hamburger's slide-out Application Bar, which is a different control (covered by 01-home-nav-menu). The design's header grid icon does not exist."
+    },
+    {
+      "id": "01-home-header-logo",
+      "status": "fail",
+      "evidence": "The header logo is a bare <img class=\"side-menu-logo-img\" data-testid=\"header__brand-img\"> inside a plain div - no anchor, no href, no click handler. Clicked it from /dashboard/barn/extensions: the URL and the rendered page did not change.",
+      "defect": "Clicking the header logo does nothing. (Note: this is Rancher shell chrome, not barn code - the same img in Rancher's side-menu title area is also not a link. The Home destination is reachable via the rail's house icon.)"
+    },
+    {
+      "id": "01-home-header-more",
+      "status": "not-implemented",
+      "evidence": "No kebab/overflow control in the header. Same enumeration as 01-home-header-apps: the header's only interactive elements are the hamburger, the notifications bell and the user menu button. No element with a more/ellipsis/kebab icon class exists anywhere on the page.",
+      "defect": "The design's header kebab is absent from the running product."
+    },
+    {
+      "id": "01-home-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] (icon-notify-bell, with an unread indicator). A dropdown opened headed \"Notifications / Mark all as read\" listing real, timestamped entries from this instance ('Verification recorded', 'Snapshot taken “probe point A” holds the working tree as it is now (d09f187).', 'Welcome to Rancher v2.15').",
+      "defect": null
+    },
+    {
+      "id": "01-home-import-github",
+      "status": "pass",
+      "evidence": "The masthead button is <SButton variant=\"neutral\" icon=\"github\">Import</SButton>. Clicked it: a modal titled \"Import from GitHub\" opened with three fields - Name (placeholder 'my-extension'), GitHub repository (placeholder 'owner/name') and Branch (placeholder \"the repository's default\") - plus the note that a private repo needs a token added in settings. Closed it with Escape without importing (creating an extension is out of scope for this audit).",
+      "defect": null
+    },
+    {
+      "id": "01-home-intro",
+      "status": "pass",
+      "evidence": "The .studio-home__lede under the title row reads \"Describe what you want in plain language; the assistant builds it against this Rancher. Nothing reaches users until you publish.\"",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-about",
+      "status": "pass",
+      "evidence": "Opened the rail (hamburger), clicked 'About' at the foot of the menu: navigated to /dashboard/about and the page rendered with h1 \"About\".",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-book",
+      "status": "not-implemented",
+      "evidence": "No book/docs icon in the rail. Enumerated every entry of the opened .side-menu with its icon class: Home (top-menu-icon), local (cluster logo + pin), Cluster Management (icon-cluster-management), Continuous Delivery (icon-fleet), Editor (icon-flask), Virtualization Management (icon-harvester), Base (icon-gear), Users & Authentication (icon-user), Extensions (icon-extension), Global Settings (icon-globe), About (no icon). Queried every i/svg on the page for /book|doc/ and got nothing. grep -rn \"icon-book|'book'\" over pkg/barn only hits the row menu's 'Open the brief' item and EditorMasthead, neither of which is the rail; barn does not render the rail.",
+      "defect": "There is no docs/catalog entry in this Rancher's top-level menu. Apps/Charts live inside a cluster explorer, not the rail."
+    },
+    {
+      "id": "01-home-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked [data-testid=menu-cluster-local]: navigated to /dashboard/c/local/explorer and the Cluster Dashboard rendered (h1 \"Cluster Dashboard\"). This Rancher has exactly one cluster, so there is one entry rather than the design's three chips, and the expanded menu draws it as an icon plus the name 'local' with a pin control rather than a three-letter chip - but the jump-into-the-explorer behaviour the feature promises is there.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-extensions",
+      "status": "fail",
+      "evidence": "On /dashboard/barn/extensions the only rail entry carrying router-link-active/router-link-exact-active is 'Editor' (icon-flask, href /dashboard/barn/extensions) - the barn product itself. The puzzle-icon entry labelled 'Extensions' (icon-extension) is NOT selected, and clicking it navigates to /dashboard/c/local/uiplugins (Rancher's UIPlugins list), not back to the Studio.",
+      "defect": "The Studio is registered as its own product ('barn-editor', icon 'flask', label 'Editor' - see editor-product.ts) rather than as a section of Rancher's Extensions area, so the puzzle icon the design shows selected belongs to a different destination. Either the product should sit under Extensions, or the design's selected-puzzle promise does not describe the product."
+    },
+    {
+      "id": "01-home-nav-gear",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked 'Global Settings': navigated to /dashboard/c/local/settings/management.cattle.io.setting and the Settings page rendered (h1 \"Settings\"). Caveat worth recording: that entry's icon is icon-globe, not a gear; the only icon-gear in the rail belongs to the unrelated 'Base' product entry.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-home",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked the house entry (a.option.cluster.selector.home): navigated to /dashboard/home and the page rendered with h1 \"Welcome to Rancher Prime\".",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-menu",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=top-level-menu] (the hamburger, aria-label \"Expand the Application Bar\") on /dashboard/barn/extensions: the .side-menu className went from \"side-menu menu-close\" to \"side-menu menu-open\" and the full nav drawer (Home, clusters, Cluster Management, Continuous Delivery, Editor, ... About) became visible. The route did not change.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-server",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked 'Cluster Management' (icon-cluster-management): navigated to /dashboard/c/_/manager/provisioning.cattle.io.cluster and the Clusters list rendered (h1 \"Clusters\").",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the account button ([data-testid=nav_header_showUserMenu], aria-label \"Open user menu\"). A dropdown opened reading \"admin / Default Admin / Preferences / Account & API Keys / Log Out\". Clicked Preferences: navigated to /dashboard/prefs. Note the account menu is in the header's top-right, not at the foot of the rail as the design draws it.",
+      "defect": null
+    },
+    {
+      "id": "01-home-new-extension",
+      "status": "pass",
+      "evidence": "Clicked the primary <SButton variant=\"primary\" icon=\"plus\">New extension</SButton>: URL became /dashboard/barn/extensions/new and the page rendered with h1 \"New extension\".",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-actions",
+      "status": "pass",
+      "evidence": "Every row ends in a .studio-home__td--actions cell fixed at 104px, right-aligned, holding an SMenu icon trigger (plus a secondary 'Review' button on rows in the Unsaved state). Opened the menu on base, demo and nodehealth: each shows the same six lines - Open in the workspace / Review changes / Open files / Open the brief / divider / Remove the local install - with per-row enablement that matches the row's real state (base: review enabled note '1', remove disabled 'not installed'; demo, pod 0/0: review 'none', files and brief 'still building', all disabled; nodehealth: review note '2', remove enabled note 'v0.1.0'). Drove all four navigation items - see 01-home-row-open and the URLs recorded there. 'Remove the local install' on nodehealth opened the confirmation modal (\"This Rancher stops loading nodehealth: its UIPlugin is deleted...\") and Cancel closed it; I did not press 'Remove it' because deleting a shared UIPlugin would break other agents' verifications, and kubectl confirms the nodehealth UIPlugin is still installed.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-open",
+      "status": "pass",
+      "evidence": "Clicked the body of the 'base' row: URL became /dashboard/barn/editor/base and the workspace rendered (.mc-editor present). The menu's four navigation items were each driven from a fresh page load and each landed on a real screen: 'Open in the workspace' -> /barn/editor/base (.mc-editor), 'Review changes' -> /barn/extensions/base/review (.review__body), 'Open files' -> /barn/extensions/base/files (.files__body), 'Open the brief' -> /barn/extensions/base/brief (.brief__columns). No silent $router.push failures.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-review",
+      "status": "fail",
+      "evidence": "base and nodehealth are both in the Unsaved state (1 and 2 uncommitted changes, cross-checked with git status in each pod) and both show the secondary 'Review' button in the action cell, so the button appears when it should. But clicking it on the base row navigated to /dashboard/barn/editor/base (the workspace, .mc-editor) - not the diff review. The row menu's 'Review changes' item on the same row does go to /dashboard/barn/extensions/base/review (.review__body), so the review screen exists and works.",
+      "defect": "pages/extensions.vue line 635: the Review button is @click.stop=\"open(row.name)\", which pushes EDITOR_ROUTE. It should push REVIEW_ROUTE with params { extension: row.name }, the same as onRowAction's 'review' branch."
+    },
+    {
+      "id": "01-home-row-source",
+      "status": "pass",
+      "evidence": "All four extensions currently in the cluster were created here, and each shows the icon-ai sparkle plus \"Created here · no repo yet\". To exercise the repo-backed branch I temporarily set the demo extension's barn.rancher.io/source annotation to github:verify-01home/demo#audit-01home (a value keyed to this audit): its row then rendered the icon-github mark and \"verify-01home/demo · audit-01home\", read live from the configmap annotation. I restored the annotation to 'base' immediately afterwards and confirmed with kubectl that it is back.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-subtitle",
+      "status": "pass",
+      "evidence": "Every name cell renders a second muted line and each one matched the row's real state: base \"1 change waiting for your review\" (git status in the pod: 1 entry), nodehealth \"2 changes waiting for your review\" (git status: 2 entries), demo \"Compiling - the preview reloads when it finishes\" (deployment scaled 0/0), q11probe \"On main, nothing uncommitted\" (an extension another agent created mid-run, ready with a clean tree). A published-but-clean row would read \"Released as v<x> to this Rancher\".",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-target",
+      "status": "pass",
+      "evidence": "Three distinct values, all cross-checked. nodehealth reads \"catalog · v0.1.0\" and `kubectl get uiplugins -A` shows nodehealth 0.1.0 installed in cattle-ui-plugin-system. base and q11probe read \"local (preview)\": their deployments are 1/1 and neither has a UIPlugin. demo reads \"-\": its deployment is 0/0 and it has no UIPlugin. So published-to-catalog, preview-only and nowhere are each distinguished from live readings.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-when",
+      "status": "fail",
+      "evidence": "The cell renders a real relative time, correctly formatted and correctly derived: base \"1 day ago\" against git log -1 --format=%cI = 2026-08-21T22:37:47Z, nodehealth \"2 hours ago\" against 2026-08-22T22:25:12Z, demo \"-\" (pod down, no reading). But the value is the last COMMIT, not the last change. base's working tree has an uncommitted BRIEF.md whose mtime in the pod is 2026-08-22T23:40:00Z - 43 minutes before I read the page - and the row's own subtitle says \"1 change waiting for your review\", yet the Last change cell says \"1 day ago\".",
+      "defect": "extensionDetail() (extensions.ts ~line 1650) sources lastChange from `git log -1 --format=%cI`, so editing a file never moves the column; only committing does. A column headed \"Last change\" next to a subtitle announcing uncommitted changes should take the newer of the last commit and the newest working-tree mtime. I did not drive the 'just now' transition because that would require committing in a pod other verifiers are reading."
+    },
+    {
+      "id": "01-home-sort-last-change",
+      "status": "pass",
+      "evidence": "Sorts on the timestamp, not the rendered string, and I proved it rather than assumed it. With the real data the two orderings coincide, so I shifted only Date.now() forward 24h in the page (Date.parse of the ISO timestamps is untouched) so that the older extension renders the LATER-sorting string: base (older) rendered \"2 days ago\" and nodehealth (newer) rendered \"1 day ago\". First click gave aria-sort=descending and the order nodehealth \"1 day ago\", base \"2 days ago\", demo \"-\" - i.e. newest first. A string sort would have put \"2 days ago\" on top. Second click gave ascending and the exact reverse (demo \"-\", base, nodehealth). The header carries a chevron that turns from chevronDown to chevronUp and gets the --on treatment.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-name",
+      "status": "pass",
+      "evidence": "Click 1: aria-sort=ascending, order base, demo, nodehealth. Click 2: aria-sort=descending, order nodehealth, demo, base. Click 3 returned to ascending. Caret flips chevronUp/chevronDown and the title attribute reads \"Sorted ascending, click to reverse\" / \"Sorted descending, click to reverse\".",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-running-on",
+      "status": "pass",
+      "evidence": "Sorts on the underlying target, not the cell text. Click 1 (ascending): nodehealth \"catalog · v0.1.0\", base \"local (preview)\", demo \"-\" - installed first, previewing second, nowhere last. A string sort would have put \"-\" first, not last. Click 2 (descending) gave the exact reverse: demo \"-\", base, nodehealth. Click 3 restored the first order, and aria-sort tracked ascending/descending each time.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-source",
+      "status": "pass",
+      "evidence": "With every row 'Created here' the sort has nothing to separate, so I temporarily gave the demo extension the source annotation github:verify-01home/demo#audit-01home (restored afterwards, see 01-home-row-source). Click 1: aria-sort=ascending, order base, nodehealth (both 'Created here', which sort as the empty string and group together), then demo \"verify-01home/demo · audit-01home\". Click 2: aria-sort=descending, demo first then base, nodehealth. The caret gets the --on treatment on the Source header and the direction indicator flips.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-state",
+      "status": "pass",
+      "evidence": "Click 1: aria-sort=ascending, order base:Unsaved, nodehealth:Unsaved, demo:Building, q11probe:Live. That is the attention order in STATE_ORDER (failed, unsaved, building, live, published, draft) with the name breaking the Unsaved tie - not alphabetical on the badge word, which would have been Building, Live, Unsaved. Click 2: aria-sort=descending, exact reverse (q11probe:Live, demo:Building, base, nodehealth). Click 3 back to ascending.",
+      "defect": null
+    },
+    {
+      "id": "01-home-state-badge",
+      "status": "pass",
+      "evidence": "Every row leads with an .s-badge pill and each one is a live reading, cross-checked. base and nodehealth: \"Unsaved\" (s-badge--warning, #c9a227 on #fdf6e3) - git status in each pod shows 1 and 2 uncommitted entries. demo: \"Building\" (s-badge--info, #3d98d3 on #deebf7) - `kubectl -n barn get deploy` shows barn-demo-extension 0/0. q11probe, an extension another agent created 55 seconds earlier: \"Live\" (s-badge--success, #3e8c4f on #ebf4ec) - deployment 1/1, clean tree, and no UIPlugin, so not Published. nodehealth is the one row with a UIPlugin (v0.1.0) and it correctly badges Unsaved rather than Published because uncommitted work outranks publication. All six tone tokens resolve to distinct real colours on the page. Two caveats, neither a hardcoded value: I could not observe Published or Failed with real data during the run, and stateOf() can only ever return building/unsaved/published/live - 'failed' and 'draft' are unreachable from this screen except as the pre-enrichment default.",
+      "defect": null
+    },
+    {
+      "id": "01-home-title",
+      "status": "pass",
+      "evidence": "On /dashboard/barn/extensions the h1.studio-home__title reads \"Extension Studio\".",
+      "defect": null
+    }
+  ]
+}
