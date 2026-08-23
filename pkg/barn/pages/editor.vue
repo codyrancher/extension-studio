@@ -13,8 +13,13 @@
 //
 // Registered in index.ts under the 'plain' parent rather than 'blank'. Blank renders the
 // route and nothing else, which meant this page had to carry a Back button to be escapable
-// at all. Plain brings the top-level menu, which is the way out; its header bar is hidden
-// here (see the unscoped style block at the bottom) because each pane labels itself.
+// at all. Plain brings the shell's header and the top-level menu, which is the way out.
+//
+// This page used to collapse that header to nothing, on the argument that each pane labels
+// itself. What went with it was everything only the header has: the product wordmark, the
+// notification tray, the page-actions menu and the account menu, none of which this page
+// replaces - so the workspace was the one screen in Rancher you could not sign out of. The
+// design draws the header over this frame, and the header is now left where the shell puts it.
 import PodTerminal from '../components/PodTerminal.vue';
 import ExtensionSelect from '../components/ExtensionSelect.vue';
 import PublishStatus from '../components/PublishStatus.vue';
@@ -26,14 +31,16 @@ import PublishGithubModal from '../components/PublishGithubModal.vue';
 import InstallProgress from '../components/InstallProgress.vue';
 import EditorMasthead from '../components/EditorMasthead.vue';
 import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/studio';
-import { BUILD_FAILED_ROUTE } from '../editor-product';
+import { BUILD_FAILED_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import { SButton, SModal } from '../components/ui';
 import StartingExtensions from '../components/StartingExtensions.vue';
 import fullBleed from '../design/full-bleed';
 import {
   ensureExtension, extensionReady, extensionUrl, publishExtension,
-  publishExtensionToGithub, removeLocalInstall, DEFAULT_EXTENSION
+  publishExtensionToGithub, removeLocalInstall, DEFAULT_EXTENSION,
+  askAssistant, readExtensionFile
 } from '../extensions';
+import { toastError, toastSuccess } from '../toast';
 import { installState } from '../install';
 import { recordFailure } from '../publish-failure';
 
@@ -86,6 +93,36 @@ const DEV_POLL_MS = 5000;
 // things now depend on it - the terminal itself, and the assistant panel's session menu, which
 // offers the name so it can be attached to from a shell - and they must not drift apart.
 const TERMINAL_SESSION = 'editor';
+
+// Where the messages sent from the composer are kept, so the stream still has your half of the
+// conversation after a reload. Per extension, because each pod has a conversation of its own.
+//
+// sessionStorage rather than the pod: these are a record of what this tab sent, not of what the
+// session contains - the session itself lives in tmux and outlives every browser tab.
+const TURNS_KEY = 'barn.editor.turns';
+
+// How many to keep. Long enough to be a conversation, short enough that the storage entry stays
+// small when somebody works in here all afternoon.
+const MAX_TURNS = 50;
+
+function readTurns(extension) {
+  try {
+    const all = JSON.parse(window.sessionStorage.getItem(TURNS_KEY) || '{}');
+
+    return Array.isArray(all[extension]) ? all[extension] : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeTurns(extension, turns) {
+  try {
+    const all = JSON.parse(window.sessionStorage.getItem(TURNS_KEY) || '{}');
+
+    all[extension] = turns;
+    window.sessionStorage.setItem(TURNS_KEY, JSON.stringify(all));
+  } catch { /* storage can be unavailable; the stream is then this tab's only */ }
+}
 
 export default {
   name: 'BarnEditor',
@@ -171,6 +208,16 @@ export default {
       publishError: '',
       publishLog:   '',
       published:    '',
+      // Your half of the conversation, as turns the activity stream can render.
+      //
+      // Real and nothing more than that: each entry is a message this composer actually sent
+      // and the moment it was sent. The assistant's half is not here, because claude's output
+      // is a character stream and turning it into steps with durations is a parser nobody has
+      // written - see the note the stream carries under the last turn.
+      turns:        readTurns(this.$route.params.extension || DEFAULT_EXTENSION),
+      // Bumped every second so "2 minutes ago" on a turn counts up rather than freezing.
+      now:          Date.now(),
+      nowTimer:     null,
     };
   },
 
@@ -184,7 +231,7 @@ export default {
      * looks live and does nothing, silently - which is exactly how these were found.
      */
     routes() {
-      return { BUILD_FAILED_ROUTE };
+      return { BUILD_FAILED_ROUTE, STUDIO_ROUTE };
     },
 
     /** The divider's position as a number, which before a drag is the token width's. */
@@ -232,15 +279,25 @@ export default {
       return this.$route.params.extension || DEFAULT_EXTENSION;
     },
 
+    /** The stream's turns, with the relative time worked out at render rather than at send. */
+    streamTurns() {
+      return this.turns.map((turn) => ({
+        role: 'user',
+        text: turn.text,
+        when: this.ago(turn.at),
+      }));
+    },
+
   },
 
   watch: {
     // Switching extensions is switching pods: the right pane has to go back to waiting rather
     // than keep framing the one that is no longer being edited. The terminal on the left
     // re-connects on its own, because `extension` is a prop of it.
-    extension() {
+    extension(name) {
       this.needsInstall = undefined;
       this.checkInstall();
+      this.turns = readTurns(name);
       this.rightUrl = '';
       // The poll from the extension being left is still in its sleep. Waking it early is not
       // the point - waitForDevServer checks whose it is - but leaving a timer behind for the
@@ -274,19 +331,17 @@ export default {
     // server), so nothing here has to wait for the left pane.
     this.waitForDevServer();
 
-    // What the page needs from the template it is under, and cannot ask for from inside its
-    // own scope: see the unscoped style block at the bottom. The class goes on <html> rather
-    // than on <body>, which was the first attempt and silently did nothing - the shell owns
-    // body's class list (theme-light, overflow-hidden, dashboard-body) and rewrites it whole
-    // on navigation, so a class added there survives until the next route change and no
-    // longer.
-    document.documentElement.classList.add('barn-editor-page');
+    this.nowTimer = setInterval(() => {
+      this.now = Date.now();
+    }, 1000);
+
+    this.handleHandoff();
   },
 
   beforeUnmount() {
     this.unmounted = true;
     clearTimeout(this.devPollTimer);
-    document.documentElement.classList.remove('barn-editor-page');
+    clearInterval(this.nowTimer);
   },
 
   methods: {
@@ -443,11 +498,125 @@ export default {
     /**
      * Send what was typed in the composer to the claude in the pod.
      *
-     * Real, and the same thing as typing it into the terminal: the panel has already switched
-     * to the terminal by the time this runs, so the reply arrives somewhere visible.
+     * Through `askAssistant` rather than through the terminal's own websocket, and that is the
+     * fix for a message that looked sent and was not: the websocket wrote the text and the
+     * carriage return as one frame, and claude's TUI reads a burst wider than the pane as a
+     * paste - so the return landed inside the prompt as a newline and the message sat there
+     * unsubmitted while the composer cleared and the panel switched to the terminal, exactly as
+     * it does on success. `askAssistant` types the text, waits a second and then sends Return
+     * separately, which is what the pane needs, and it queues the message when no session has
+     * been opened yet rather than dropping it.
+     *
+     * The turn is recorded either way, because it is a record of what this composer sent.
      */
-    sendToAssistant(text) {
-      this.$refs.terminal?.sendText(text);
+    async sendToAssistant(text) {
+      this.recordTurn(text);
+
+      try {
+        const how = await askAssistant(this.extension, text);
+
+        if (how === 'queued') {
+          toastSuccess(
+            this.$store,
+            'No session is open in this pod yet, so the message is waiting as the first thing the conversation is asked.',
+            { title: 'Queued for the assistant' },
+          );
+        }
+      } catch (e) {
+        toastError(this.$store, e.message || String(e), { title: 'The message did not reach the assistant' });
+      }
+    },
+
+    /** Keep what was sent, so the stream still has it after a reload. */
+    recordTurn(text) {
+      this.turns = [...this.turns, { text, at: Date.now() }].slice(-MAX_TURNS);
+      writeTurns(this.extension, this.turns);
+    },
+
+    /** How long ago something happened, in the words the design's meta line uses. */
+    ago(at) {
+      const secs = Math.max(0, Math.round((this.now - at) / 1000));
+
+      if (secs < 10) {
+        return 'just now';
+      }
+
+      if (secs < 60) {
+        return `${ secs } seconds ago`;
+      }
+
+      const mins = Math.round(secs / 60);
+
+      if (mins < 60) {
+        return `${ mins } minute${ mins === 1 ? '' : 's' } ago`;
+      }
+
+      const hours = Math.round(mins / 60);
+
+      return `${ hours } hour${ hours === 1 ? '' : 's' } ago`;
+    },
+
+    /**
+     * Act on what the screen that sent you here asked for.
+     *
+     * Two screens push this route with an instruction in the query and, until this existed,
+     * nothing read either of them: the navigation happened, so both controls looked like they
+     * had worked. `?publish=local` is build-failed's "Try the publish again" and review's
+     * publish-after-review; `?brief=1` is the brief screen handing its document over to be the
+     * session's first instruction.
+     *
+     * The query is cleared once it has been acted on, so a reload does not run it a second
+     * time - a publish is minutes of work in a shared pod and must not happen twice because
+     * somebody pressed F5.
+     */
+    async handleHandoff() {
+      const { publish, brief } = this.$route.query;
+
+      if (!publish && !brief) {
+        return;
+      }
+
+      await this.$router.replace({
+        name:   this.$route.name,
+        params: this.$route.params,
+        query:  { ...this.$route.query, publish: undefined, brief: undefined },
+      }).catch(() => { /* the same route with fewer parameters is not a navigation failure */ });
+
+      if (publish === 'local' || publish === 'github') {
+        this.publishTo(publish);
+
+        return;
+      }
+
+      if (brief) {
+        this.handBriefOver();
+      }
+    },
+
+    /**
+     * Give the brief to the assistant as the session's first instruction.
+     *
+     * The file rather than the form: `agree()` on the brief screen writes BRIEF.md and then
+     * comes here, so the document is on disk in the pod by the time this runs, and naming the
+     * path is both shorter and truer than pasting a copy of it into a terminal prompt.
+     */
+    async handBriefOver() {
+      const brief = await readExtensionFile(this.extension, 'BRIEF.md').catch(() => '');
+
+      if (!brief.trim()) {
+        toastError(
+          this.$store,
+          'The brief was agreed but BRIEF.md could not be read back out of the pod, so nothing was handed to the assistant.',
+          { title: 'The brief did not arrive' },
+        );
+
+        return;
+      }
+
+      const text = 'Read BRIEF.md in this package. It is the brief we agreed for this extension. Tell me how you would build it, in steps, before changing anything.';
+
+      this.leftTab = 'terminal';
+      await this.sendToAssistant(text);
     },
 
     /**
@@ -700,7 +869,7 @@ export default {
       :publish-stage="publishStage"
       :publish-total="publishTotal"
       :ready="!!rightUrl"
-      @back="$router.push({ name: 'home' })"
+      @back="$router.push({ name: routes.STUDIO_ROUTE })"
       @files="onLeftTab('changes')"
       @publish="publishTo('local')"
       @publish-select="onPublishSelect"
@@ -786,6 +955,7 @@ export default {
           :session="terminalSession"
           :revision="changesRevision"
           :connected="terminalConnected"
+          :turns="streamTurns"
           @update:tab="onLeftTab"
           @send="sendToAssistant"
           @reconnect="reconnectTerminal"
@@ -1084,47 +1254,4 @@ $rancher-rail-width: 70px;
   width: 3px;
   background: var(--primary, #3d98d3);
 }
-</style>
-
-<style lang="scss">
-  // Unscoped, and it has to be: everything below belongs to the shell's 'plain' template, so
-  // nothing this page renders is inside the scope that would reach it. All of it is keyed on
-  // a class the page puts on <html> while it is mounted (see mounted()), so no other page
-  // under the same template is affected.
-  html.barn-editor-page {
-    // The header bar goes, the top-level menu stays. They are one element in the shell -
-    // TopLevelMenu is the first child of <header> - so this cannot be `display: none`. The
-    // grid row is collapsed by zeroing the variable that sizes it, the element is allowed to
-    // overflow what is left, and everything in it except the menu is hidden.
-    //
-    // Which leaves the way out of this page intact: the rail is fixed-positioned, so it is
-    // still where it always is once the row it nominally lives in is gone.
-    // Through `body` rather than on the element itself: the themes declare this on `:root`,
-    // which is this same element, and a class on it is no more specific than they are. One
-    // step down settles it without an !important.
-    body {
-      --header-height: 0px;
-    }
-
-    header[data-testid="header"] {
-      border:     none;
-      background: none;
-      overflow:   visible;
-      // Zeroing the grid row is not enough on its own. The element keeps its own 55px height,
-      // so it goes on overlapping the page under it, and an invisible 55px band across the top
-      // swallowed every click on the bars below - which is how this was found.
-      height:         0;
-      min-height:     0;
-      pointer-events: none;
-
-      > *:not(:first-child) {
-        display: none;
-      }
-
-      // The rail is the exception, because it is the one part of the header that stays.
-      > :first-child {
-        pointer-events: auto;
-      }
-    }
-  }
 </style>

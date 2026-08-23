@@ -86,3 +86,57 @@ Return:
    legitimate and useful answer; say what data was missing.
 3. The result of the three checks above.
 4. Anything you noticed that is wrong but outside your scope, so it can be routed properly.
+
+---
+
+# Wave mode: you are one of six implementers running at once
+
+The loop runs in waves. Six implementers edit source concurrently, the orchestrator builds ONCE,
+then six verifiers drive the result. Two rules follow from there and they override the build
+instructions above.
+
+## 1. Do not build, and do not install
+
+There is one bundle and one Rancher. If you run `build-pkg` or `install-barn.mjs` while five other
+implementers are mid-edit, you ship everybody's half-finished work into the running instance and
+every verification after that describes a build nobody wrote. **The orchestrator builds when the
+wave completes.**
+
+You can still check your work without building:
+- `yarn type-check` from `/workspace/magic-closet/barn` (slow, whole repo, but it is read-only)
+- Unit-test any pure logic you add by lifting it into a scratch `.mjs` and running it against real
+  data. The two fixes that opened this loop were both caught this way: the brief parser looked
+  right and returned an empty criteria array against the real file.
+- Read the pod's real state with `kubectl -n barn exec deploy/barn-base-extension -- sh -c '...'`
+  to confirm your assumptions about what the data looks like.
+
+If your change is pure logic, a scratch test against real data is worth more than a browser pass.
+If it is a rendering change, say so in your return message so the verifier knows to look.
+
+## 2. You own your files. Do not touch anyone else's
+
+Your prompt names the files you own. The other five own theirs. Overlap is how a wave turns into a
+merge conflict nobody asked for.
+
+`pkg/barn/extensions.ts` is shared by everyone. Editing it is allowed and often necessary, but:
+- **Add a new function rather than changing an existing one** where you have the choice. Another
+  implementer may be depending on the current behaviour of what you are about to change.
+- If you must change an existing exported function, **say so prominently in your return message**,
+  naming the function and what changed, so the orchestrator can tell whether it broke somebody.
+- Never reformat, reorder or "tidy" that file. A whitespace change across a file five other agents
+  are editing produces conflicts out of nothing.
+
+The same goes for `design/studio.css` and anything in `components/ui/`: additive changes only, and
+report them.
+
+## 3. What the verifier will do to your work
+
+After the build, a verifier drives every feature you were given, against the running app, and holds
+it to the bar in `VERIFYING.md`: the promised effect has to happen and be observable, and state that
+should persist has to survive a reload. It will not accept "the control exists".
+
+If it bounces an item back, you get the item again with fresh evidence, and the loop continues until
+it passes or until you establish that it cannot be honestly backed. **"Cannot be honestly backed" is
+a legitimate end state** - say what data was missing and what you would need. It is a better outcome
+than a control that lies, and three such claims were deleted from this product for exactly that
+reason.

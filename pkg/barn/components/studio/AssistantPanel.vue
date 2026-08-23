@@ -17,25 +17,31 @@
 //   paths that go with it: whatever is on them is named in the line the assistant receives,
 //   so the word "context" is a description rather than a promise.
 //
-//   Not real. The activity stream itself. The design shows the assistant's work as structured
-//   turns with steps and durations, and what we have is a terminal - claude's output is a
-//   character stream, not a sequence of typed events, and turning one into the other is a
-//   parser nobody has written. So the Assistant tab renders the stream when it is given turns
-//   and otherwise says plainly that the structured view is not wired and offers the terminal,
-//   rather than showing an invented conversation that reads as real.
+//   Half real. The activity stream. Your side of it is: every message the composer sends is a
+//   turn, with the time it was sent, and it survives a reload. The assistant's side is not, and
+//   is not faked - claude's output is a character stream, not a sequence of typed events, and
+//   turning one into the other is a parser nobody has written. So the stream carries a standing
+//   note under the last turn saying exactly that, and the strip beside it opens the terminal,
+//   where the reply actually is. No invented steps, no invented durations.
 //
 //   Informational. The chip on the status row. The design's version says "Ask before each file
 //   edit", and the pod runs `claude --dangerously-skip-permissions` (see pod/claude-session.sh)
 //   - so the design's chip was the opposite of the truth, and there is no switch behind it to
 //   make it true. It states what the session actually does instead, and is not clickable,
 //   because there is nothing to press it for.
+//
+//   Real, and it had to be made so. The status row's dot and name. They used to report the
+//   terminal's websocket and this Rancher's signed-in user, which is not the assistant's session
+//   in either half: the row read "Connected as admin" in green while every turn in the pane came
+//   back "Not logged in - Please run /login". It now reads the credential state of the claude in
+//   the pod (assistantLogin), and says so plainly when there is none.
 import {
   SIcon, SChip, SLabel, SButton, STabs, SEmpty, SMenu, SModal, SField
 } from '../ui';
 import ActivityTurn from './ActivityTurn.vue';
 import { toastSuccess, toastError } from '../../toast';
 import {
-  countChanges, publishedVersion, listExtensionFiles, writePodImage
+  countChanges, publishedVersion, listExtensionFiles, writePodImage, assistantLogin
 } from '../../extensions';
 
 /**

@@ -60,6 +60,9 @@ export default {
 
   data() {
     return {
+      // The request as it arrived, quoted rather than edited: it is a record of what was asked
+      // for, and the point of the card is that it does not change while the brief does.
+      request:  '',
       problem:  '',
       who:      '',
       changes:  '',
@@ -70,6 +73,26 @@ export default {
       // file, so agreeing before it has been read back would replace it with a form
       // that never contained it.
       loading:  true,
+      // The file as it was last read or written, which every save is merged into rather than
+      // replacing. Sections this form does not own - the verification block screen 13 writes,
+      // anything a person added by hand - live in here and nowhere else.
+      original: '',
+      // Whether BRIEF.md was there to be read. The difference between "saved" and "nothing
+      // written yet", which the masthead has to be able to say.
+      exists:   false,
+      // The date somebody pressed Agree, read back out of the file. Empty means nobody has,
+      // which is the only thing that makes this a draft.
+      agreedOn: '',
+      // Which criteria were ticked in the file. Screen 13 owns the ticks; this form must not
+      // untick one just because it rewrote the line around it.
+      ticked:   new Set(),
+      // The autosave. Separate from `saving`, which is the Agree button's own spinner.
+      ready:      false,
+      dirty:      false,
+      autosaving: false,
+      savedAt:    null,
+      saveError:  '',
+      saveTimer:  null,
       asking:   false,
       // '' until the question has been put to the pod; then what happened to it, so the card
       // can say where the answer is rather than looking like nothing happened.
@@ -116,8 +139,62 @@ export default {
       return this.criteria.map((c) => c.trim()).filter(Boolean);
     },
 
+    /** Everything the form owns, as one value, so one watcher can see any edit to any of it. */
+    formKey() {
+      return JSON.stringify([
+        this.request, this.problem, this.who, this.changes, this.notDoing, this.criteria,
+      ]);
+    },
+
     canAgree() {
       return !!this.problem.trim() && !this.saving && !this.loading;
+    },
+
+    /**
+     * What the chip says about the brief, from the file rather than from the template.
+     *
+     * It was the literal "Draft - not yet agreed", which was false the moment anybody agreed
+     * one - and once the form started loading the file it was visibly false, because the screen
+     * would show an agreed brief while the chip called it a draft. Agreement is recorded in the
+     * document itself, so it survives a reload and is readable by anyone who opens the file.
+     */
+    status() {
+      if (this.agreedOn) {
+        return { label: `Agreed ${ this.agreedOn }`, icon: 'check', tone: 'success' };
+      }
+
+      return { label: 'Draft - not yet agreed', icon: 'clock', tone: 'warning' };
+    },
+
+    /**
+     * Where the typing has got to, said plainly.
+     *
+     * Every edit here is written into BRIEF.md, so the screen has to say when that last
+     * happened. A form that saves silently and a form that does not save at all look identical
+     * until you reload one of them.
+     */
+    savedNote() {
+      if (this.loading) {
+        return 'Reading BRIEF.md';
+      }
+
+      if (this.saveError) {
+        return `Not saved: ${ this.saveError }`;
+      }
+
+      if (this.autosaving) {
+        return 'Saving';
+      }
+
+      if (this.dirty) {
+        return 'Unsaved';
+      }
+
+      if (this.savedAt) {
+        return `Saved ${ this.savedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }`;
+      }
+
+      return this.exists ? 'Saved in BRIEF.md' : 'Nothing written yet';
     },
 
     /**

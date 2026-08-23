@@ -404,6 +404,71 @@ export function parseGithubSource(source: string): { repo: string; ref: string }
 }
 
 /**
+ * What somebody typed or pasted into a repository field, read as `owner/name` and a branch.
+ *
+ * The bare `owner/name` is the form the clone wants, but it is not the form anybody has to
+ * hand: what they have is the URL out of the browser bar, or the one GitHub's clone button
+ * gave them. Rejecting those and asking for `owner/name` instead makes the user do a
+ * transformation this can do, so it does it, and a `/tree/<branch>` URL brings its branch with
+ * it rather than being silently flattened to the default.
+ *
+ * Null for anything that cannot be read as a github.com repository, which is what puts the
+ * field into its error state. Owner has no dot in it on purpose - that is what stops
+ * `gitlab.com/someone` being read as the repository `someone` belonging to `gitlab.com`.
+ */
+export function parseGithubRepoInput(input: string): { repo: string; branch: string } | null {
+  // A query or a fragment first: the browser bar hands back `...?tab=readme` and `...#readme`.
+  let text = (input || '').trim().split(/[?#]/)[0].trim();
+
+  if (!text) {
+    return null;
+  }
+
+  const isUrl = /:\/\//.test(text) || /^git[+@]/i.test(text) || /^(?:www\.)?github\.com[:/]/i.test(text);
+
+  if (isUrl) {
+    const host = text
+      .replace(/^git\+/i, '')
+      .replace(/^[a-z][\w+.-]*:\/\//i, '')
+      .replace(/^[^/@]*@/, '');
+    const onGithub = /^(?:www\.)?github\.com[:/](.+)$/i.exec(host);
+
+    if (!onGithub) {
+      return null;
+    }
+
+    text = onGithub[1];
+  }
+
+  const parts = text.replace(/^\/+/, '').replace(/\/+$/, '').split('/');
+
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const owner = parts[0];
+  const name = parts[1].replace(/\.git$/i, '');
+  let branch = '';
+
+  if (parts.length > 2) {
+    // `/tree/<ref>[/dir]` and `/blob/<ref>/<path>` are the two shapes a browser URL takes, and
+    // the ref is one segment in both: a directory below it is part of the path, not the ref.
+    // Anything else deeper than owner/name is a page we cannot read a repository out of.
+    if ((parts[2] === 'tree' || parts[2] === 'blob') && parts.length > 3) {
+      branch = parts[3];
+    } else {
+      return null;
+    }
+  }
+
+  if (!/^[\w-]+$/.test(owner) || !/^[\w.-]+$/.test(name) || name === '.' || name === '..') {
+    return null;
+  }
+
+  return { repo: `${ owner }/${ name }`, branch };
+}
+
+/**
  * Walks the clone rather than the pod's own tree, and names the package after its package.json.
  *
  * The directory a package lives in and the name inside its package.json have to agree - the
@@ -785,8 +850,15 @@ const ensureInFlight: Record<string, Promise<void> | undefined> = {};
  * ConfigMap is upserted so a newer seed reaches an existing cluster; the
  * Deployment and Service are create-if-missing, because replacing them would
  * restart a dev server somebody is editing in.
+ *
+ * `extras` is files to lay over the seed, keyed by their path inside the extension's own
+ * package (`product.ts`, `BRIEF.md`, `routing/index.ts`). It is how a decision taken before
+ * the pod exists reaches the tree: at creation time there is nowhere else to put one, since
+ * the pod that would take a `writeExtensionFile` is minutes from existing and the seed
+ * ConfigMap is the only thing it reads on the way up. Optional, and an omitted `extras`
+ * leaves every caller behaving exactly as it did.
  */
-export function ensureExtension(name: string, source?: string): Promise<void> {
+export function ensureExtension(name: string, source?: string, extras?: Record<string, string>): Promise<void> {
   const inFlight = ensureInFlight[name];
 
   if (inFlight) {
@@ -831,6 +903,21 @@ export function ensureExtension(name: string, source?: string): Promise<void> {
       files = await githubFiles(github.repo, github.ref, name);
     } else {
       files = await cloneFiles(from);
+    }
+
+    // Laid over the assembled tree, not merged into the seed: a file named here is meant to
+    // win over the seed's copy of it, which is the whole point of handing one in. The package
+    // directory is read off the tree rather than assumed to be the extension's name - an
+    // imported repository keeps its own package name, and PACKAGE_DIR in the pod resolves the
+    // same way, by looking.
+    if (extras && Object.keys(extras).length) {
+      const prefix = Object.keys(files).map((k) => /^(pkg\/[^/]+\/)/.exec(k)?.[1]).find(Boolean);
+
+      if (prefix) {
+        for (const [relative, contents] of Object.entries(extras)) {
+          files[prefix + relative] = contents;
+        }
+      }
     }
 
     const data = seedData(files);
@@ -1424,6 +1511,59 @@ export async function readExtensionFile(name: string, path: string): Promise<str
   return inPackage(name, `cat ${ shellQuote(path) } 2>/dev/null`);
 }
 
+/**
+ * What git knows about one path: who last committed it, when, and whether it is committed now.
+ *
+ * The Files screen's editor header states the open file's provenance, and until this existed
+ * the only true thing on that line was the line count. Everything here is read rather than
+ * guessed: `git log -1` for the last author and age, `git status` for whether the copy on disk
+ * differs from that commit. A file git has never seen comes back with no author and no age,
+ * which is the honest answer for something created a minute ago and not committed.
+ */
+export interface FileProvenance {
+  /** The author of the commit that last touched this path. '' when there is no such commit. */
+  who:   string;
+  /** How long ago that commit was, in git's own relative wording. '' with no commit. */
+  when:  string;
+  /** 'committed' | 'modified' | 'new' | 'deleted' | 'unknown' */
+  state: string;
+}
+
+export async function fileProvenance(name: string, path: string): Promise<FileProvenance> {
+  if (!path) {
+    return { who: '', when: '', state: 'unknown' };
+  }
+
+  const quoted = shellQuote(path);
+  // One exec for both halves, for the reason changedFiles gives: a second shell into the pod
+  // per opened file is a second the reader waits, every time they click a row in the tree.
+  const out = await inPackage(name, [
+    `git log -1 --format='%an%x1f%cr' -- ${ quoted } 2>/dev/null`,
+    'echo "--status--"',
+    `git status --porcelain --no-renames -- ${ quoted } 2>/dev/null`,
+  ].join(' ; ')).catch(() => '');
+
+  const [logOut = '', statusOut = ''] = out.split('--status--');
+  const [who = '', when = ''] = logOut.trim().split('\x1f');
+  const code = statusOut.split('\n').map((l) => l.trimEnd()).filter(Boolean)[0]?.slice(0, 2) || '';
+
+  let state = 'committed';
+
+  if (code.includes('?') || (code.includes('A') && !who)) {
+    state = 'new';
+  } else if (code.includes('D')) {
+    state = 'deleted';
+  } else if (code.trim()) {
+    state = 'modified';
+  } else if (!who) {
+    // No commit and no status either: git is not answering, so say nothing rather than
+    // reporting the file as committed on the strength of an empty string.
+    state = 'unknown';
+  }
+
+  return { who: who.trim(), when: when.trim(), state };
+}
+
 export interface ExtensionBranches {
   current: string;
   branches: string[];
@@ -1536,19 +1676,37 @@ export interface ChangedFile {
   path:   string;
   /** added | modified | deleted */
   status: string;
-  /** Lines added and removed, for the tracked files git can count them for. */
+  /** Lines added and removed. Counted for untracked files too - see below. */
   added:   number;
   removed: number;
 }
 
 export async function changedFiles(name: string): Promise<ChangedFile[]> {
-  // Two commands in one exec, because the status alone cannot say how big a change is and a
-  // second shell into the pod per screen is a second the reviewer waits. `--numstat` covers
-  // the tracked files only - an untracked file is not in `git diff` and is not worth an
-  // `add -N` over, which would stage intent-to-add for everything the tree is not ignoring.
+  // Three readings in one exec, because the status alone cannot say how big a change is and a
+  // second shell into the pod per screen is a second the reviewer waits.
+  //
+  // `git diff --numstat HEAD` covers the tracked files only, and an untracked file is exactly
+  // the one the assistant has just written - so the rows that most needed a size were the rows
+  // that had none. They used to acquire one at random, too: `fileDiff` runs `git add -N` on
+  // whatever file you click, so opening a file's diff once made its counts appear on the next
+  // reload and not before.
+  //
+  // `git diff --no-index /dev/null <path>` is the same count without that: it is the diff of
+  // the file against nothing, which is what a new file's diff is, and it touches neither the
+  // index nor the working tree. Counting them here rather than staging intent-to-add for the
+  // whole tree keeps this function a reading.
   const out = await inPackage(
     name,
-    'git status --porcelain --no-renames 2>/dev/null ; echo "--numstat--" ; git diff --numstat HEAD 2>/dev/null'
+    [
+      // `-uall` so a directory the assistant created is listed as the files in it rather than
+      // as one row saying `pages/`. A directory row cannot be diffed, cannot be counted and
+      // cannot be ticked or unticked meaningfully, which made it the one row on the review
+      // screen that did nothing.
+      'git status --porcelain --no-renames -uall 2>/dev/null',
+      'echo "--numstat--"',
+      'git diff --numstat HEAD 2>/dev/null',
+      'git ls-files -o --exclude-standard 2>/dev/null | while read -r p ; do git diff --no-index --numstat /dev/null "$p" 2>/dev/null ; done',
+    ].join(' ; ')
   ).catch(() => '');
 
   const [statusOut, numstatOut = ''] = out.split('--numstat--');
@@ -1558,7 +1716,11 @@ export async function changedFiles(name: string): Promise<ChangedFile[]> {
     const [added, removed, ...rest] = line.trim().split(/\t/);
 
     if (rest.length) {
-      stats[rest.join('\t')] = { added: parseInt(added, 10) || 0, removed: parseInt(removed, 10) || 0 };
+      // `--no-index` names the pair it compared, so an untracked file arrives as
+      // `/dev/null => path`. The path is what every caller keys on.
+      const path = rest.join('\t').replace(/^\/dev\/null => /, '');
+
+      stats[path] = { added: parseInt(added, 10) || 0, removed: parseInt(removed, 10) || 0 };
     }
   });
 
@@ -1744,6 +1906,132 @@ export async function clearDeferral(name: string): Promise<void> {
 }
 
 /**
+ * The decisions a reviewer takes on a change, kept where the deferral is kept.
+ *
+ * Same three reasons as the deferral: the repository's own `git config` is local to the clone
+ * so it never travels to a remote, it is not a file so it never appears in the working tree the
+ * review screens are counting, and it lives on the hostPath so it survives a pod restart.
+ *
+ * Two kinds so far, and the point of recording them at all is that a decision nobody can read
+ * back is not a decision:
+ *
+ *   code-signoff      - the code gate on screen 12 was approved. Explicitly the code gate: it
+ *                       says nothing about whether the change does the job, which is screen
+ *                       13's question and is recorded in BRIEF.md's `## Verification` block.
+ *   changes-requested - the reviewer sent it back, with the note they sent back with it. Open
+ *                       until it is approved or the reviewer clears it, which is what lets the
+ *                       button count the requests that are still outstanding.
+ *
+ * `by` is whoever the browser was signed in as, because the pod has no idea who is looking at
+ * it. Empty when the page could not tell, and the screens say "not recorded" rather than
+ * inventing a name.
+ */
+export type ReviewDecisionKind = 'code-signoff' | 'changes-requested';
+
+export interface ReviewDecision {
+  kind: ReviewDecisionKind;
+  at:   string;
+  by:   string;
+  note: string;
+}
+
+function decisionKey(kind: ReviewDecisionKind): string {
+  return `barn.review.${ kind }`;
+}
+
+export async function recordReviewDecision(
+  name: string,
+  kind: ReviewDecisionKind,
+  { by = '', note = '' }: { by?: string; note?: string } = {}
+): Promise<ReviewDecision> {
+  const at = new Date().toISOString();
+  const key = decisionKey(kind);
+
+  await inPackage(name, [
+    `git config --local ${ key } ${ shellQuote(at) }`,
+    `git config --local ${ key }-by ${ shellQuote(by.slice(0, 120)) }`,
+    `git config --local ${ key }-note ${ shellQuote(note.replace(/\s+/g, ' ').slice(0, 400)) }`,
+  ].join(' ; '));
+
+  return {
+    kind, at, by, note
+  };
+}
+
+export async function readReviewDecision(name: string, kind: ReviewDecisionKind): Promise<ReviewDecision | null> {
+  const key = decisionKey(kind);
+  const out = await inPackage(name, [
+    `echo "AT:$(git config --local --get ${ key } 2>/dev/null)"`,
+    `echo "BY:$(git config --local --get ${ key }-by 2>/dev/null)"`,
+    `echo "NOTE:$(git config --local --get ${ key }-note 2>/dev/null)"`,
+  ].join(' ; ')).catch(() => '');
+
+  const at = (/^AT:(.*)$/m.exec(out)?.[1] || '').trim();
+
+  if (!at) {
+    return null;
+  }
+
+  return {
+    kind,
+    at,
+    by:   (/^BY:(.*)$/m.exec(out)?.[1] || '').trim(),
+    note: (/^NOTE:(.*)$/m.exec(out)?.[1] || '').trim(),
+  };
+}
+
+export async function clearReviewDecision(name: string, kind: ReviewDecisionKind): Promise<void> {
+  const key = decisionKey(kind);
+
+  await inPackage(name, [
+    `git config --local --unset ${ key } 2>/dev/null`,
+    `git config --local --unset ${ key }-by 2>/dev/null`,
+    `git config --local --unset ${ key }-note 2>/dev/null`,
+    'true',
+  ].join(' ; '));
+}
+
+/**
+ * Where the change under review came from: the last commit, and when the tree was last edited.
+ *
+ * The masthead of screen 12 says which review this is, and the honest answer to "who authored
+ * it and when" has two halves. The commit half is a fact git holds. The uncommitted half is
+ * not: git records no author for a working tree, so the only thing that can be said about it
+ * is when a file in it was last written, which `find -newer`-free `ls` cannot give portably
+ * and `git status` does not carry. `stat` does, and busybox has it.
+ *
+ * Everything is best-effort and empty on failure, because a masthead is not worth a broken
+ * page.
+ */
+export interface ChangeProvenance {
+  /** ISO time of the most recently modified changed file, '' when there are none. */
+  edited:  string;
+  /** The last commit, which is what the change will sit on top of. */
+  commit:  { sha: string; author: string; when: string; subject: string };
+}
+
+export async function changeProvenance(name: string): Promise<ChangeProvenance> {
+  const out = await inPackage(name, [
+    `git log -1 --format='SHA:%h%nAUTHOR:%an%nWHEN:%cI%nSUBJECT:%s' 2>/dev/null`,
+    'echo "--edited--"',
+    // The newest mtime among the files git reports as changed, as an epoch second. `cut -c4-`
+    // drops porcelain's two status characters and the space after them.
+    'git status --porcelain --no-renames 2>/dev/null | cut -c4- | tr -d \'"\' | while read -r p ; do [ -f "$p" ] && stat -c %Y "$p" 2>/dev/null ; done | sort -n | tail -1',
+  ].join(' ; ')).catch(() => '');
+
+  const [logOut = '', editedOut = ''] = out.split('--edited--');
+  const field = (key: string) => (new RegExp(`^${ key }:(.*)$`, 'm').exec(logOut)?.[1] || '').trim();
+  const epoch = parseInt(editedOut.trim(), 10);
+
+  return {
+    edited: Number.isFinite(epoch) && epoch > 0 ? new Date(epoch * 1000).toISOString() : '',
+    commit: {
+      sha: field('SHA'), author: field('AUTHOR'), when: field('WHEN'), subject: field('SUBJECT'),
+    },
+  };
+}
+
+/**
  * Snapshots: a named point you can put the working tree back to.
  *
  * `git stash create` plus a tag, not `git stash push` - push would *remove* the changes from
@@ -1813,6 +2101,59 @@ export async function listSnapshots(name: string): Promise<Snapshot[]> {
 
     return { ref, when, label: label || 'snapshot' };
   });
+}
+
+export interface HistoryEntry {
+  /** A short sha for a commit, the tag ref for a snapshot. `showCommit` takes either. */
+  ref:     string;
+  subject: string;
+  /** git's own relative wording. */
+  when:    string;
+  /** The commit's author. '' for a snapshot, which nobody authored. */
+  who:     string;
+  /** 'commit' | 'snapshot' */
+  kind:    string;
+  /** Seconds since the epoch, so the two sources can be put in one order. */
+  at:      number;
+}
+
+/**
+ * The commits and the automatic snapshots, newest first, in one list.
+ *
+ * `git log` alone cannot show a snapshot: createSnapshot commit-trees the working tree with
+ * HEAD as its parent and tags the result, so a snapshot is a child of HEAD and never an
+ * ancestor of it - it is invisible to a log walk by construction. The Files screen's history
+ * is supposed to say where each entry came from, and half of the entries were missing.
+ *
+ * Added beside listCommits and listSnapshots rather than in place of them: both have callers
+ * that want exactly one of the two.
+ */
+export async function listHistory(name: string, limit = 50): Promise<HistoryEntry[]> {
+  const out = await inPackage(name, [
+    `git log -n ${ limit } --format='%h%x1f%s%x1f%cr%x1f%an%x1f%ct' 2>/dev/null`,
+    'echo "--snapshots--"',
+    `git for-each-ref --sort=-creatordate --format='%(refname:short)%x1f%(contents:subject)%x1f%(creatordate:relative)%x1f%(creatordate:unix)' refs/tags/${ SNAP_PREFIX } 2>/dev/null`,
+  ].join(' ; ')).catch(() => '');
+
+  const [logOut = '', snapOut = ''] = out.split('--snapshots--');
+
+  const commits: HistoryEntry[] = logOut.split('\n').map((l) => l.trim()).filter(Boolean).map((line) => {
+    const [ref, subject = '', when = '', who = '', at = ''] = line.split('\x1f');
+
+    return {
+      ref, subject, when, who, kind: 'commit', at: parseInt(at, 10) || 0,
+    };
+  });
+
+  const snapshots: HistoryEntry[] = snapOut.split('\n').map((l) => l.trim()).filter(Boolean).map((line) => {
+    const [ref, subject = '', when = '', at = ''] = line.split('\x1f');
+
+    return {
+      ref, subject: subject || 'snapshot', when, who: '', kind: 'snapshot', at: parseInt(at, 10) || 0,
+    };
+  });
+
+  return [...commits, ...snapshots].sort((a, b) => b.at - a.at).slice(0, limit);
 }
 
 /**
@@ -1989,6 +2330,51 @@ export async function askAssistant(name: string, prompt: string): Promise<'sent'
   }
 
   throw new Error(`the question did not reach ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
+}
+
+/**
+ * Whether the claude in this extension's pod has a credential to work with, and whose.
+ *
+ * The workspace's status strip used to say "Connected as admin" and mean the dashboard's own
+ * signed-in user, which is not the assistant's session at all: the strip read green while every
+ * turn in the pane came back "Not logged in - Please run /login". That is worse than the
+ * terminal line it was meant to replace, so this reads the thing it claims to.
+ *
+ * Three places a credential can be, in the order claude itself looks: the OAuth credentials file
+ * the CLI writes on login, an API key or OAuth token in the pod's environment, and the account
+ * record in `.claude.json` (which is what names the address). The marker line separates "read
+ * the pod and there is nothing" from "could not read the pod", because saying somebody is signed
+ * out when you failed to ask is the same class of mistake this replaces.
+ */
+export interface AssistantLogin {
+  /** Whether the pod could be read at all. Nothing else here means anything when false. */
+  read:     boolean;
+  signedIn: boolean;
+  /** The account, when the credential says which. Empty for an API key, which names nobody. */
+  account:  string;
+}
+
+const LOGIN_MARKER = 'BARN-LOGIN';
+
+export async function assistantLogin(name: string): Promise<AssistantLogin> {
+  const out = await inPackage(name, [
+    `echo ${ LOGIN_MARKER }`,
+    'test -f "$HOME/.claude/.credentials.json" && echo credentials',
+    '[ -n "$ANTHROPIC_API_KEY$CLAUDE_CODE_OAUTH_TOKEN" ] && echo apikey',
+    `grep -o '"emailAddress":"[^"]*"' "$HOME/.claude.json" 2>/dev/null | head -1`,
+  ].join(' ; ')).catch(() => '');
+
+  if (!out.includes(LOGIN_MARKER)) {
+    return { read: false, signedIn: false, account: '' };
+  }
+
+  const email = /"emailAddress":"([^"]*)"/.exec(out);
+
+  return {
+    read:     true,
+    signedIn: out.includes('credentials') || out.includes('apikey') || !!email,
+    account:  email ? email[1] : '',
+  };
 }
 
 export interface PullRequest {
