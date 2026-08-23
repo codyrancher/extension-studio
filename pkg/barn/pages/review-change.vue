@@ -12,6 +12,18 @@
 // way, because on a single-reviewer Studio "approve" means "this is worth keeping" and that is
 // a commit.
 //
+// Every hunk carries what produced it (38:1256), read from the pod's own provenance record
+// through `provenanceFor`. It answers with the set of turns behind the hunk's lines rather
+// than with "the prompt that produced this hunk", because per-hunk-per-prompt is not
+// achievable and pretending otherwise would be the invention this product does not ship; and
+// lines nobody watched say "changed in the pod, no prompt recorded" rather than being pinned
+// on the nearest prompt. That last sentence is what most hunks say today, and it is the truth.
+//
+// A comment can be left on any hunk and either sent to the assistant or left on the record.
+// Sending routes through the workspace with `?comment=<id>`, which is where the answer arrives:
+// `editor.vue` loads the comment into the pod's session with its origin stamped and marks it
+// sent only when it was.
+//
 // The PR chip is a real reading. With a token and a repository it asks GitHub whether an open
 // pull request has this extension's branch as its head, and says so either way; without one of
 // them it names the one that is missing rather than showing a number nobody can click. There is
@@ -28,10 +40,13 @@ import {
   ensureRepo,
   changedFiles, fileDiff, readExtensionFile, commitExtension, extensionUrl, extensionReady,
   listBranches, readSettings, extensionSource, parseGithubSource, findOpenPullRequest,
-  deferReview, clearDeferral, changeProvenance, publishedVersion, askAssistant, DEFAULT_EXTENSION
+  deferReview, clearDeferral, changeProvenance, publishedVersion, askAssistant, provenanceFor,
+  DEFAULT_EXTENSION
 } from '../extensions';
-import { readReview, signCodeReview, gateFrom } from '../review';
-import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE } from '../editor-product';
+import {
+  readReview, signCodeReview, gateFrom, addComment, markLook, sinceLastLook
+} from '../review';
+import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE, BRIEF_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -219,6 +234,46 @@ function ago(iso) {
   return `${ value } ${ unit }${ value === 1 ? '' : 's' } ago`;
 }
 
+/**
+ * The hunks of the patch on screen, as ranges in the new file.
+ *
+ * The same `@@` headers `DiffView` parses, read a second time here for two things the diff
+ * component cannot answer: which lines of the provenance report belong to the hunk a reviewer
+ * is looking at, and which line a comment on that hunk is anchored to. Parsed from the same
+ * string in the same order, so index `n` here is index `n` there.
+ *
+ * `fileDiff` asks git for one path, so the patch is one file and an index is unambiguous.
+ */
+function hunkRanges(patch) {
+  const out = [];
+
+  (patch || '').split('\n').forEach((line) => {
+    const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+
+    if (!m) {
+      return;
+    }
+
+    const from = parseInt(m[1], 10);
+    const count = m[2] === undefined ? 1 : parseInt(m[2], 10);
+
+    out.push({ from, to: count ? from + count - 1 : from });
+  });
+
+  return out;
+}
+
+/** Initials for the little avatar on a comment (38:1287). '?' when nobody was named. */
+function initials(name) {
+  const words = (name || '').trim().split(/[\s._-]+/).filter(Boolean);
+
+  if (!words.length) {
+    return '?';
+  }
+
+  return words.slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+}
+
 export default {
   name: 'BarnReviewChange',
 
@@ -264,6 +319,18 @@ export default {
       requesting: false,
       requestNote: '',
       sending:  false,
+      // What produced the lines of this change, hunk by hunk (`provenanceFor`). `available`
+      // false is the normal state of a pod that predates the hooks and carries the reason.
+      prov:     {
+        available: false, reason: '', base: '', baseRef: '', files: [],
+      },
+      // Which hunk's composer is open, as `<file>:<line>`, and what has been typed into it.
+      composing: '',
+      commentText: '',
+      posting:  false,
+      // What has landed since this reviewer last opened this change, read before the look
+      // below is recorded - reading it afterwards would always answer "nothing".
+      since:    null,
     };
   },
 
@@ -277,7 +344,7 @@ export default {
      * looks live and does nothing, silently - which is exactly how these were found.
      */
     routes() {
-      return { REVIEW_QUEUE_ROUTE };
+      return { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE };
     },
 
     extension() {
@@ -380,10 +447,28 @@ export default {
           return { done: false, text: `changes requested by ${ who } ${ when }` };
         }
 
-        return {
-          done:  !stale,
-          text:  stale ? `${ who } approved an earlier commit, so it no longer covers this one` : `${ who }, ${ when }`,
-        };
+        // Two different reasons a sign-off does not cover this commit, and they are not the
+        // same fact. The branch moving past an answer is the ordinary one. A record that names
+        // no commit at all is the other: `gateFrom` now reads those as stale too, and calling
+        // it "approved an earlier commit" would invent an earlier commit that never existed.
+        // `signCodeReview` refuses to write another one, so this is only ever a record made
+        // before that check - which is exactly why it has to be described as what it is.
+        if (stale) {
+          // Tested for being a commit id rather than for being non-empty: the failure that
+          // produced these records signed against the last line of `commitExtension`'s output,
+          // so the bad ones hold either '' or git's "nothing to commit, working tree clean".
+          // Both mean the same thing here and neither is an earlier commit.
+          const named = /^[0-9a-f]{7,40}$/.test((signoff.sha || '').trim());
+
+          return {
+            done: false,
+            text: named
+              ? `${ who } approved an earlier commit, so it no longer covers this one`
+              : `${ who } approved this ${ when }, but the record does not say which commit, so it covers none of them`,
+          };
+        }
+
+        return { done: true, text: `${ who }, ${ when }` };
       };
 
       return [
@@ -578,6 +663,154 @@ export default {
     },
 
     /**
+     * The hunks of the patch on screen, as ranges in the new file.
+     *
+     * The anchor for everything hung off a hunk: a comment records the hunk's first line, and
+     * the provenance report's own hunks are matched into these by overlap.
+     */
+    hunks() {
+      return hunkRanges(this.patch);
+    },
+
+    /**
+     * The provenance of every hunk on screen, in the order they are drawn.
+     *
+     * Computed once per patch rather than per row: the strip asks four questions of the same
+     * answer, and a method call in a template is re-run on every one of them.
+     */
+    hunkProv() {
+      return this.hunks.map((_, i) => this.hunkProvenance(i));
+    },
+
+    /**
+     * `?scope=since`: the queue's "Show only what changed since then" (36:1116), arriving here.
+     *
+     * One key, the literal `since`, and no payload - the point to measure from is
+     * `sinceLastLook().sha`, which this screen reads for itself, and a sha in the URL would be
+     * a second copy of that answer, stale the moment anybody looks again.
+     */
+    scope() {
+      return String(this.$route.query.scope || '');
+    },
+
+    /**
+     * What to say when a scope arrives that cannot be applied.
+     *
+     * The instruction is read rather than dropped, and then refused out loud, because the two
+     * alternatives are both worse. Dropping it silently is the defect class the handoff guard
+     * exists to catch: the navigation happens, the link looks like it worked, and the reviewer
+     * believes they are looking at a narrowed diff. Drawing the chip (38:1249) in its on state
+     * over an unnarrowed diff is the same lie with a control on it.
+     *
+     * Narrowing needs a diff taken from an arbitrary commit. Every diff in `extensions.ts` is
+     * pinned to `$BARN_BASE`, `showCommit` shows one commit's own patch rather than a range
+     * against the working tree, and `runInPackage` says in as many words that a screen wanting
+     * to run something in the pod should be given a named function instead. So this screen
+     * cannot honour it yet, and says which commit it would have measured from so the refusal
+     * is checkable rather than a shrug.
+     */
+    scopeNotice() {
+      if (this.scope !== 'since') {
+        return '';
+      }
+
+      const from = this.since?.sha
+        ? `the commit you last read (${ this.since.sha.slice(0, 7) })`
+        : 'the commit you last read, which nothing recorded';
+
+      return `You asked for only what has landed since your last look, and this is the whole change instead. Every diff in the Studio is measured from the last published version, and nothing can yet take one from ${ from }. Nothing has been hidden from you.`;
+    },
+
+    /** The provenance report's entry for the file being read, if it has one. */
+    provFile() {
+      return this.prov.files.find((f) => f.path === this.selected) || null;
+    },
+
+    /**
+     * Every turn behind this change, numbered oldest first.
+     *
+     * The design labels a hunk "Prompt 3 of 5" (38:1256), which needs an ordering across the
+     * whole change rather than within one hunk - the same turn touching two files has to carry
+     * the same number in both.
+     */
+    turnOrder() {
+      const seen = new Map();
+
+      this.prov.files.forEach((file) => (file.hunks || []).forEach((hunk) => (hunk.turns || []).forEach((turn) => {
+        if (!seen.has(turn.turn)) {
+          seen.set(turn.turn, turn);
+        }
+      })));
+
+      const ordered = [...seen.values()].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      const index = new Map();
+
+      ordered.forEach((turn, i) => index.set(turn.turn, i + 1));
+
+      return { index, total: ordered.length };
+    },
+
+    /**
+     * The one-line summary above the diff: how much of this change has a prompt behind it.
+     *
+     * Worth saying at the top because the honest answer is usually "none of it". The Studio
+     * records a prompt when the assistant works through it, and everything else - a hand edit,
+     * a `Bash` heredoc, a pod whose claude is signed out - arrives with nothing recorded. A
+     * reviewer should learn that from one line rather than from every hunk in turn.
+     */
+    provSummary() {
+      if (!this.prov.available) {
+        return { text: this.prov.reason, tone: 'subtle' };
+      }
+
+      let unrecorded = 0;
+
+      this.prov.files.forEach((file) => (file.hunks || []).forEach((hunk) => {
+        unrecorded += hunk.unrecorded || 0;
+      }));
+
+      const turns = this.turnOrder.total;
+
+      if (!turns && !unrecorded) {
+        return { text: '', tone: 'subtle' };
+      }
+
+      // Scoped to the whole change, not to the file on screen, and worded so it cannot be
+      // read as being about the file whose name it sits beside.
+      if (!turns) {
+        return { text: `No prompt recorded for any of this change's ${ unrecorded } line${ unrecorded === 1 ? '' : 's' }`, tone: 'subtle' };
+      }
+
+      const prompts = `${ turns } prompt${ turns === 1 ? '' : 's' } behind this change`;
+
+      return {
+        text: unrecorded ? `${ prompts }, ${ unrecorded } line${ unrecorded === 1 ? '' : 's' } with none recorded` : prompts,
+        tone: 'success',
+      };
+    },
+
+    /** Every comment left on the file being read, oldest first. */
+    fileComments() {
+      return (this.review.comments || [])
+        .filter((c) => c.file === this.selected)
+        .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    },
+
+    /**
+     * Comments on this file that no hunk on screen is anchored to.
+     *
+     * A comment is anchored to a line, and the tree moves under it: the hunk it was written
+     * against can merge into another one or stop being a hunk at all. Those comments are shown
+     * under the diff rather than dropped, because a reviewer's sentence disappearing because
+     * somebody edited the file is the worst thing this could do.
+     */
+    strayComments() {
+      const anchors = new Set(this.hunks.map((h) => h.from));
+
+      return this.fileComments.filter((c) => !anchors.has(c.hunk));
+    },
+
+    /**
      * What the masthead's GitHub chip says, and what pressing it does.
      *
      * One computed rather than six conditionals in the template, because the states differ in
@@ -631,12 +864,17 @@ export default {
 
       this.loading = true;
 
-      const [files, brief, provenance, version, review] = await Promise.all([
+      const [files, brief, provenance, version, review, prov] = await Promise.all([
         changedFiles(this.extension).catch(() => []),
         readExtensionFile(this.extension, 'BRIEF.md').catch(() => ''),
         changeProvenance(this.extension).catch(() => this.provenance),
         publishedVersion(this.extension).catch(() => ''),
         readReview(this.extension).catch(() => ({ signoffs: {} })),
+        // What produced these lines. One exec, read once for the whole change rather than
+        // once per file, because the report is a blame of the whole collapsed diff.
+        provenanceFor(this.extension).catch((e) => ({
+          available: false, reason: e?.message || 'the pod could not be asked what produced these lines', base: '', baseRef: '', files: [],
+        })),
       ]);
 
       this.files = files;
@@ -644,6 +882,7 @@ export default {
       this.provenance = provenance;
       this.version = version;
       this.review = review;
+      this.prov = prov;
       this.loading = false;
 
       if (files.length) {
@@ -651,6 +890,7 @@ export default {
       }
 
       this.checkPullRequest();
+      this.recordLook();
 
       // The preview is the same dev server the workspace frames. It may still be compiling,
       // which is why this waits rather than framing a connection-refused page.
@@ -669,6 +909,241 @@ export default {
       this.diffing = true;
       this.patch = await fileDiff(this.extension, this.selected).catch(() => '');
       this.diffing = false;
+    },
+
+    /**
+     * Record that this reviewer has opened this change, and read what landed since last time.
+     *
+     * `markLook` is what makes re-review incremental: the queue's "since your last look" line
+     * is the difference between the packet somebody last opened and the current one, and until
+     * something wrote a look it could never fire, because no screen had ever recorded one.
+     * Opening the change is the moment, so this is called from `load`.
+     *
+     * The order is not incidental. `sinceLastLook` is read first and kept, because recording
+     * the look is what makes the answer "nothing" - reading it afterwards would show a banner
+     * that had already been cancelled by the act of arriving.
+     *
+     * Both halves are allowed to fail quietly. A reviewer Rancher will not name cannot have a
+     * look recorded (`currentSigner` throws, correctly), and that is not a reason to take a
+     * read-only screen down.
+     */
+    async recordLook() {
+      const since = await sinceLastLook(this.extension).catch(() => null);
+
+      this.since = since;
+
+      await markLook(this.extension, since?.packet || 0, this.provenance.commit.sha).catch(() => null);
+    },
+
+    /**
+     * What produced the lines of one hunk (38:1256), or null when nothing was captured.
+     *
+     * Two things this deliberately does not do, both of them refusals `REVIEW-SYSTEM.md` makes
+     * out loud and both of them easy to "improve" into a lie:
+     *
+     *   - It answers with the *set of turns* that produced the hunk's lines, never with "the
+     *     prompt that produced this hunk". Per-hunk-per-prompt is not achievable: a `Write`
+     *     rewrites a whole file, the assistant edits through `Bash` where no file hook fires,
+     *     and a person typing in the Terminal tab is seen by nothing.
+     *   - Lines nobody watched are reported as unrecorded and are never attributed to the
+     *     nearest turn. That is the state this screen is in most of the time.
+     *
+     * The report is taken at `-U0` and the diff on screen has three lines of context, so the
+     * report's hunks are matched into the displayed one by overlap rather than by equality:
+     * every `-U0` hunk inside a `-U3` hunk's range belongs to it, by construction.
+     */
+    hunkProvenance(index) {
+      const range = this.hunks[index];
+
+      if (!this.prov.available || !range) {
+        return null;
+      }
+
+      const file = this.provFile;
+      const matched = (file?.hunks || []).filter((h) => Math.max(h.to, h.from) >= range.from && h.from <= Math.max(range.to, range.from));
+      const byTurn = new Map();
+      let unrecorded = 0;
+      let deletions = 0;
+
+      matched.forEach((hunk) => {
+        unrecorded += hunk.unrecorded || 0;
+
+        if (hunk.deletion) {
+          deletions += 1;
+        }
+
+        (hunk.turns || []).forEach((turn) => {
+          const existing = byTurn.get(turn.turn) || { ...turn, lines: 0 };
+
+          existing.lines += turn.lines || 0;
+          // Swept only if it was swept everywhere. One tool record naming this file is enough
+          // to say the turn edited it rather than carried it along.
+          existing.swept = existing.swept && turn.swept;
+          byTurn.set(turn.turn, existing);
+        });
+      });
+
+      const turns = [...byTurn.values()]
+        .sort((a, b) => b.lines - a.lines)
+        .map((turn) => ({
+          id:      turn.turn,
+          label:   `Prompt ${ this.turnOrder.index.get(turn.turn) || '?' } of ${ this.turnOrder.total }`,
+          prompt:  (turn.prompt || '').trim(),
+          when:    ago(turn.at),
+          at:      turn.at,
+          lines:   turn.lines,
+          who:     turn.who || turn.principal || '',
+          screen:  turn.screen || '',
+          swept:   !!turn.swept,
+          subject: turn.subject || '',
+        }));
+
+      const deletion = !turns.length && !unrecorded && !!matched.length && deletions === matched.length;
+      const missing = !matched.length && !!this.selected;
+
+      return {
+        turns,
+        unrecorded,
+        // Whether there is anything to draw. A strip with nothing in it is a border across the
+        // diff that says nothing, which is worse than no strip.
+        say: !!(turns.length || unrecorded || deletion || missing),
+        // Nothing to attribute rather than nothing recorded: a hunk that only takes lines away
+        // has no new line to blame, and the lines it removed were written by whatever wrote
+        // them, which is not what this change did.
+        deletion,
+        // The file is not in the report at all. Said as itself rather than as "no prompt".
+        missing,
+      };
+    },
+
+    /** The hover text on a turn: everything the strip has no room for. */
+    turnTitle(turn) {
+      const bits = [];
+
+      if (turn.at) {
+        bits.push(`Asked ${ new Date(turn.at).toLocaleString() }.`);
+      }
+
+      bits.push(`${ turn.lines } line${ turn.lines === 1 ? '' : 's' } of this hunk came from that turn, resolved by blaming each line to the commit the turn ended in.`);
+
+      if (turn.screen) {
+        bits.push(`Sent from the ${ turn.screen } screen${ turn.who ? ` by ${ turn.who }` : '' }.`);
+      } else {
+        bits.push('Typed into the pod\'s terminal, so nobody is named for it: the pod has one conversation and no idea which Rancher user is looking at it.');
+      }
+
+      if (turn.swept) {
+        bits.push('No file-editing tool in that turn named this file, so it was swept into the turn rather than caused by it - a Bash edit, or somebody typing in the pane.');
+      }
+
+      return bits.join(' ');
+    },
+
+    /** The line a comment on this hunk is anchored to: the hunk's first line in the new file. */
+    hunkAnchor(index) {
+      return this.hunks[index]?.from || 0;
+    },
+
+    /** The comments already left on one hunk. */
+    commentsFor(index) {
+      return this.fileComments.filter((c) => c.hunk === this.hunkAnchor(index));
+    },
+
+    /** `you · 2 minutes ago · on line 43` (38:1293). */
+    commentByline(comment) {
+      const who = comment.name || comment.principal || 'somebody Rancher did not name';
+      const where = comment.hunk ? ` · on line ${ comment.hunk }` : '';
+
+      return `${ who } · ${ ago(comment.at) }${ where }`;
+    },
+
+    /** What became of a comment: the delivery, said out loud rather than assumed. */
+    commentState(comment) {
+      if (comment.sentAt) {
+        return comment.sentHow === 'queued'
+          ? { icon: 'clock', tone: 'subtle', text: `queued for the assistant ${ ago(comment.sentAt) } - it is the first thing the next session is asked` }
+          : { icon: 'sparkle', tone: 'success', text: `given to the assistant ${ ago(comment.sentAt) }` };
+      }
+
+      return { icon: 'user', tone: 'subtle', text: 'on the record, not sent to the assistant' };
+    },
+
+    initials,
+
+    composerKey(index) {
+      return `${ this.selected }:${ this.hunkAnchor(index) }`;
+    },
+
+    openComposer(index) {
+      this.composing = this.composerKey(index);
+      this.commentText = '';
+    },
+
+    closeComposer() {
+      this.composing = '';
+      this.commentText = '';
+    },
+
+    /**
+     * A reviewer's sentence about one hunk, recorded and then routed.
+     *
+     * Recorded first and separately from being delivered, which is `addComment`'s whole reason
+     * for existing: the two fail independently, and a comment that reached the record and not
+     * the assistant is still a comment the author can read.
+     *
+     * `send` is the design's "Send to the assistant" (38:1296). It hands off through the
+     * workspace rather than typing into the pod from here, because the workspace is where the
+     * answer arrives: `?comment=<id>` is read by `editor.vue`, which loads the comment into the
+     * session with its origin stamped, and marks it sent only when it was. Passing the id and
+     * not the words is deliberate - a review comment is a record with an author and a time, and
+     * a URL carrying the text would be a second copy of it that nothing could reconcile.
+     *
+     * Not sending is a real answer, not a lesser one. It leaves the sentence on the change with
+     * a name and a time against it, which is what a reviewer wants when the point is a question
+     * rather than an instruction. This screen does not offer to send it to "the author": git
+     * records no author for an uncommitted working tree, and the masthead already declines to
+     * name one rather than guessing.
+     */
+    async postComment(index, send) {
+      const text = this.commentText.trim();
+
+      if (!text || this.posting) {
+        return;
+      }
+
+      this.posting = true;
+
+      try {
+        const comment = await addComment(this.extension, {
+          packet: this.since?.packet || 0,
+          file:   this.selected,
+          hunk:   this.hunkAnchor(index),
+          text,
+        });
+
+        this.review = await readReview(this.extension).catch(() => this.review);
+        this.closeComposer();
+
+        if (!send) {
+          toastSuccess(
+            this.$store,
+            `Recorded on ${ this.selected } at line ${ comment.hunk }, in ${ comment.name || comment.principal }'s name. Nothing has been sent to the pod.`,
+            { title: 'Comment left on the change' }
+          );
+
+          return;
+        }
+
+        this.$router.push({
+          name:   EDITOR_ROUTE,
+          params: { extension: this.extension },
+          query:  { tab: 'terminal', comment: comment.id },
+        });
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not leave the comment' });
+      } finally {
+        this.posting = false;
+      }
     },
 
     /**
@@ -692,7 +1167,21 @@ export default {
           this.extension,
           `Reviewed: ${ this.count } file${ this.count === 1 ? '' : 's' }`
         );
-        const sha = out.trim().split('\n').pop();
+        const sha = (out.trim().split('\n').pop() || '').trim();
+
+        // No commit, no sign-off. This is not defensive tidying: `commitExtension` returns the
+        // empty string whenever the pod cannot be found or the exec comes back with nothing,
+        // and it was observed doing exactly that - HEAD unmoved, the masthead still listing
+        // uncommitted files, and an approval written with `sha: ''`. An empty sha is the worst
+        // possible value to store, because `gateFrom` reads a sign-off as stale by comparing
+        // shas and treats a blank one as "not about a particular commit": the approval would
+        // silently cover every commit made after it, for ever. So the sign-off is refused and
+        // the reviewer is told the commit is what failed.
+        if (!/^[0-9a-f]{7,40}$/.test(sha)) {
+          throw new Error(
+            `The commit did not happen, so nothing has been signed - an approval with no commit behind it would cover every later commit instead of this one. git answered: ${ out.trim().slice(-300) || 'nothing at all' }`
+          );
+        }
 
         // Signed against the commit that was just made, so the record answers "approved what"
         // and not only "approved". A later commit leaves this sign-off on record and no longer
@@ -885,14 +1374,17 @@ export default {
 
       try {
         await deferReview(this.extension, `${ this.count } file${ this.count === 1 ? '' : 's' } unreviewed`);
+        // The message is the second argument and the options the third (`toast.ts`). Passing
+        // the sentence third put it where nothing reads it: the toast said "Done / Come back
+        // to it" and dropped the half that tells you what happened.
         toastSuccess(
           this.$store,
-          'Come back to it',
-          `${ this.extension } is marked as deferred on the review queue. Answering it clears the mark.`
+          `${ this.extension } is marked as deferred on the review queue. Answering it clears the mark.`,
+          { title: 'Come back to it' }
         );
         this.$router.push({ name: this.routes.REVIEW_QUEUE_ROUTE });
       } catch (e) {
-        toastError(this.$store, 'Could not defer this review', e?.message || String(e));
+        toastError(this.$store, e?.message || String(e), { title: 'Could not defer this review' });
       } finally {
         this.deferring = false;
       }
@@ -946,6 +1438,26 @@ export default {
       </SButton>
     </div>
 
+    <!-- The queue's "Show only what changed since then" arriving as `?scope=since`, read and
+         then refused in words rather than dropped on the floor. See `scopeNotice`. -->
+    <SBanner
+      v-if="scopeNotice"
+      type="warning"
+      class="rc__since"
+      data-testid="rc-scope-refused"
+    >
+      {{ scopeNotice }}
+    </SBanner>
+
+    <!-- 38:1249's question, answered rather than offered as a chip: what landed since this
+         reviewer last opened this change. Recorded by `markLook` on the way in, which is what
+         lets the queue say the same thing. -->
+    <SBanner v-else-if="since && since.behind" type="info" class="rc__since" data-testid="rc-since">
+      {{ since.banner }} The diff below is still the whole change rather than only the newer
+      part of it: narrowing it needs a diff taken against the commit you last read, and nothing
+      in the Studio takes one against an arbitrary commit yet.
+    </SBanner>
+
     <!-- body (38:1130) -->
     <div class="rc__body">
       <!-- review packet (38:1131) -->
@@ -958,7 +1470,20 @@ export default {
         <div class="rc__packet-body">
           <!-- what this is for (38:1131), and what is and is not recorded about it -->
           <div v-if="purpose" class="rc__section" data-testid="rc-purpose">
-            <SLabel text="What this is for" />
+            <div class="rc__criteria-head">
+              <SLabel text="What this is for" />
+              <!-- 38:1135. The packet quotes the brief; this opens the document it quotes, with
+                   its open questions and its history, which no quote can carry. -->
+              <button
+                type="button"
+                class="rc__link"
+                data-testid="rc-open-brief"
+                title="Opens this extension's brief: the whole document, its open questions and what has been agreed against it."
+                @click="$router.push({ name: routes.BRIEF_ROUTE, params: { extension } })"
+              >
+                Open the brief
+              </button>
+            </div>
             <div class="rc__section-body">
               <p v-for="(line, i) in purpose.lines" :key="i" class="rc__section-line">
                 {{ line }}
@@ -1041,6 +1566,18 @@ export default {
         <div class="rc__panel-head rc__panel-head--wide">
           <SIcon name="code" :size="14" />
           <span class="rc__panel-title">{{ selected || 'No file selected' }}</span>
+          <span class="rc__grow" />
+          <!-- how much of this change has a prompt behind it, before a reviewer reads a hunk -->
+          <SChip
+            v-if="provSummary.text"
+            :label="provSummary.text"
+            :tone="provSummary.tone"
+            icon="sparkle"
+            data-testid="rc-prov-summary"
+            :title="prov.available
+              ? 'The Studio records the prompt behind a line when the assistant works through it: each turn ends in a commit carrying its own id, and every line is blamed back to one. Lines with no turn behind them are reported as such and are never attributed to the nearest prompt.'
+              : prov.reason"
+          />
         </div>
 
         <div class="rc__code">
@@ -1054,7 +1591,158 @@ export default {
             <SIcon name="spinner" :size="20" class="rc__spin" />
             Reading {{ selected }}
           </div>
-          <DiffView v-else :patch="patch" />
+          <div v-else class="rc__code-inner">
+            <DiffView :patch="patch">
+              <!-- what produced this hunk (38:1256) -->
+              <template #hunk-head="{ index }">
+                <div v-if="hunkProv[index] && hunkProv[index].say" class="rc__prov" :data-testid="`rc-prov-${ index }`">
+                  <template v-for="turn in hunkProv[index].turns" :key="turn.id">
+                    <div class="rc__prov-row" :title="turnTitle(turn)">
+                      <SIcon name="sparkle" :size="12" class="rc__prov-icon" />
+                      <span class="rc__prov-what">{{ turn.label }}</span>
+                      <span class="rc__prov-quote">{{ turn.prompt || 'the prompt for that turn was not kept' }}</span>
+                      <span class="rc__prov-meta">
+                        {{ turn.lines }} line{{ turn.lines === 1 ? '' : 's' }}<template v-if="turn.when"> · {{ turn.when }}</template>
+                        <template v-if="turn.swept"> · swept in, not named</template>
+                      </span>
+                      <!-- 38:1264. The pod has one conversation and the workspace's pane is
+                           attached to it, so this opens that, and the title says it cannot be
+                           opened at a particular prompt because a terminal has no such address. -->
+                      <button
+                        type="button"
+                        class="rc__link"
+                        :data-testid="`rc-conversation-${ index }`"
+                        title="Opens the workspace terminal, which is attached to the one conversation this pod has. A terminal cannot be opened at a particular prompt, so it opens where the conversation is now."
+                        @click="$router.push({ name: routes.EDITOR_ROUTE, params: { extension }, query: { tab: 'terminal' } })"
+                      >
+                        See the conversation
+                      </button>
+                    </div>
+                  </template>
+
+                  <!-- the honest empty state, and the one a reviewer sees most often -->
+                  <div
+                    v-if="hunkProv[index].unrecorded"
+                    class="rc__prov-row rc__prov-row--none"
+                    :data-testid="`rc-unrecorded-${ index }`"
+                    title="Every one of these lines is either still uncommitted or in a commit with no turn recorded against it. The nearest prompt is not the answer, so none is named."
+                  >
+                    <SIcon name="clock" :size="12" class="rc__prov-icon" />
+                    <span class="rc__prov-what">
+                      {{ hunkProv[index].unrecorded }} line{{ hunkProv[index].unrecorded === 1 ? '' : 's' }}
+                      changed in the pod, no prompt recorded
+                    </span>
+                  </div>
+
+                  <div v-else-if="hunkProv[index].deletion" class="rc__prov-row rc__prov-row--none">
+                    <SIcon name="clock" :size="12" class="rc__prov-icon" />
+                    <span class="rc__prov-what">
+                      Lines taken away. There is no new line to attribute, so nothing is claimed
+                      about what removed them.
+                    </span>
+                  </div>
+
+                  <div v-else-if="hunkProv[index].missing" class="rc__prov-row rc__prov-row--none">
+                    <SIcon name="clock" :size="12" class="rc__prov-icon" />
+                    <span class="rc__prov-what">This file is not in the provenance report, so nothing is known about what produced it.</span>
+                  </div>
+                </div>
+              </template>
+
+              <!-- the thread on this hunk (38:1286), and the box that starts one -->
+              <template #hunk-foot="{ index }">
+                <div class="rc__thread">
+                  <div
+                    v-for="c in commentsFor(index)"
+                    :key="c.id"
+                    class="rc__comment"
+                    :data-testid="`rc-comment-${ c.id }`"
+                  >
+                    <span class="rc__avatar" :title="c.principal">{{ initials(c.name || c.principal) }}</span>
+                    <div class="rc__comment-body">
+                      <div class="rc__comment-byline">{{ commentByline(c) }}</div>
+                      <div class="rc__comment-text">{{ c.text }}</div>
+                      <div class="rc__comment-state" :class="`rc__comment-state--${ commentState(c).tone }`">
+                        <SIcon :name="commentState(c).icon" :size="11" />
+                        {{ commentState(c).text }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="composing === composerKey(index)" class="rc__composer">
+                    <SField
+                      v-model="commentText"
+                      multiline
+                      :rows="3"
+                      autofocus
+                      :input-testid="`rc-comment-input-${ index }`"
+                      :placeholder="`What should change about line ${ hunkAnchor(index) }?`"
+                      hint="It is recorded against this line with your name on it either way. Sending it puts it to the assistant in this extension's pod as the instruction to work from, so you never write the fix."
+                    />
+                    <div class="rc__composer-actions">
+                      <SButton variant="ghost" size="sm" :disabled="posting" @click="closeComposer">
+                        Cancel
+                      </SButton>
+                      <span class="rc__grow" />
+                      <SButton
+                        variant="neutral"
+                        size="sm"
+                        icon="user"
+                        :disabled="!commentText.trim() || posting"
+                        :data-testid="`rc-comment-record-${ index }`"
+                        title="Leaves it on the change with your name and the time against it, and sends nothing to the pod. Git records no author for an uncommitted working tree, so there is nobody to address it to by name - it waits here for whoever opens the review next."
+                        @click="postComment(index, false)"
+                      >
+                        Just record it
+                      </SButton>
+                      <SButton
+                        variant="primary"
+                        size="sm"
+                        icon="sparkle"
+                        :loading="posting"
+                        :disabled="!commentText.trim()"
+                        :data-testid="`rc-comment-send-${ index }`"
+                        @click="postComment(index, true)"
+                      >
+                        Send to the assistant
+                      </SButton>
+                    </div>
+                  </div>
+
+                  <button
+                    v-else
+                    type="button"
+                    class="rc__comment-add"
+                    :data-testid="`rc-comment-on-${ index }`"
+                    @click="openComposer(index)"
+                  >
+                    <SIcon name="plus" :size="11" />
+                    Comment on line {{ hunkAnchor(index) }}
+                  </button>
+                </div>
+              </template>
+            </DiffView>
+
+            <!-- comments whose line is no longer a hunk. Shown rather than lost. -->
+            <div v-if="strayComments.length" class="rc__thread rc__thread--stray">
+              <SLabel :text="`Earlier comments on ${ selected }`" />
+              <p class="rc__section-note">
+                The lines these were written against are not part of the diff any more, so they
+                have nowhere to sit. They are still on the record.
+              </p>
+              <div v-for="c in strayComments" :key="c.id" class="rc__comment">
+                <span class="rc__avatar" :title="c.principal">{{ initials(c.name || c.principal) }}</span>
+                <div class="rc__comment-body">
+                  <div class="rc__comment-byline">{{ commentByline(c) }}</div>
+                  <div class="rc__comment-text">{{ c.text }}</div>
+                  <div class="rc__comment-state" :class="`rc__comment-state--${ commentState(c).tone }`">
+                    <SIcon :name="commentState(c).icon" :size="11" />
+                    {{ commentState(c).text }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1462,6 +2150,189 @@ export default {
     padding:    6px 0;
 
     :deep(> *) { flex: 1 1 auto; min-width: 0; }
+  }
+
+  // The "since your last look" line sits between the masthead and the body and must not be
+  // squeezed by the body growing into it.
+  &__since {
+    flex:   0 0 auto;
+    margin: var(--studio-space-8) var(--studio-space-16) 0;
+  }
+
+  // One flex child of __code, so the diff and anything under it stack instead of sitting
+  // side by side (the pane is a flex row, which is what makes the diff fill it).
+  &__code-inner {
+    min-width: 0;
+  }
+
+  // A caption-weight link inside a heading row: the design's blue text (38:1135, 38:1264)
+  // rather than a button, because it goes somewhere rather than doing something.
+  &__link {
+    background:  none;
+    border:      none;
+    padding:     0;
+    font:        var(--studio-caption-12-semi);
+    color:       var(--studio-text-link);
+    cursor:      pointer;
+    white-space: nowrap;
+
+    &:hover { text-decoration: underline; }
+  }
+
+  // ------------------------------------------------------------------------
+  // What produced a hunk (38:1256), and the thread on it (38:1286).
+  //
+  // Both sit inside the diff table, in a row of their own, so they are the width of the diff
+  // and cannot be mistaken for a line of it: no code font, a tinted ground, and a rule above
+  // the strip to separate it from the hunk before.
+  // ------------------------------------------------------------------------
+  &__prov {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-2);
+    padding:        var(--studio-space-6) var(--studio-space-10);
+    background:     var(--studio-surface-subtle);
+    border-top:     1px solid var(--studio-border-subtle);
+    border-bottom:  1px solid var(--studio-border-subtle);
+  }
+
+  &__prov-row {
+    display:     flex;
+    align-items: baseline;
+    gap:         var(--studio-space-8);
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-secondary);
+
+    &--none { color: var(--studio-text-tertiary); }
+  }
+
+  &__prov-icon {
+    flex:      0 0 auto;
+    align-self: center;
+    color:     var(--studio-text-tertiary);
+  }
+
+  &__prov-what {
+    font:  var(--studio-caption-12-semi);
+    color: var(--studio-text);
+    flex:  0 0 auto;
+
+    .rc__prov-row--none & {
+      font:  var(--studio-caption-12);
+      color: var(--studio-text-tertiary);
+    }
+  }
+
+  // The prompt, quoted verbatim. One line: the whole of it is in the hover text and a
+  // four-paragraph prompt would push the diff off the screen.
+  &__prov-quote {
+    flex:          1 1 auto;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+    font-style:    italic;
+
+    &::before { content: '\201C'; }
+    &::after  { content: '\201D'; }
+  }
+
+  &__prov-meta {
+    flex:        0 0 auto;
+    color:       var(--studio-text-tertiary);
+    white-space: nowrap;
+  }
+
+  &__thread {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-8);
+    padding:        var(--studio-space-8) var(--studio-space-10);
+    border-top:     1px solid var(--studio-border-subtle);
+
+    &--stray {
+      border:        1px solid var(--studio-border);
+      border-radius: var(--studio-radius);
+      margin:        var(--studio-space-12) 0;
+    }
+  }
+
+  &__comment {
+    display: flex;
+    gap:     var(--studio-space-8);
+  }
+
+  &__avatar {
+    flex:            0 0 auto;
+    width:           22px;
+    height:          22px;
+    border-radius:   var(--studio-radius-pill);
+    background:      var(--studio-surface-nav);
+    border:          1px solid var(--studio-border);
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    font:            var(--studio-caption-11-caps);
+    color:           var(--studio-text-secondary);
+  }
+
+  &__comment-body {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-2);
+    min-width:      0;
+  }
+
+  &__comment-byline {
+    font:  var(--studio-caption-12-semi);
+    color: var(--studio-text-secondary);
+  }
+
+  &__comment-text {
+    font:        var(--studio-body-13);
+    color:       var(--studio-text);
+    white-space: pre-wrap;
+  }
+
+  &__comment-state {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-4);
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-tertiary);
+
+    &--success { color: var(--studio-success); }
+  }
+
+  &__comment-add {
+    align-self:    flex-start;
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-4);
+    padding:       var(--studio-space-2) var(--studio-space-8);
+    background:    none;
+    border:        1px dashed var(--studio-border);
+    border-radius: var(--studio-radius-control);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
+    cursor:        pointer;
+
+    &:hover {
+      border-style: solid;
+      color:        var(--studio-text);
+    }
+  }
+
+  &__composer {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-8);
+  }
+
+  &__composer-actions {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
   }
 
   &__loading {

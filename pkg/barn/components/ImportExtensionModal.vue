@@ -21,14 +21,19 @@
 // says a first-time user is at the start of something rather than looking at a form with a
 // warning on it.
 //
-// Two things the design draws are not here, and the gaps are deliberate rather than unfinished:
+// The account row and the repository list are both read from the pod rather than from this
+// page, and that is the whole reason they exist. The token is written into a Secret that
+// `readSettings` never hands back, so nothing in the browser can ask GitHub anything - but a
+// pod in this cluster has the Secret in its environment, and `githubIdentity` and
+// `listGithubRepos` in `extensions.ts` ask from there. So step 1 can name the account, its
+// scopes and its expiry, and step 2 can be the list the design draws.
 //
-//   A list of your repositories to pick from, with visibility and last-updated on each row.
-//   Enumerating repositories is `GET /user/repos`, which needs the token in this page, and the
-//   token is written into a Secret that `readSettings` never reads back out - so a listing
-//   would have to be fetched by the pod that holds the credential, which means a function in
-//   `extensions.ts`. Until that exists the repository is named or pasted, and the field says
-//   so rather than showing an empty list that implies one is coming.
+// What that does NOT do is make the token a prerequisite for importing. A public repository
+// clones with no credential at all, so the field that takes `owner/name` or any of the nine
+// URL shapes `parseGithubRepoInput` accepts stays underneath the list and keeps working with
+// no token, no pod and no listing. The list is the fast path, not the only path.
+//
+// One thing the design draws is still not here, and the gap is deliberate:
 //
 //   "Authorise with GitHub". OAuth needs an OAuth app, and this product has no server of its
 //   own and no client id to authorise against. A button that opened nothing would be worse
@@ -39,12 +44,96 @@ import {
 } from './ui';
 import ImportStep from './ImportStep.vue';
 import {
-  normalizeExtensionName, listExtensions, readSettings, saveSettings, parseGithubRepoInput
+  normalizeExtensionName, listExtensions, readSettings, saveSettings, parseGithubRepoInput,
+  githubIdentity, listGithubRepos
 } from '../extensions';
 import { inspectRepository, rancherVersion, versionSkew } from '../import-check';
 
 /** Long enough that typing `owner/name` does not clone three times on the way through. */
 const CHECK_DELAY = 600;
+
+/**
+ * How many repositories to ask for.
+ *
+ * `listGithubRepos` caps at 100, which is GitHub's own page size, so this is the whole of one
+ * page of the most recently updated. Anything older than that is named or pasted into the
+ * field below the list, and the note under the list says so when the page comes back full.
+ */
+const REPO_LIMIT = 100;
+
+/** Month names for "Updated in April", which is how the design words anything last year. */
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+/**
+ * The design's three last-updated wordings, from an ISO timestamp.
+ *
+ * "Updated 3 days ago" close up, "Updated last month" just past that, and "Updated in April"
+ * for anything older, because at that distance the month is what somebody is actually
+ * comparing rows on and a day count stops meaning anything.
+ */
+function updatedAgo(iso) {
+  const then = Date.parse(iso || '');
+
+  if (!Number.isFinite(then)) {
+    return '';
+  }
+
+  const when = new Date(then);
+  const now = new Date();
+  const days = Math.floor((now.getTime() - then) / 86400000);
+
+  if (days <= 0) {
+    return 'Updated today';
+  }
+
+  if (days === 1) {
+    return 'Updated yesterday';
+  }
+
+  if (days < 30) {
+    return `Updated ${ days } days ago`;
+  }
+
+  if (days < 60) {
+    return 'Updated last month';
+  }
+
+  const month = MONTHS[when.getMonth()];
+
+  return when.getFullYear() === now.getFullYear()
+    ? `Updated in ${ month }`
+    : `Updated in ${ month } ${ when.getFullYear() }`;
+}
+
+/**
+ * "expires in 58 days", from whatever GitHub put in its expiry header.
+ *
+ * That header is not ISO - it reads `2026-10-14 09:12:33 UTC` - so anything unparseable is
+ * reported as nothing rather than as a wrong date. Empty means the row says the token does
+ * not expire, which is a different sentence and belongs to the caller.
+ */
+function expiresIn(text) {
+  const at = Date.parse((text || '').trim().replace(' UTC', ' GMT'));
+
+  if (!Number.isFinite(at)) {
+    return '';
+  }
+
+  const days = Math.round((at - Date.now()) / 86400000);
+
+  if (days < 0) {
+    return 'expired';
+  }
+
+  if (days === 0) {
+    return 'expires today';
+  }
+
+  return `expires in ${ days } day${ days === 1 ? '' : 's' }`;
+}
 
 /** `a, b and c`. The check panel's two lists are read as prose, not as a bulleted set. */
 function sentence(items) {
@@ -88,6 +177,21 @@ export default {
       // Step 1 reopened by the Change button on the connected row. Separate from `tokenOpen`
       // because it also re-locks steps 2 and 3, which is the promise the button makes.
       changing: false,
+      // Whose token it is, read from a pod by githubIdentity. Null until it has been asked, or
+      // when there is no token to ask about. A failure here is reported rather than swallowed:
+      // "a token is stored and Studio could not ask GitHub whose it is" is a fact worth having,
+      // and it is not the same fact as "no token".
+      identity:        null,
+      identityLoading: false,
+      identityError:   '',
+      // The repository list the design draws, also from a pod. Loaded once per connection and
+      // filtered here, because the whole list arrives in one call and a search that went back
+      // to GitHub per keystroke would be a pod exec per keystroke.
+      repos:        [],
+      reposLoading: false,
+      reposError:   '',
+      reposLoaded:  false,
+      repoSearch:   '',
       // Step 1 stepped over rather than completed. The design locks 2 and 3 until GitHub is
       // connected, and for a private repository that is exactly right - but a public one
       // genuinely clones with no credential at all, and locking that behind a token nobody
@@ -149,18 +253,102 @@ export default {
     },
 
     /**
-     * What the field made of what is in it, and before anything is, why it is a field.
+     * What the field made of what is in it, and before anything is, why it is still a field.
      *
-     * The design picks the repository off a list of the ones you can reach. Nothing here
-     * fetches that list, so rather than leave an empty box implying one is coming, the hint
-     * says the listing is not there and names the two things the box does take.
+     * The list above is the fast path. This is the one for a repository that is not on it -
+     * somebody else's public repository, or anything past the hundred most recent - and for a
+     * Rancher with no token stored at all, where there is no list to pick from.
      */
     repoHint() {
       if (!this.repo.trim()) {
-        return 'Name the one you want, or paste its URL.';
+        return this.repos.length
+          ? 'Or name one that is not on the list, or paste its URL.'
+          : 'Name the one you want, or paste its URL.';
       }
 
       return this.repoPath && this.repoPath !== this.repo.trim() ? `Reads as ${ this.repoPath }.` : '';
+    },
+
+    /** The handle in the connected row, once a pod has been asked whose token this is. */
+    accountName() {
+      return this.identity?.login || '';
+    },
+
+    /**
+     * `repo · read:org · expires in 58 days`, and honest about each of the three separately.
+     *
+     * A fine-grained token lists no scopes at all - GitHub sends the header empty - so the row
+     * says that rather than showing a blank where the permissions go. Same for the expiry: no
+     * header means the token does not expire, which is a fact and not a gap.
+     */
+    accountMeta() {
+      if (!this.identity) {
+        return '';
+      }
+
+      const parts = this.identity.scopes.length
+        ? [...this.identity.scopes]
+        : ['no scopes listed, so a fine-grained token'];
+      const expiry = expiresIn(this.identity.expiresAt);
+
+      parts.push(expiry || (this.identity.expiresAt ? 'expiry unreadable' : 'does not expire'));
+
+      return parts.join(' · ');
+    },
+
+    /** Whether step 2 can have a list at all: the pod needs a token to ask GitHub with. */
+    canList() {
+      return this.hasToken;
+    },
+
+    /** The listing's row for whatever is chosen, when the chosen thing is on the listing. */
+    listedRepo() {
+      return this.repos.find((each) => each.fullName === this.repoPath) || null;
+    },
+
+    /** The list, narrowed by the search box. Matched on owner/name, which is what is drawn. */
+    visibleRepos() {
+      const needle = this.repoSearch.trim().toLowerCase();
+
+      return needle ? this.repos.filter((each) => each.fullName.toLowerCase().includes(needle)) : this.repos;
+    },
+
+    /**
+     * The line under the list, which says something different in each of the four states it
+     * has: no token to list with, still asking, the ask failed, and a full page that is
+     * therefore probably not all of them.
+     */
+    listNote() {
+      if (!this.canList) {
+        return 'Studio can only list your repositories when a token is stored, because the ' +
+          'listing is fetched by the pod that holds it. Without one, name the repository below ' +
+          'or paste its URL - a public one clones with no token at all.';
+      }
+
+      if (this.reposError) {
+        return `${ asSentence(this.reposError) } Name the repository below or paste its URL instead.`;
+      }
+
+      if (this.reposLoading || !this.reposLoaded) {
+        return '';
+      }
+
+      if (!this.repos.length) {
+        return 'This token can see no repositories. Name the one you want below or paste its URL.';
+      }
+
+      // Nothing matching at all is said where the rows would be, so it is not said twice.
+      if (this.visibleRepos.length && this.visibleRepos.length !== this.repos.length) {
+        return `${ this.visibleRepos.length } of ${ this.repos.length } match.`;
+      }
+
+      if (!this.visibleRepos.length) {
+        return '';
+      }
+
+      return this.repos.length >= REPO_LIMIT
+        ? `The ${ REPO_LIMIT } most recently updated. Anything older is named below or pasted as a URL.`
+        : '';
     },
 
     // What the name will actually be. Applied rather than rejected, the same way the header's
@@ -303,6 +491,12 @@ export default {
       }
 
       if (!this.check.reachable) {
+        // The listing says outright whether a repository is private, so where the chosen one
+        // came off the list this stops being a guess about why the check went blind.
+        if (this.listedRepo?.private) {
+          return 'It is private, and this check runs without the stored token, so it cannot read it. The import itself does use the token.';
+        }
+
         return this.hasToken
           ? 'This check runs without the stored token, so a private repository always lands here. The import itself uses the token and may well work.'
           : 'It may be private, in which case connect GitHub in step 1 and the import will still work even though this check cannot see it. Otherwise the name is wrong.';
@@ -398,6 +592,10 @@ export default {
     this.hasToken = settings.hasToken;
     this.rancher = version;
     this.loaded = true;
+
+    // Both of these are a pod exec, so they are started after the wizard has drawn rather than
+    // before it: the dialog opening must not wait on GitHub answering.
+    this.loadAccount();
   },
 
   beforeUnmount() {
@@ -406,6 +604,74 @@ export default {
   },
 
   methods: {
+    /**
+     * Ask a pod who the stored token belongs to, and what it can see.
+     *
+     * One entry point for both halves because they are one question with two answers, and they
+     * become stale at the same moment: a token being replaced changes the account AND the
+     * repositories, so `connect` calls this rather than either of them.
+     */
+    loadAccount() {
+      this.identity = null;
+      this.identityError = '';
+      this.repos = [];
+      this.reposError = '';
+      this.reposLoaded = false;
+      this.repoSearch = '';
+
+      if (!this.hasToken) {
+        return;
+      }
+
+      this.identityLoading = true;
+      githubIdentity()
+        .then((identity) => {
+          this.identity = identity;
+        })
+        .catch((e) => {
+          this.identityError = e?.message || String(e);
+        })
+        .finally(() => {
+          this.identityLoading = false;
+        });
+
+      this.reposLoading = true;
+      listGithubRepos(REPO_LIMIT)
+        .then((repos) => {
+          this.repos = repos;
+          this.reposLoaded = true;
+        })
+        .catch((e) => {
+          this.reposError = e?.message || String(e);
+        })
+        .finally(() => {
+          this.reposLoading = false;
+        });
+    },
+
+    /**
+     * Choose a row.
+     *
+     * Straight into the same `repo` the field holds, rather than into a selection of its own,
+     * so there is one answer to "which repository" and the highlight is derived from it. That
+     * is also what makes typing `suse/cost-explorer-ext` into the field light its row up, and
+     * what stops the two controls being able to disagree.
+     */
+    pickRepo(row) {
+      if (this.importing) {
+        return;
+      }
+
+      this.repo = row.fullName;
+    },
+
+    /** The design's lock and book: what the row says about who can see the repository. */
+    repoIcon(row) {
+      return row.private ? 'lock' : 'book';
+    },
+
+    updatedAgo,
+
     onNameInput(value) {
       this.name = value;
       this.nameDirty = true;
@@ -438,6 +704,8 @@ export default {
         this.tokenOpen = false;
         this.changing = false;
         this.token = '';
+        // A different token is a different account and a different list of repositories.
+        this.loadAccount();
       } catch (e) {
         this.error = e?.message || String(e);
       } finally {
@@ -577,15 +845,35 @@ export default {
         :state="connected ? 'done' : 'active'"
         :title="connected ? 'GitHub connected' : 'Connect GitHub'"
       >
-        <div v-if="connected" class="import-extension__account">
+        <div
+          v-if="connected"
+          class="import-extension__account"
+          data-testid="barn-import-account"
+        >
           <SIcon name="github" :size="16" />
 
-          <p class="import-extension__connect-copy">
-            A token is stored in this Rancher, so a private repository clones too. Studio keeps
-            it in a Secret for the pod that runs the clone and never reads it back into this
-            page, so it cannot tell you which account it belongs to, what it is allowed to do
-            or when it expires.
+          <p v-if="accountName" class="import-extension__account-name" data-testid="barn-import-account-login">
+            {{ accountName }}
           </p>
+
+          <p
+            v-if="accountName"
+            class="import-extension__account-meta"
+            data-testid="barn-import-account-meta"
+          >
+            {{ accountMeta }}
+          </p>
+
+          <p v-else-if="identityLoading" class="import-extension__account-meta">
+            Asking GitHub whose token this is...
+          </p>
+
+          <p v-else class="import-extension__account-meta">
+            A token is stored, so a private repository clones too.
+            {{ identityError ? `Studio could not read the account from it: ${ identityError }` : 'GitHub did not name an account for it.' }}
+          </p>
+
+          <span class="import-extension__grow" />
 
           <SButton
             variant="ghost"
@@ -674,6 +962,69 @@ export default {
           </p>
         </template>
 
+        <template v-if="canList">
+          <!-- Only once there is a list. A search box over a listing that failed, or over an
+               account with no repositories, is a control with nothing behind it. -->
+          <div v-if="repos.length" class="import-extension__search">
+            <SIcon name="search" :size="15" />
+            <input
+              v-model="repoSearch"
+              class="import-extension__search-input"
+              data-testid="barn-import-repo-search"
+              placeholder="Search your repositories"
+              aria-label="Search your repositories"
+              :disabled="importing"
+            >
+          </div>
+
+          <p v-if="reposLoading" class="import-extension__note">
+            Asking GitHub for your repositories from a pod in this cluster...
+          </p>
+
+          <div
+            v-else-if="visibleRepos.length"
+            class="import-extension__repos"
+            data-testid="barn-import-repo-list"
+            role="listbox"
+            aria-label="Your repositories"
+          >
+            <button
+              v-for="each in visibleRepos"
+              :key="each.fullName"
+              type="button"
+              class="import-extension__repo"
+              :class="{ 'import-extension__repo--on': each.fullName === repoPath }"
+              data-testid="barn-import-repo-row"
+              :data-repo="each.fullName"
+              :data-selected="each.fullName === repoPath ? 'true' : 'false'"
+              role="option"
+              :aria-selected="each.fullName === repoPath"
+              :disabled="importing"
+              :title="each.description || each.fullName"
+              @click="pickRepo(each)"
+            >
+              <SIcon :name="repoIcon(each)" :size="14" />
+
+              <span class="import-extension__repo-name">{{ each.fullName }}</span>
+              <span class="import-extension__repo-meta">{{ each.private ? 'private' : 'public' }}</span>
+
+              <span class="import-extension__grow" />
+
+              <span class="import-extension__repo-meta">{{ updatedAgo(each.updatedAt) }}</span>
+
+              <SIcon v-if="each.fullName === repoPath" name="check" :size="15" />
+            </button>
+          </div>
+
+          <p v-else-if="reposLoaded && repos.length" class="import-extension__note">
+            None of your {{ repos.length }} repositories match "{{ repoSearch.trim() }}".
+          </p>
+        </template>
+
+        <p v-if="listNote" class="import-extension__note">
+          {{ listNote }}
+        </p>
+
         <SField
           v-model="repo"
           input-testid="barn-import-repo"
@@ -683,12 +1034,6 @@ export default {
           :error="repoInvalid ? 'That has to be owner/name, or a github.com repository URL.' : ''"
           :hint="repoHint"
         />
-
-        <p class="import-extension__note">
-          Studio does not list your repositories. The token that could ask GitHub for that list
-          lives in a Secret this page never reads back, so the listing would have to come from
-          the pod, and it does not yet.
-        </p>
       </ImportStep>
 
       <ImportStep v-if="loaded" :index="3" :state="openState" title="Branch and name">
@@ -807,13 +1152,121 @@ export default {
     margin: 0;
   }
 
+  // The connected row (15:546): mark, handle, scopes and expiry, then Change pushed right by
+  // the spacer. It wraps rather than clipping, because the meta line is as long as the token's
+  // scope list and a token with six scopes must not push the Change button off the dialog.
   &__account {
-    display:       grid;
-    // The Change button keeps its own column so a long sentence does not push it off the row.
-    grid-template-columns: 16px 1fr auto;
+    display:     flex;
+    align-items: center;
+    flex-wrap:   wrap;
+    gap:         var(--studio-space-8);
+    color:       var(--studio-text-secondary);
+  }
+
+  &__grow { flex: 1 1 auto; }
+
+  &__account-name {
+    font:   var(--studio-body-13-semi);
+    color:  var(--studio-text);
+    margin: 0;
+  }
+
+  &__account-meta {
+    font:      var(--studio-caption-12);
+    color:     var(--studio-text-secondary);
+    margin:    0;
+    min-width: 0;
+  }
+
+  // The step 2 search box (15:559), the same shape the home screen's search uses so the two
+  // read as one control rather than two different takes on a magnifier and a field.
+  &__search {
+    display:       flex;
+    align-items:   center;
     gap:           var(--studio-space-8);
-    align-items:   start;
+    padding:       var(--studio-space-8) 10px;
+    background:    var(--studio-surface);
+    border:        1px solid var(--studio-border);
+    border-radius: var(--studio-radius-control);
+    color:         var(--studio-text-tertiary);
+
+    // The design draws this focused, with a 2px blue border. Inset rather than grown, for the
+    // reason SField gives: a border that thickens on focus moves the layout by a pixel.
+    &:focus-within {
+      border-color: var(--studio-border-focus);
+      box-shadow:   inset 0 0 0 1px var(--studio-border-focus);
+    }
+  }
+
+  &__search-input {
+    flex:       1 1 auto;
+    min-width:  0;
+    border:     none;
+    outline:    none;
+    background: transparent;
+    padding:    0;
+    font:       var(--studio-body-14);
+    color:      var(--studio-text);
+
+    &::placeholder { color: var(--studio-text-tertiary); }
+  }
+
+  // The repository list (15:564): a bordered card of rows divided by a hairline, capped in
+  // height because a hundred rows would be taller than the dialog and the search box above it
+  // is what narrows them down.
+  &__repos {
+    display:        flex;
+    flex-direction: column;
+    max-height:     220px;
+    overflow-y:     auto;
+    background:     var(--studio-surface);
+    border:         1px solid var(--studio-border);
+    border-radius:  var(--studio-radius-control);
+  }
+
+  &__repo {
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-8);
+    width:         100%;
+    padding:       9px var(--studio-space-12);
+    text-align:    left;
+    background:    transparent;
+    border:        none;
+    border-bottom: 1px solid var(--studio-border-subtle);
     color:         var(--studio-text-secondary);
+    cursor:        pointer;
+
+    &:last-child { border-bottom: none; }
+
+    &:hover:not(:disabled) { background: var(--studio-surface-subtle); }
+
+    &:focus-visible {
+      outline:        2px solid var(--studio-border-focus);
+      outline-offset: -2px;
+    }
+
+    &:disabled { cursor: default; }
+
+    // The chosen row (15:565), filled #EAF4FB with a check at its right edge.
+    &--on,
+    &--on:hover:not(:disabled) { background: var(--studio-blue-050); }
+  }
+
+  &__repo-name {
+    font:          var(--studio-body-13-semi);
+    color:         var(--studio-text);
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+  }
+
+  &__repo-meta {
+    font:      var(--studio-caption-12);
+    color:     var(--studio-text-secondary);
+    flex:      0 0 auto;
+    // The updated time is the one thing on the row worth losing before the name is.
+    min-width: 0;
   }
 
   &__connect-copy,

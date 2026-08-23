@@ -123,3 +123,27 @@ This predates the current work. If a feature you are verifying depends on the in
 browser and you cannot get it to respond, that is very likely why: record `blocked`, say it was
 this pod, and move on. Do not record `fail` for it - a broken probe in the environment is not a
 defect in the Studio, and mixing the two makes the todo list lie.
+
+## Never start a dev server
+
+Do not run `yarn dev`, `yarn serve`, `vue-cli-service serve` or `serve-pkgs`. Not to verify, not to
+check that something renders, not for anything.
+
+Each one is a webpack dev build that grows to about **3GB of resident memory** and never shrinks.
+This container has 64GB shared by every agent, the Rancher sidecar, the browser sidecar and the
+extension pods. Three left running took it to 700MB free with swap exhausted, and three more were
+started within a minute of that being cleared.
+
+They are also the wrong thing to look at. Verification drives the bundle **installed in Rancher** and
+served from `https://172.19.0.5:8446`, which is what a user loads. A dev server serves a different
+build, on a different port, that nothing points at.
+
+To check the bundle you are driving is current, read the install timestamp off the UIPlugin:
+
+```bash
+kubectl get uiplugins.catalog.cattle.io -n cattle-ui-plugin-system barn \
+  -o jsonpath='{.spec.plugin.endpoint}'
+```
+
+The orchestrator builds and installs. If you believe the bundle is stale, say so and stop, rather
+than building your own.

@@ -1,0 +1,168 @@
+{
+  "screen": "w1-review-lists",
+  "note": "Re-verification pass over the `fail` items of 04-review, 12-change, 01-home and 11-queue. Driven against the installed bundle barn-0.5.22 at https://172.19.0.5:8446/barn-0.5.22/barn-0.5.22.umd.min.js?t=1787460492967 (built 2026-08-23 04:48). An earlier bundle (?t=1787455682610, built 03:27) was live for the first half of the session; where that mattered the item was re-driven against the 04:48 bundle and the note says so. Pod baseline recorded and restored: base at HEAD 8a704fb013061bc02d4a318e2f85404bef8c4665 with ` A BRIEF.md` (md5 75f1c293c45072a2831074aa44b5a8d9) before and after.",
+  "verdicts": [
+    {
+      "id": "04-review-nav-rail-icons",
+      "status": "pass",
+      "evidence": "Loaded all nine Studio routes cold (full page load, one per goto): /barn/extensions, /barn/extensions/new, /barn/editor, /barn/extensions/base/review, /barn/extensions/base/files, /barn/extensions/base/brief, /barn/review, /barn/review/base/working, /barn/extensions/base/verification. On every one the rail's 'Extension Studio' entry carried class 'option active-menu-link' with computed background rgb(2,89,55) - the same treatment Global Settings gets on its own route. Routing was re-checked from the queue: Home, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions and Global Settings each navigated and rendered their page (document.title read back on each). IMPORTANT: against the earlier 03:27 bundle this did NOT hold - only /barn/extensions lit up, and then only via vue-router's router-link-exact-active, because the merged $route.meta on the first resolve had no `product` key while $route.matched[1].meta did (findMeta reads $route.meta only). The 04:48 rebuild fixed it; if the bundle is ever rebuilt from a tree without that change, re-test with a hard load, not an in-app click, because an in-app navigation masked the bug.",
+      "defect": null
+    },
+    {
+      "id": "04-review-keep-file",
+      "status": "pass",
+      "evidence": "Four separate trials, each with its own untracked file created in the pod (verify-w1-a/b/c/d.txt) and BRIEF.md left ticked as the control. In every trial the action-bar note recounted correctly ('2 of 3 files will be kept') on unticking. Exits driven: (a) action bar 'Keep and continue building' -> landed on /barn/editor/base, file gone from the pod, BRIEF.md untouched; (b) masthead back arrow -> /barn/extensions, file gone; (c) rail 'Extension Studio' -> /barn/extensions, file gone; (d) browser Back after reaching the screen by in-app navigation (home -> Review button) -> /barn/extensions, file gone. In all four, `git status --porcelain` in the pod still showed the ticked files ( A BRIEF.md, A verify-w1.txt) unchanged. sessionStorage: after unticking, sessionStorage held barn.review.unkept.base=[\"verify-w1-e.txt\"]; a full page reload came back with that box still unchecked (BRIEF.md=true, verify-w1.txt=true, verify-w1-e.txt=false) and the file still present in the pod - it was reverted only on the subsequent leave. One caveat, not counted as a defect: browser Back from a screen reached by a hard page load does not revert, because the back is a document navigation and no vue-router guard can run.",
+      "defect": null
+    },
+    {
+      "id": "04-review-unticked-note",
+      "status": "pass",
+      "evidence": "The caption under the file list ([data-testid=review-unticked-note]) reads 'Unticked files are reverted when you leave this screen. Nothing here has reached the repository yet.', with a second line 'Everything here is in the pod's working tree. Publishing builds from it; discarding puts it back to the last commit.' Both halves of the promise are there, and the first half is now true rather than aspirational - see 04-review-keep-file, where all four exits really did revert the unticked file in the pod.",
+      "defect": null
+    },
+    {
+      "id": "04-review-file-stats",
+      "status": "pass",
+      "evidence": "Created verify-w1-f.txt (5 lines) in the pod, then loaded /barn/extensions/base/review fresh without opening that file's diff. Its row rendered '+5' and the chip 'added' on first render. Cross-checked against the pod in the same run: `git diff --numstat HEAD` gave 34/0 BRIEF.md, 0/3 CLAUDE.md, 7/0 verify-w1.txt, and `git diff --no-index --numstat /dev/null verify-w1-f.txt` gave 5/0 - the rows read '+34 added', '-3 modified', '+7 added', '+5 added'. Determinism confirmed: `git status --porcelain` immediately after the render still showed '?? verify-w1-f.txt', i.e. rendering the list no longer runs `git add -N` behind the user's back, so the count does not appear only on a second load.",
+      "defect": null
+    },
+    {
+      "id": "04-review-changed-files-summary",
+      "status": "pass",
+      "evidence": "The panel header now carries [data-testid=review-totals] beside the count. With four changed paths in the pod it read count '4' and totals '+46 -3', title '46 lines added and 3 removed across 4 files'. That reconciles exactly with the pod: 34+0 (BRIEF.md), 0+3 (CLAUDE.md, deliberately edited to produce removals and restored afterwards), 7+0 (verify-w1.txt), 5+0 (verify-w1-f.txt) = 46 added, 3 removed. The count tracked across the session (2 -> 3 -> 4 -> 0) and matched `git status --porcelain` at every reading.",
+      "defect": null
+    },
+    {
+      "id": "04-review-explanation",
+      "status": "pass",
+      "evidence": "The right rail is headed 'What this change does' and renders three headed paragraphs ([data-testid=review-explain-part]) matching the design's three questions. With BRIEF.md selected: 'What was added - BRIEF.md is new. The whole file is 34 lines of it. The new lines bring in the heading \"base\", the heading \"The problem\", the heading \"Who has it\" and 9 more.' / 'What was replaced - Nothing. Every line in this change is new...' / 'What is not touched - 1 other file changed in this working tree - verify-w1-x.txt - and this panel is about BRIEF.md only.' Selecting verify-w1-x.txt (3 lines) rewrote all three: 'verify-w1-x.txt is new. The whole file is 3 lines of it.' and 'What is not touched - 1 other file changed in this working tree - BRIEF.md...'. So the prose is derived from the diff being read, not fixed copy. The rail still ends with an honest banner saying WHY a change was made is not in a diff and belongs to the assistant, plus an 'Ask why this file changed' button.",
+      "defect": null
+    },
+    {
+      "id": "04-review-discard-all",
+      "status": "pass",
+      "evidence": "Drove the real 'Discard all' against a tree I had first backed up (BRIEF.md copied out, md5 75f1c293c45072a2831074aa44b5a8d9). Precondition reproduced the old bug's shape: all three files were intent-to-add in the index (' A BRIEF.md', ' A verify-w1-f.txt', ' A verify-w1.txt') because opening a diff stages them. Confirm read 'Discard all 3 changed files in base? This cannot be undone.' After accepting: `git status --porcelain` in the pod was empty, `ls` reported BRIEF.md and verify-w1*.txt all gone (not truncated to 0 bytes - the previous failure mode), and HEAD was unchanged at 8a704fb. The screen emptied: count '0', file pane 'Nothing has changed.', masthead badge flipped Unsaved -> Live, action-bar summary 'Nothing has changed since the last commit.' I then restored BRIEF.md byte-for-byte (same md5) and put its intent-to-add index entry back.",
+      "defect": null
+    },
+    {
+      "id": "04-review-publish-action-bar",
+      "status": "pass",
+      "evidence": "Clicked 'Publish…' in the action bar. A modal opened before anything was installed: 'Publish this extension? base is built in its pod from the working tree you have just been reading, and this Rancher is pointed at the result... Nothing is committed and nothing is pushed anywhere.' with Cancel and 'Publish to this Rancher' ([data-testid=review-publish-confirm]). The URL did not change while the modal was up; Cancel closed it with nothing installed. The old root cause is gone too: the handoff query is now read. Loading /barn/editor/base?publish=zzzbogus came back as /barn/editor/base with the query stripped, which only happens because editor.vue's handleHandoff consumes it (previously the query survived, because nothing read it). Both publish buttons now also carry :disabled=\"!count\", and I saw them disabled after the discard emptied the list. I deliberately did NOT press 'Publish to this Rancher': a real publish rebuilds and reinstalls into the Rancher every other verifier is using.",
+      "defect": null
+    },
+    {
+      "id": "04-review-publish-masthead",
+      "status": "pass",
+      "evidence": "Clicked 'Publish' in the masthead ([data-testid=review-publish-masthead], disabled? false with 2 changed files). It opened the same confirmation modal as the action bar, word for word, before anything was installed, and the URL stayed on /barn/extensions/base/review. Cancel closed it. It now also has :disabled=\"!count\" (the old defect was that it had no disabled binding at all). Same caveat as the action-bar item: I stopped at the confirmation rather than completing a publish into the shared Rancher.",
+      "defect": null
+    },
+    {
+      "id": "12-change-approve",
+      "status": "pass",
+      "evidence": "Recorded HEAD 8a704fb first. Clicked 'Approve the code'. In the pod HEAD moved to 543e4536fe74b32eec0bd8662226ce317bb5e701 and the tree went clean, and `kubectl -n barn get cm barn-review-base -o yaml` - which did not exist before the click - held {\"signoffs\":{\"code\":{\"verdict\":\"approved\",\"principal\":\"local://user-btc48\",\"name\":\"Default Admin\",\"at\":\"2026-08-23T04:58:43.333Z\",\"note\":\"\",\"sha\":\"543e453\"}}}. The UI matched: rc-gate-code data-done=yes reading 'Default Admin, just now', rc-gate-outcome still data-done=no reading 'not signed off - 2 of 4 criteria met'. Staleness: I then made a further commit in the pod (HEAD -> e8bf2144) and reloaded; the code gate flipped back to data-done=no and read 'Default Admin approved an earlier commit, so it no longer covers this one'. UNDONE: `git reset --mixed 8a704fb`, the probe file removed, BRIEF.md put back as intent-to-add with its original md5, and the ConfigMap deleted. One half of howToVerify does not hold and is deliberate: publishing to this Rancher is not blocked by the gates - editor.vue's comment says local publish is 'ungated, forever - cross-screen rule 2', and it is the `distribute` target that assertGateOpen() in review.ts refuses until two different people have signed.",
+      "defect": null
+    },
+    {
+      "id": "12-change-request-changes",
+      "status": "pass",
+      "evidence": "Clicked 'Request changes'. A modal opened: 'What needs to change?... It is also put straight to the assistant working in base's pod'. The comment is genuinely required: 'Send it back' was disabled:true with the textarea empty, clicking it did nothing (modal stayed open, no ConfigMap created). Typed a note keyed to me ('w1-review-lists audit probe 8817: ...') and sent. Three effects, all observed: (1) `kubectl -n barn get cm barn-review-base` was created holding verdict 'changes-requested', principal local://user-btc48, name Default Admin, at 2026-08-23T04:55:52Z, sha 8a704fb and the note verbatim; (2) `tmux capture-pane -p -t mc-editor` in the pod showed the line 'A reviewer looked at the working tree of the base extension and asked for a change: w1-review-lists audit probe 8817: ... Make that change in the working tree and explain what you did.' at the assistant's prompt; (3) the route moved to /barn/editor/base?tab=terminal. The count half of the promise is there too: reloading screen 12 with the record in place relabelled the button 'Request changes (1 open)' and the code gate read 'changes requested by Default Admin 1 minute ago'. UNDONE: ConfigMap deleted. (The pod's claude is 'Not logged in', so the instruction sat at the prompt and changed nothing.)",
+      "defect": null
+    },
+    {
+      "id": "12-change-file-ranking",
+      "status": "pass",
+      "evidence": "Seeded four files in the pod to hit each rule (yarn.lock, verify-w1.generated.ts, verify-w1.json, verify-w1.vue) alongside BRIEF.md, then loaded /barn/review/base/working. The chip read 'CHANGED FILES (5)' and three groups rendered with counts that reconcile: 'Worth your attention 2' (BRIEF.md - 'the brief itself, so what this change is measured against moved'; verify-w1.vue - 'new code, nothing to compare it against'), 'Config 1' (verify-w1.json - 'configuration or data'), 'Generated, low risk 2' (verify-w1.generated.ts - 'generated from a seed by a script'; yarn.lock - 'a lock file, written by the package manager'). Every file row carried a one-line reason followed by its status and size. Probe files removed afterwards.",
+      "defect": null
+    },
+    {
+      "id": "12-change-criteria-list",
+      "status": "pass",
+      "evidence": "[data-testid=rc-criteria] renders 'Does it do the job?' with '4 criteria' and four rows, each an icon plus the criterion plus a state sub-label - no raw '- [x]' markdown, no dumped '## Verification' block. Observed: 'The tab appears under the cluster nav without a reload' / icon-checkmark rc__criterion-icon--success / 'evidence captured'; same for 'It renders with metrics-server absent, and says why'; then 'A 24-hour trend is readable at a glance' and 'Nothing on the existing cluster page moves or changes' each with icon-history rc__criterion-icon--subtle / 'not measured'. That is data-driven, not fixed: the pod's BRIEF.md Verification block records exactly '- **Met**' for the first two and '- **Not looked at**' for the last two. The mapping in review-change.vue covers four states (met -> check/'evidence captured', not met -> alert/'checked and not met', could not tell -> alert/'looked at, no verdict', not looked at -> clock/'not measured'); I could not drive the two alert states without rewriting another verifier's BRIEF.md, so only the two present in the data were seen rendered.",
+      "defect": null
+    },
+    {
+      "id": "12-change-identity",
+      "status": "pass",
+      "evidence": "The masthead renders '.rc__title' as 'base' plus '.rc__version' ' · not published yet' (title 'Nothing named base is installed in this Rancher'), and an eyebrow [data-testid=rc-provenance] reading 'Code review · 1 uncommitted file · last edited 20 minutes ago · on main'. The version half is real rather than a constant: the same screen for the published extension, /barn/review/nodehealth/working, reads 'nodehealth · v0.1.0' with title 'Installed in this Rancher now'. Which review it is ('Code review') and when ('last edited N ago') are both in the line. The author is the one element not in the line, and the eyebrow's title explains why rather than inventing one: 'Working tree last edited 8/23/2026, 4:48:28 AM. Last commit 8a704fb by barn on 8/21/2026, 10:37:47 PM: The seeded extension Git records no author for an uncommitted working tree, so nobody is named for the change itself.' - so the last commit's author is named where git has one.",
+      "defect": null
+    },
+    {
+      "id": "12-change-purpose-card",
+      "status": "fail",
+      "evidence": "The first card is now headed 'What this is for' ([data-testid=rc-purpose]) and carries the purpose sentence from the brief: 'Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.' That half of the promise now holds, and the heading the old verdict said was missing is there. The provenance half does not render. In its place the card says: 'Written under \"The problem\" in this extension's BRIEF.md. Nothing records who agreed it, when, or which ticket it came from - the brief has no field for any of that, so this screen does not invent one.'",
+      "defect": "The design's 'Agreed with Ops Enablement on 18 Aug...' line still does not render, because nothing in the product records who agreed a brief, when, or which ticket it came from. The screen now says so in as many words instead of faking it, which is the right call under the house rule, but the promise is still unmet. Closing this needs a data source - a provenance field written when the brief is agreed on screen 10, or a ticket link on the extension - not more UI. If that data is never going to exist, the claim should be retired from features.json rather than left as an open defect."
+    },
+    {
+      "id": "12-change-header-actions",
+      "status": "fail",
+      "evidence": "Unchanged from the previous pass. Enumerated every button / a / [role=button] inside the header on /barn/review/base/working: the hamburger ([data-testid=top-level-menu]), 'Home page navigation menu', the local-cluster pin and entry, the eight product links, 'About page link', [data-testid=notifications-center] and [data-testid=nav_header_showUserMenu]. Notifications is reachable; there is no three-dot overflow menu and no app-collection grid icon anywhere in the header on this route.",
+      "defect": "Two of the three header affordances the design draws do not exist on a Studio route. Rancher's kebab lives in the cluster-explorer header only, and this build's header has no app-collection grid at all, so neither is something pkg/barn can turn on - it would have to add its own controls to Rancher's header. Same finding as 04-review-header-apps / 04-review-header-more."
+    },
+    {
+      "id": "01-home-breadcrumb-extensions",
+      "status": "pass",
+      "evidence": "Clicked the 'Extensions' crumb ([data-testid=studio-crumb-extensions]) above the title. The URL became /dashboard/c/local/uiplugins#installed, document.title 'Rancher Prime - Extensions', and Rancher's own Extensions page content rendered. That is the deliberate destination - the crumb sits on the Studio's own page, so pointing it at /barn/extensions would be a link to where you already are. The old behaviour (push { name: 'home' }, landing on the Rancher home page) is gone.",
+      "defect": null
+    },
+    {
+      "id": "01-home-count",
+      "status": "pass",
+      "evidence": "The pill ([data-testid=studio-count]) tracks the filter. With no search it read '3', title '3 extensions', and the table held base, demo, nodehealth. Typing 'nodeh' took it to '1', title '1 of 3 match “nodeh”', one surviving row (nodehealth). Typing 'zzzznope' took it to '0', title '0 of 3 match “zzzznope”', no rows. Clearing the box put it back to '3' with all three rows.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-review",
+      "status": "pass",
+      "evidence": "The row for base (Unsaved, subtitle '1 change waiting for your review') carries a secondary 'Review' button, [data-testid=studio-review-base]. Clicking it landed on https://magic-closet-rancher/dashboard/barn/extensions/base/review and the review screen rendered for that extension. The nodehealth row carries its own [data-testid=studio-review-nodehealth]; the demo row, which is Building rather than Unsaved, has no Review button.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-when",
+      "status": "pass",
+      "evidence": "extensionDetail's lastTouched is live. Before: base '4 min ago' (title 'An uncommitted file was edited then. The last commit is older.' - its last commit is 2026-08-21T22:37, over a day old, so the cell is reading the working tree not the log), nodehealth '6 hours ago', demo '-'. I then ran `touch /app/pkg/nodehealth/BRIEF.md` in the nodehealth pod and reloaded: nodehealth's cell became 'just now'. The sort moved with it - with 'Last change' sorted descending nodehealth went from second place (behind base '7 min ago') to first. The header itself sorts and reverses: descending gave base, nodehealth, demo, v02w1 and a second click gave demo, v02w1, nodehealth, base, with aria-sort flipping descending/ascending.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-extensions",
+      "status": "pass",
+      "evidence": "The rail's Studio entry is now labelled 'Extension Studio' and draws the puzzle glyph (class 'icon group-icon icon-extension app-icon'), the same icon Rancher's own Extensions entry uses. On /barn/extensions it carries 'router-link-active router-link-exact-active option active-menu-link', aria-current=page and background rgb(2,89,55), and it stays 'option active-menu-link' on every other Studio route (see 04-review-nav-rail-icons). Clicking it from elsewhere returns here: from /dashboard/c/local/settings/management.cattle.io.setting the click landed on /dashboard/barn/extensions with .studio-home__table rendered.",
+      "defect": null
+    },
+    {
+      "id": "01-home-header-logo",
+      "status": "fail",
+      "evidence": "Located the logo in the header: img.side-menu-logo-img (src .../rancher-logo.db10c962.svg) inside div.side-menu-logo inside div.simple-title, 200x36 at x=85,y=9. el.closest('a') is null - it has no ancestor anchor. Clicked it on /barn/extensions and waited 5s: the URL was still https://magic-closet-rancher/dashboard/barn/extensions, unchanged.",
+      "defect": "Clicking the header logo does nothing. It is Rancher shell chrome, not barn code - the same img in Rancher's side-menu title area is not a link either - so fixing it means wrapping Rancher's own header logo in a router-link to /dashboard/home. The Home destination is already reachable from the rail's Home entry (verified: it navigates to /dashboard/home)."
+    },
+    {
+      "id": "11-queue-nav-rail",
+      "status": "pass",
+      "evidence": "On /barn/review the rail's 'Extension Studio' entry carries 'option active-menu-link' with background rgb(2,89,55), and it does so on all nine Studio routes on a cold page load, not only on /barn/extensions (full list under 04-review-nav-rail-icons). Every rail entry was clicked from the queue and each navigated and rendered: Home -> /dashboard/home, Cluster Management -> /c/_/manager/provisioning.cattle.io.cluster, Continuous Delivery -> /c/_/fleet, Extension Studio -> /barn/extensions, Virtualization Management, Base, Users & Authentication -> /c/local/auth/management.cattle.io.user, Extensions -> /c/local/uiplugins#installed, Global Settings -> /c/local/settings/management.cattle.io.setting. Cluster context is switchable from the rail's cluster entry ([data-testid=menu-cluster-local], the only cluster this Rancher has, so the design's three LT1/CD2/AFT chips have one counterpart rather than three). Two design elements still have no counterpart, both Rancher chrome rather than barn's: there is no docs/book entry in the rail, and the user menu is in the header ([data-testid=nav_header_showUserMenu]) rather than the rail.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-intent",
+      "status": "pass",
+      "evidence": "Each queue card now leads with the purpose sentence and the identity line is second. base's card reads, in order: 'Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.' / 'base · v0.1.0' / '1 file · +34 -0 · 4 acceptance criteria'. The wrap-truncation bug is gone - the sentence runs past the brief's hard line break at 'a slow' to the end of the paragraph, matching the pod's BRIEF.md. The nodehealth card does the same ('nodehealth · v0.1.0' / '2 files · +33 -0'); its purpose sentence reads oddly ('...apart from a sloAn operator cannot see how node conditions moved during an incident.w degradation.') but that string is exactly what is written in that pod's BRIEF.md line 4, so the queue is rendering it faithfully, not mangling it.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-risk",
+      "status": "pass",
+      "evidence": "Each card's RISK column is a pill plus a rationale line, and the rationale is computed from more than a file count. base: 'low' / 'Prose only, no code · no dependency changes · 1 file' (its only change is BRIEF.md). nodehealth: 'low' / '33 lines changed · no dependency changes · 2 files' (its changes include pages/NodeHealth.vue, so the 'prose only' clause correctly drops out and a line count takes its place). The columns rendered are WAITING, RISK and BRANCH.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-review-settings",
+      "status": "pass",
+      "evidence": "'Review settings' ([data-testid=queue-review-settings]) opens a Review settings dialog, not the GitHub-token form. It holds exactly two settings - 'Order the queue by' (Oldest first / Newest first / Most changes / Least changes) and 'Count as signed off for N days' - plus the line 'There is nothing here about who reviews what. This product has one reviewer - you - and a setting that could only ever have one value would be a control that lies.' Both settings change the screen. Order: Oldest first gave [base, nodehealth]; saving Newest first gave [nodehealth, base]; saving Most changes gave [nodehealth (2 files), base (1 file)]; back to Oldest first restored [base, nodehealth], and the queue header's sort label followed each time. Days: changing 7 to 30 relabelled the third tab from 'Signed off this week' to 'Signed off in 30 days'. Persistence: after a full page reload the sort label was still 'Newest first' and the tab still read 'Signed off in 30 days', backed by localStorage barn.review.settings = {\"sort\":\"newest\",\"signedOffDays\":30}. Restored to {\"sort\":\"oldest\",\"signedOffDays\":7} afterwards.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-your-part",
+      "status": "not-implemented",
+      "evidence": "The column is gone, which is what the previous verdict recommended. The only column labels rendered on a queue card are WAITING, RISK and BRANCH (read from every .queue__label), and document.body.innerText.includes('Your part') is false on /barn/review. What replaces it is a screen-level statement rather than a per-row pill: the lede reads 'Nothing in this list is live. Everything here is still running only in its author's preview, and you are both its author and its only reviewer, so nothing here is waiting on anybody else', and the tabs carry the split instead ('Waiting on you 2' / 'Waiting on others 0' / 'Signed off this week 1'). The WAITING column now carries something with real content per row instead: '1 day' plus [data-testid=queue-asked] 'nothing records who asked for this'.",
+      "defect": "The design's per-row 'Your part' pill is deliberately not in the product: on a single-reviewer Studio it could only ever hold one value, so it was removed rather than rendered as though it varied. Recording this as not-implemented rather than fail so nobody rebuilds it - if the product ever gets a second reviewer the claim comes back, and the tab counts are where it would live."
+    }
+  ]
+}

@@ -1,0 +1,240 @@
+{
+  "screen": "03-workspace + 00-cross-screen",
+  "verdicts": [
+    {
+      "id": "03-workspace-autosave-status",
+      "status": "fail",
+      "evidence": "The clock line exists now, so the previous 'not-implemented' is stale. On /barn/editor/base [data-testid=\"barn-snapshot-age\"] renders 'Snapshot saved 14h ago' beside a clock glyph, and the menu it triggers carries the title '\"probe point A\" - taken by hand from this menu. Nothing here autosaves.' EditorMasthead.vue lastSnapshot() computes the age from listSnapshots()[0] and falls back to 'No snapshot yet' with the title 'Nothing in the Studio autosaves. Take a snapshot from this menu...'. Read it twice four seconds apart in one session: it reported the same snapshot both times because the newest snapshot is 14h old, so the tick was not exercised at second resolution.",
+      "defect": "Half of the promise. The 'when the last snapshot happened' half is real and honest. The 'the workspace autosaves' half is still false, and the component's own tooltip says so: no snapshot is ever taken except by hand from the Snapshots menu (createSnapshot is called from EditorMasthead's menu item and from publish-failure.ts recordWorkingBuild after a successful publish, nowhere else). Nothing writes a snapshot as you work."
+    },
+    {
+      "id": "03-workspace-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave. Enumerated every [data-testid] inside <header> on /barn/editor/base: side-menu, top-level-menu, side-menu__brand-img, top-level-menu-cluster-0, menu-cluster-local, header__brand-img, notifications-center, notifications-center-statusunread, nav_header_showUserMenu. There is nothing at the right end but the bell and the user menu. The only 'app collection' shaped thing in the DOM is the group-icon set (icon-cluster-management, icon-fleet, icon-extension, icon-harvester, icon-gear, icon-user, icon-globe) inside the top-level-menu flyout on the left, which is Rancher's cluster/apps rail, not a launcher at the far right.",
+      "defect": "This Rancher's header has no app-collection control, so the design's tinted square maps onto nothing. Nothing in pkg/barn adds one."
+    },
+    {
+      "id": "03-workspace-model-picker",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave. Read the whole .assistant-panel innerText on /barn/editor/base: tabs, 'The assistant is not signed in - run /login in the terminal', 'Edits apply without asking', the stream, '3 changes', CONTEXT/base/cluster: local/Add, Send, and the hint line. No model name and no chip. Enumerated every button in .assistant-panel: tabs, 'Open the terminal', file rows, Commit, Review, Add, Send. grep -rniE 'opus|sonnet|model picker|selectModel' over components and pages still finds nothing but v-model bindings, and pod/claude-session.sh starts claude with no --model flag.",
+      "defect": "No control and no state behind it."
+    },
+    {
+      "id": "03-workspace-nav-docs",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave. Opened the rail from /barn/editor and enumerated all ten anchors with their glyphs: Home, Cluster Management (icon-cluster-management), Continuous Delivery (icon-fleet), Extension Studio (icon-extension), Virtualization Management (icon-harvester), Base (icon-gear), Users & Authentication (icon-user), Extensions (icon-extension), Global Settings (icon-globe), About. No book glyph and no docs destination.",
+      "defect": "There is no docs entry in the rail. Rancher's documentation links live in the header help menu and on the Home page body."
+    },
+    {
+      "id": "03-workspace-preview-chart",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave. The preview pane's own innerText on /barn/editor/base is exactly 'Loaded - 6s ago' and 'Desktop'; everything else is the iframe, whose src is /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/. Read what that serves straight from the pod: pages/Home.vue renders an h1 'It works', two paragraphs and a 'rendered at <time>' stamp. The only <svg> inside .preview-panel is an SIcon glyph.",
+      "defect": "The trend chart is example content in the Figma preview canvas, not something the product produces."
+    },
+    {
+      "id": "03-workspace-preview-chart-legend",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave, and the same reading as 03-workspace-preview-chart: the preview frames the base extension's Home.vue, which is a heading and two paragraphs. No legend, no series, no colours to map. grep -rn 'legend' over pkg/barn (excluding extension-skeleton and node_modules) still hits only example prose in pages/new-extension.vue.",
+      "defect": "Example content in the Figma preview canvas."
+    },
+    {
+      "id": "03-workspace-preview-new-content-marker",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave. Scanned the whole document on /barn/editor/base for the string 'Highlighted areas': false. PreviewPanel.vue still renders a toolbar (the live readout and a viewport select) and a bare iframe with no overlay layer, and nothing correlates the working diff with the DOM inside the frame. The provenance work this wave added records prompts and files in the pod, not rendered regions.",
+      "defect": "The Studio cannot mark new content in the preview: nothing correlates the working-tree diff with the rendered DOM inside the frame."
+    },
+    {
+      "id": "03-workspace-preview-panel-collapse",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave. The preview pane contains only the live readout, the viewport select and the iframe; there is no panel header and no chevron to collapse. The framed page (the base extension's Home.vue, read from the pod) has no collapsible panel either.",
+      "defect": "The collapsible panel is part of the mocked preview content."
+    },
+    {
+      "id": "03-workspace-stop",
+      "status": "not-implemented",
+      "evidence": "Unchanged this wave. Enumerated every button under .assistant-panel on /barn/editor/base after sending two prompts: Assistant, Files, Changes 3, Terminal, 'Open the raw output', the file rows, Commit, Review, Add, Send. No Stop. The composer's action bar is attach + Send only (AssistantPanel.vue lines 680-708), and grep for 'Stop|interrupt' over components/studio and pages/editor.vue finds nothing.",
+      "defect": "Interrupting the agent is only possible by typing Ctrl-C into the Terminal tab. The session menu's 'Start a new conversation' (/clear) is not the same thing."
+    },
+    {
+      "id": "03-workspace-activity-stream",
+      "status": "fail",
+      "evidence": "Sent two keyed messages from the composer on /barn/editor/base ('w2xc probe one 57496', 'w2xc probe two 57496'). Both appended: the stream went from the empty state to two nodes of class 'turn turn--user', meta lines 'You - 14 seconds ago' and 'You - just now', and the times re-rendered as 39s/31s after waiting. It now also survives a reload - reloaded the page and both turns were still there, which the wave-1 verdict recorded as not working (they are kept in sessionStorage under 'barn.editor.turns', so they survive a reload of the tab and not a new one). It still does not alternate: no node carries turn--assistant, [class*=step] inside the stream is 0, and the standing gap line reads 'The assistant's replies are in the terminal. Its output is a character stream, not typed events, so this view cannot yet show them as steps with durations.' Scrolling is still unexercised: with two turns scrollHeight equals clientHeight (368 = 368).",
+      "defect": "The data now exists and the panel is not fed it. `assistantTurns(name)` was added to extensions.ts this wave and returns real turns from the pod: run in the base pod it answers with my two probes, each carrying prompt, timestamp, screen 'workspace', principal local://user-btc48 and 'Default Admin'. No screen calls it - grep for assistantTurns across pages and components returns nothing. editor.vue still builds `turns` from localStorage (TURNS_KEY 'barn.editor.turns', recordTurn at line 545) and passes only the user's own messages to AssistantPanel."
+    },
+    {
+      "id": "03-workspace-header-logo",
+      "status": "fail",
+      "evidence": "Unchanged this wave. [data-testid=\"header__brand-img\"] on /barn/editor renders the SUSE chameleon and wordmark, but closest('a') is null and it has no href. Clicked it: the URL was https://magic-closet-rancher/dashboard/barn/editor before and after.",
+      "defect": "The logo is rendered but inert. This is Rancher's own markup, unchanged on every route, so it needs an anchor around the brand image or the design's promise dropped. The rail's Home entry (a[href=/dashboard/home]) is the working substitute."
+    },
+    {
+      "id": "03-workspace-header-more",
+      "status": "fail",
+      "evidence": "Unchanged this wave. The header testids on /barn/editor/base are side-menu, top-level-menu, side-menu__brand-img, top-level-menu-cluster-0, menu-cluster-local, header__brand-img, notifications-center, notifications-center-statusunread, nav_header_showUserMenu. No page-actions-menu-action-button and no icon-actions glyph anywhere in the header.",
+      "defect": "The page-actions kebab is a Rancher control that only renders when the page registers page actions, and barn's routes register none. The masthead's own three-dot (barn-masthead-overflow) is a different menu and already works."
+    },
+    {
+      "id": "03-workspace-nav-extensions",
+      "status": "pass",
+      "evidence": "Both halves hold now, which reverses the wave-1 finding. Opened the rail on /barn/editor and again on /barn/editor/base and read the computed style of all ten entries: 'Extension Studio' carries the puzzle glyph (i.icon group-icon icon-extension app-icon), class 'option active-menu-link', colour rgb(255,255,255) on background rgb(2,89,55) - the selected treatment - while every other entry is the bare 'option', rgb(0,134,87) on transparent. Clicked it from the workspace and landed on https://magic-closet-rancher/dashboard/barn/extensions with .studio-home__table rendered.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-permission-mode",
+      "status": "fail",
+      "evidence": "Still a read-only label. [data-testid=\"barn-permission-chip\"] is a SPAN, class 's-chip s-chip--warning', text 'Edits apply without asking', title 'The assistant runs with --dangerously-skip-permissions in this pod, so its edits land in the working tree as it makes them. Nothing reaches this Rancher until you publish.', with no nested button and no click handler. What did change this wave is that screen 09 now exists at /barn/settings and draws the design's three named levels ('What the assistant may do without asking'), with detectPermission() reading the pod's own claude-session.sh and marking one 'In force' - but above them is a warning banner reading 'Not settable, and not per user... Only the pod's start-up decides', so that surface is a readout too.",
+      "defect": "There is still no way to change the assistant's permission mode from anywhere in the product. Both surfaces report the pod's fixed --dangerously-skip-permissions honestly; neither is the control the design draws."
+    },
+    {
+      "id": "03-workspace-preview-live-state",
+      "status": "fail",
+      "evidence": "Unchanged this wave. .preview-panel__live reads 'Loaded - 6s ago' beside a green dot, and its title says what is really being measured: 'Timed from the last time the frame navigated. It will say \"Hot reload\" once the dev server patches the page in place.'",
+      "defect": "The readout measures 'the iframe finished loading', not 'the dev server patched the page', and the dot is green whenever the frame has loaded rather than when the dev server is healthy or compiling. Honest, but not the promise."
+    },
+    {
+      "id": "03-workspace-raw-output-toggle",
+      "status": "fail",
+      "evidence": "Drove it after sending two prompts. [data-testid=\"barn-open-raw-output\"] appears under the last turn reading 'Open the raw output' with the note 'the terminal is still here' and a right chevron. Clicking it selected the Terminal tab (the only tab reading as selected afterwards) and the live xterm rendered, while the activity stream's offsetParent became null - so the raw output replaced the stream rather than expanding beneath it. The control stays in the DOM but is hidden with the stream, so there is nothing to click to collapse.",
+      "defect": "It is a tab switch, not a disclosure. Nothing expands inline under the turns and there is no collapse. Compare 08-failed's 'Show raw output', which does the inline expand and collapse this one is missing."
+    },
+    {
+      "id": "03-workspace-step-duration",
+      "status": "fail",
+      "evidence": "No step rows exist to carry a duration. After two sends the stream held only 'turn turn--user' nodes made of .turn__meta and .turn__bubble, and document.querySelectorAll('[data-testid=barn-activity-stream] [class*=step]') returned 0. The provenance log in the pod records a turn's start (`at`) but every turn has endedAt '' because claude in the pod is signed out and the Stop hook never fires, so even a fed stream would have no duration to show today.",
+      "defect": "Nothing produces steps, so nothing renders a per-step duration."
+    },
+    {
+      "id": "03-workspace-step-expand",
+      "status": "fail",
+      "evidence": "No step rows and no chevrons in the stream after two sends: the classes present are turn/turn--user, turn__meta, turn__who, turn__bubble, assistant-panel__gap and the raw-output strip. Nothing to expand.",
+      "defect": "Unchanged. There is nothing to expand because no step is ever emitted."
+    },
+    {
+      "id": "03-workspace-step-files",
+      "status": "fail",
+      "evidence": "No step rows are rendered at all (0 matches for [class*=step] inside the stream after two sends), so no sub-line names files. The pod does now record which files a turn's tools touched (the PostToolUse hook writes `touch` records into /app/.barn/provenance.jsonl and assistantTurns() returns them as `files`), but the panel is not fed by it and every turn recorded so far has files: [] because no turn has run.",
+      "defect": "Unchanged in the UI. The underlying capture exists and is unused."
+    },
+    {
+      "id": "03-workspace-step-progress",
+      "status": "fail",
+      "evidence": "Sent two prompts and watched the stream for 25 seconds: no in-flight row, no spinner, no tinted step. The only thing that changed was the relative times on the two user turns.",
+      "defect": "Unchanged. The running-step treatment exists in ActivityTurn but nothing drives it."
+    },
+    {
+      "id": "03-workspace-step-status",
+      "status": "fail",
+      "evidence": "No step rows, so no completion glyphs. The only icon inside a turn is the icon-user glyph in the .turn__meta line.",
+      "defect": "Unchanged."
+    },
+    {
+      "id": "03-workspace-turn-assistant",
+      "status": "fail",
+      "evidence": "Sent two prompts. Each produced a 'turn turn--user' node and nothing else; no node's class contains 'assistant', and the space where a reply would go holds the fixed .assistant-panel__gap line 'The assistant's replies are in the terminal. Its output is a character stream, not typed events, so this view cannot yet show them as steps with durations.' The pod recorded both prompts (provenance.jsonl) but claude there is signed out - the status row reads 'The assistant is not signed in - run /login in the terminal' and /app/.home/.claude/.credentials.json does not exist - so there was no reply to render either.",
+      "defect": "The assistant side of the transcript is absent: no prose summary, no attribution to 'Assistant', no step count. The gap line is honest about why."
+    },
+    {
+      "id": "03-workspace-publish",
+      "status": "blocked",
+      "evidence": "Not driven, deliberately: my instructions for this pass were 'do not publish', and publishExtension() builds base in the shared pod and upserts the UIPlugin every session on this Rancher loads, which would invalidate the other verifiers running against this instance. Read the wiring instead and drove everything up to the press. The masthead's Publish opens PublishModal (editor.vue @publish=\"choosingPublish = true\"); the modal rendered the real change ('2 files - +19 -8'), a settable version, four destinations of which 'Load into this Rancher' is tickable and marked 'No sign-off', and a footer reading 'Nothing is ticked, so nothing will be published.' Ticking it routes to publishTo('local') -> publishExtension(), which builds with build-pkg in the pod, copies dist-pkg into /app/public/plugins and upserts a UIPlugin. Circumstantial evidence that the path works: the nodehealth extension has a live UIPlugin at v0.1.0 whose endpoint is exactly that pod-proxy URL shape.",
+      "defect": null
+    },
+
+    {
+      "id": "00-cross-screen-oci-gate",
+      "status": "fail",
+      "evidence": "Half of it is now real and I could establish exactly what it refuses. review.ts distributeExtension() opens with `const gate = await assertGateOpen(extension);` (line 912), and assertGateOpen throws a GateError carrying distributionGate()'s state whenever it is not 'open'. distributionGate() reads the review ConfigMap plus one exec into the pod and returns, in order: no-brief, no-packet, stale-packet (the tip has moved past the packet), changes-requested, awaiting-code, awaiting-outcome, same-signer, open - each with a whole sentence naming who it waits for. It is the only choke point: the other two ways out of the pod are publishExtension() (local, carrying a comment saying it must stay ungated forever) and publishExtensionToGithub(), which now refuses without a branch and has exactly two callers, both inside review.ts. Checked the live state: base has BRIEF.md, no refs/barn/packets/*, and no barn-review-base ConfigMap, so distributionGate('base') resolves to no-packet and assertGateOpen would throw. The ungated half also holds: walked 01, 02, 10, 03, 04, 05, 08, 11, 12 and 13 and was never asked for an approval; the publish dialog marks 'Load into this Rancher' and 'Push the source to GitHub' as 'No sign-off' and states 'only the OCI push asks for them'.",
+      "defect": "Nothing in the running product can reach the gate, so the one hard gate is never crossed and never tried. PublishModal's TARGETS mark 'oci' and 'catalog' available: false, and confirm() emits only `TARGETS.filter(t => t.available && isChosen(t.id))`, so the OCI box has no checkbox at all (verified live: the OCI row rendered with no input and the reason 'Not built. Nothing in this Studio produces an OCI artefact or pushes one...'). The masthead's split menu offers only 'Publish to GitHub', 'Import from GitHub' and 'Remove local install'. editor.vue's onPublishChosen looks for ids 'oci' | 'repository' | 'distribute' - ids no component emits - so distributeExtension(), distributionGate() and distributionDestinations() are unreachable from every screen. Separately, /barn/settings draws a sign-off policy matrix whose 'Push to a repository' row is labelled 'The gate' and defaults to 'Code review: Required', and the page itself says 'Studio records this policy; it does not enforce it yet. Nothing in the publish path reads these values, so no publish is blocked by them today.'"
+    },
+    {
+      "id": "00-cross-screen-both-signoffs-required",
+      "status": "fail",
+      "evidence": "The rule is now expressed in code and the record behind it is real. gateFrom()/distributionGate() return awaiting-code when the code review is missing and awaiting-outcome when the outcome is, and assertGateOpen() refuses both, in the one function that distributes. Screen 07 reads the record and draws the two rows: the live publish dialog rendered 'SIGN-OFFS / Code review / Is it safe? / Not signed off yet.' and 'Outcome sign-off / Does it do the job? / Not signed off yet.' The code half is writable and durable - another verifier's Approve on screen 12 created ConfigMap barn-review-base holding {\"signoffs\":{\"code\":{\"verdict\":\"approved\",\"principal\":\"local://user-btc48\",\"name\":\"Default Admin\",\"at\":\"2026-08-23T06:08:21.876Z\",\"sha\":\"5814a08\",\"packet\":0}}}, which I read straight out of the cluster.",
+      "defect": "The outcome half cannot be given at all, so the gate can never open, and the publishes that are reachable are not gated by it. verification.vue's 'Sign off on the outcome' (verified live on /barn/extensions/base/verification, sitting under '2 of 4 met, 2 still to look at') calls its own signOff(), which sets a local {by, on} and writes a `## Verification` block into BRIEF.md. It does not call signOutcome(), and no screen anywhere does - grep for signOutcome across pages and components returns nothing. So signoffs.outcome is never written, distributionGate can never reach 'open', and distributeExtension is unreachable in any case (see 00-cross-screen-oci-gate). Nothing blocks the two publishes the product can perform: 'Load into this Rancher' and 'Push the source to GitHub' both read 'No sign-off' and neither calls the gate."
+    },
+    {
+      "id": "00-cross-screen-two-signers",
+      "status": "fail",
+      "evidence": "The comparison is enforced rather than merely recorded, in the one place a distribution goes through: distributionGate() returns the 'same-signer' state when code.principal === outcome.principal, with the sentence 'Both sign-offs on packet N carry the same person... one person answering both is one opinion recorded twice', and assertGateOpen() throws on it. Identity is now real too - currentSigner() reads the apiserver's SelfSubjectReview plus /v3/users?me=true and throws rather than recording an unattributable decision, and the live barn-review-base record I read carried principal local://user-btc48 and name 'Default Admin' on the code sign-off.",
+      "defect": "The rule can never be exercised, and the second role is never established. (1) No screen writes an outcome sign-off (see 00-cross-screen-both-signoffs-required), so two principals can never both be on record and the same-signer branch is dead. (2) signOutcome() refuses a signer who is not the principal in the brief's `## Who asked` section, but nothing writes that section - grep for 'Who asked' across pages and components returns nothing, and the live review queue row for base says so in its own words: 'nothing records who asked for this'. So even if it were called, it would accept whoever is standing there. (3) Screen 13's record still carries no signer at all: it writes lines like '- **Met**: ...' into BRIEF.md. (4) Nothing checks that the code reviewer is a developer, and REVIEW-SYSTEM.md is explicit that it will not."
+    },
+    {
+      "id": "00-cross-screen-prompt-provenance-survives",
+      "status": "fail",
+      "evidence": "The capture is wired and firing; nothing is recorded because the pod's claude is signed out; and the review side has nowhere to show it. Capture: /seed/barn-provenance.mjs is present in the live base pod and /app/.home/.claude/settings.json registers UserPromptSubmit -> 'node /seed/barn-provenance.mjs prompt', PostToolUse (Edit|Write|MultiEdit|NotebookEdit) -> 'touch', and Stop -> 'stop' beside the existing credentials hook. It works and it attributes: I sent two prompts from the workspace composer and /app/.barn/provenance.jsonl gained {\"kind\":\"prompt\",\"turn\":\"tmt5fbhv6rostd\",\"prompt\":\"w2xc probe one 57496\",\"screen\":\"workspace\",\"principal\":\"local://user-btc48\",\"who\":\"Default Admin\",\"head\":\"94f0478...\"} and the same for probe two, while prompts other screens sent without an origin stamp recorded screen '' and principal '' - exactly the honesty rule the design states. Nothing completes: the pod has no /app/.home/.claude/.credentials.json and the workspace status row reads 'The assistant is not signed in - run /login in the terminal', so the Stop hook never runs, every turn has endedAt '' and commit '', and no commit in the repository carries a Barn-Turn: trailer. `node /seed/barn-provenance.mjs report` in the pod therefore answers {\"available\":true,\"base\":\"8a704fb...\",\"files\":[{\"path\":\"BRIEF.md\",\"hunks\":[{\"from\":1,\"to\":34,\"added\":34,\"turns\":[],\"unrecorded\":34}]}]} - every line 'changed in the pod, no prompt recorded', which is the correct answer and not a useful one.",
+      "defect": "Screen 12 cannot show provenance even when it exists. provenanceFor() is called from exactly one place, assemblePacket(), which serialises it into a git note on the packet; review-change.vue does not import it and renders no per-hunk prompt column - a live text scan of /barn/review/base/working for 'prompt' and 'no prompt recorded' returned false for both. The brief half still survives correctly: screen 12's left column is headed 'The packet' and renders the base brief's problem, who has it, what changes, non-goals and its four criteria, all read from BRIEF.md. Two things have to land for the prompt half: a signed-in claude in the pod so turns end in Barn-Turn: commits, and a consumer of provenanceFor() on screen 12."
+    },
+    {
+      "id": "00-cross-screen-review-packet-accumulates",
+      "status": "fail",
+      "evidence": "The 'assembled at the push' half is now built and is only reachable from the push. assemblePacket() sweeps anything uncommitted into a commit, refuses without a git history and without BRIEF.md, allocates n = max(existing packets) + 1, writes refs/barn/packets/<n> at the tip, attaches the blame-resolved provenance index as a git note on refs/notes/barn-provenance, and creates branch barn/<extension>/<n>. Its only caller is handOverForReview(), which is the GitHub push. Nothing else calls it.",
+      "defect": "Nothing accumulates and the queue still ignores packets entirely. review-queue.vue load() calls listExtensions() and then enrich() per row with countChanges/changedFiles/readExtensionFile - a dirty working tree is still what puts you in somebody's queue. No screen reads record.packets: grep for '.packets' across pages and components returns nothing. Live proof of the contradiction: base has no refs/barn/packets/* in its pod and no review ConfigMap, nothing has ever been handed over, and /barn/review still shows 'Waiting on you 1' with a base row reading '3 files - +2 -16 - 4 acceptance criteria - WAITING 16 minutes - BRANCH main - Unsaved'. The only thing accumulating in the background is /app/.barn/provenance.jsonl, and it currently holds prompts with no completed turns."
+    },
+    {
+      "id": "00-cross-screen-collapsed-diff",
+      "status": "fail",
+      "evidence": "The mechanism landed and is correct. extensions.ts now defines BASELINE_OCI_REF (refs/barn/published/oci) and BASELINE_LOCAL_REF (refs/barn/published/local) and a BASELINE_SH that resolves oci, then local, then HEAD; workingDiff(), fileDiff(), changedFiles() and countChanges() all route through it, publishExtension() calls recordBaseline() after upsertUiPlugin() succeeds, and distributeExtension() moves the oci ref after a push lands. baselineRef() returns the sentence a screen should say ('measured against the last version that was handed over' / '...published into this Rancher' / 'nothing has been published yet, so this is measured against the last commit'). I proved the resolution order in an isolated git repository: with refs/barn/published/local set two commits back, the diff collapsed the intermediate commit and the working tree into one patch against the published point; with the ref removed, the same command measured from HEAD.",
+      "defect": "No extension in this cluster has a baseline, so no screen is actually measuring from a published version yet. base has no refs/barn/* at all; nodehealth is genuinely published (UIPlugin v0.1.0, endpoint on its own pod proxy) and still has no refs/barn/published/local, because it was published before this code shipped and nothing backfills. Live consequence on screen 12: /barn/review/base/working renders 'BRIEF.md +0 -16' measured against 5814a08 'Reviewed: 1 file' - a commit another reviewer made, not a published version. Second gap: baselineRef() is consumed only by components/BuildFailure.vue, so screens 04 and 12 use the baseline for the diff but never say which point they measured from, which is the sentence the design step asked for."
+    },
+    {
+      "id": "00-cross-screen-brief-precedes-build",
+      "status": "fail",
+      "evidence": "The hand-over is now structurally gated on the brief, which is real: assemblePacket() throws 'This change has no brief. The brief is what a reviewer compares the change against and what the outcome sign-off walks, so a change cannot be handed over without one', and distributionGate() returns the 'no-brief' state with its own sentence. The create route also still passes through the brief - screen 02's only submit is 'Draft the brief', and agree() writes BRIEF.md then pushes EDITOR_ROUTE with ?brief=1, which editor.vue now reads (handBriefOver) and hands to the assistant as the session's first instruction.",
+      "defect": "The rule is about the build, and building without a brief is still free. brief.vue still renders a 'Skip the brief' ghost button (skip() at line 991, the button at line 1199) whose only action is `$router.push({ name: EDITOR_ROUTE })` with no BRIEF.md written, and /barn/editor/:extension is directly addressable - screen 01's row menu 'Open in the workspace' goes straight there. So the brief is exactly as skippable as screen 04, which the flow map marks optional, and what the packet refusal moves is the hand-over, not stage 3 -> 4."
+    },
+    {
+      "id": "00-cross-screen-changes-requested-loads-assistant",
+      "status": "fail",
+      "evidence": "The route back is now real from both reviewers, and the transport is proven live. Screen 12's 'Request changes' requires a note, calls signCodeReview(verdict 'changes-requested', sha, note) so the refusal is on record with the signer, then askAssistant() with 'A reviewer looked at the working tree of the <ext> extension and asked for a change: <note>...', clears the deferral and routes to EDITOR_ROUTE with ?tab=terminal. That the words really arrive is visible in the pod: /app/.barn/provenance.jsonl holds a prompt record whose text is 'A reviewer looked at the working tree of the base extension and asked for a change: w1-review-lists audit probe 8817...', so a previous verifier's press landed in the pod's conversation. Screen 13 has the same shape per criterion (sendBack -> askAssistant with the criterion and the reviewer's note). editor.vue's receiving end is built too: it reads ?comment=<id>, loads the record with readComment(), records a turn, sends it with originStamp('review-comment'), and calls markCommentSent() only when delivery succeeded.",
+      "defect": "There is no comment, so the ?comment=<id> receiver is a producer-less handoff. addComment() and markCommentSent() exist in review.ts and no screen calls addComment - grep across pages and components returns nothing - so no comment record is ever created and no link carrying one is ever produced. A live text scan of /barn/review/base/working found no 'comment' and no 'send to the assistant' control, and there is no per-hunk comment affordance, which is what the caption describes. Two smaller gaps: the reviewer's sentence goes straight into the pod's pane rather than arriving staged for the author, so 'the author still approves it' is not kept; and the workspace's activity stream records nothing for a request that came in this way, because recordTurn is only on the ?comment= path."
+    },
+    {
+      "id": "00-cross-screen-connection-and-permission-state",
+      "status": "fail",
+      "evidence": "Screen 09 now exists and is the single home. /barn/settings renders 'Studio settings - Applies to everyone who uses Studio on this Rancher', with sign-off policy, 'What the assistant may do without asking' (the design's three levels, one marked 'In force' from detectPermission(), which reads the pod's own claude-session.sh out of the extension's ConfigMap), preview target, access and what is sent to the model. EditorSettingsModal.vue has been cut down to a credential prompt with a link to that page, and both it and the page write through studio-settings.ts, so exactly one code path stores the GitHub token. The strip on screen 03 is honest too: it reads assistantLogin() and rendered 'The assistant is not signed in - run /login in the terminal'.",
+      "defect": "The permission mode is not a control in either place, so nothing can be changed in one and be true in the other. The settings card carries a warning banner reading 'Not settable, and not per user... Only the pod's start-up decides', and the workspace chip is a plain SPAN reading 'Edits apply without asking'. They are also not the same reading: settings computes the level from the pod's start-up command, while the chip is a hardcoded string in AssistantPanel.vue. The connection halves differ too - the strip reports the claude session in the pod, the settings page reports the GitHub credential - so the rule's 'same state in two places' holds for neither concern."
+    },
+    {
+      "id": "00-cross-screen-existing-components-only",
+      "status": "fail",
+      "evidence": "Unchanged this wave, and the new surfaces follow the same pattern. The ten Studio pages are still built on the bespoke S-prefixed set in pkg/barn/components/ui (SBadge, SBanner, SButton, SCard, SChip, SEmpty, SField, SIcon, SLabel, SMenu, SModal, SPanel, SRow, STabs, SToolbar); the new pages/settings.vue imports SButton, SBanner, SCard, SChip, SIcon and SField from that set, and the new ImportStep.vue is a fresh wizard-chrome component whose own header says it is 'one screen's wizard chrome, not a primitive'. Screen 01 is still a hand-rolled grid: extensions.vue renders div.studio-home__table with div.studio-home__row children and its own COLUMNS array, not SortableTable. grep for \"from '@shell\" across pages returns nothing.",
+      "defect": "The rule's claim is true - nothing in the design needs a primitive the dashboard lacks - but the build does not honour it. The Studio reimplements Banner, Card, Tabbed, Button, Modal, Badge and Menu privately, and screen 01 is not the Clusters page's SortableTable."
+    },
+    {
+      "id": "00-cross-screen-failure-snapshot-rollback",
+      "status": "fail",
+      "evidence": "Screen 08 now offers a way back, which reverses the wave-1 finding that it offered none. Seeded sessionStorage['barn.publish.failure'] in my own page and opened /barn/extensions/base/build-failed: the panel rendered 'Roll back to the snapshot \"before applying the suggested fix\"' ([data-testid=\"barn-rollback\"], enabled) beside 'Undo the last change', with the target described as 'Taken 2 minutes ago. A snapshot is a point somebody chose, not necessarily a build that worked. 3 changed files since.' findWayBack() in BuildFailure.vue resolves four candidates in order - the snapshot publish-failure.ts recordWorkingBuild() takes when a publish succeeds, then the baseline ref, then the newest hand snapshot, then the last commit - and names which one it landed on, so a target always exists. I did not press it: restoring base's tree would pull the ground out from under the other verifiers on this pod.",
+      "defect": "The guarantee is still not met and the screen says so itself: 'nothing takes a snapshot automatically when a build succeeds yet, so this is the nearest point that exists rather than a guaranteed last working build.' Two reasons it lands there. recordWorkingBuild() only fires after a *successful publish*, not before the change that breaks the build, and it keeps its pointer in sessionStorage, so another tab or another person gets none of it. And the durable fallback, the baseline ref, does not exist for any extension in this cluster yet. The v-else copy quoted above is also now stale - publish-failure.ts does snapshot a successful publish - so the sentence understates what shipped while the guarantee still does not hold."
+    },
+    {
+      "id": "00-cross-screen-pr-is-the-record",
+      "status": "fail",
+      "evidence": "The product can now create the PR. extensions.ts gained createPullRequest() (POST /repos/<repo>/pulls, returning an existing open PR for the same head rather than failing on a re-push) and commentOnPullRequest(); handOverForReview() assembles the packet, pushes branch barn/<extension>/<n> instead of HEAD:refs/heads/main, opens the PR with a body naming the packet, the baseline it is collapsed against and the whole brief, and writes {ref, branch, sha, base, pr, prError, pushError} into the review record. publishExtensionToGithub() now refuses a push with no branch, so nothing can go to main by accident.",
+      "defect": "The record is written and never read, the chip cannot find what the hand-over makes, and both dialogs describe the behaviour that was removed. (1) No screen reads record.packets, so packets[n].pr is invisible. (2) Screen 12's chip calls findOpenPullRequest(extension, repo, this.branch) where branch is the pod's *current* branch, but a packet's branch is created with `git branch -f` and never checked out, so the head it searches for is never the packet's - the chip cannot find the PR the hand-off produced. (3) PublishGithubModal still renders 'This pushes straight to main in that repository. It does not open a pull request, and there is nothing here to undo it with', and PublishModal's GitHub row (read live) still says 'Not reversible from here, and not a pull request: it pushes to the repository's default branch (main) directly.' Both are now false. (4) Unverifiable end to end here: no GitHub token and no repository are configured on this Studio, so no PR could actually be created."
+    },
+    {
+      "id": "00-cross-screen-preview-is-not-published",
+      "status": "fail",
+      "evidence": "The separation itself holds and is enforced. The preview is the pod's dev server behind the apiserver service proxy (the iframe src on /barn/editor/base is /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/); publishing is a separate deliberate act through PublishModal, whose footer read 'Nothing is ticked, so nothing will be published.' base's working tree has been edited all day and nothing has been installed from it. Screen 11 says the same in words: 'Nothing in this list is live. Everything here is still running only in its author's preview.' The 'snapshotted per build' qualifier is now partly kept - publish-failure.ts recordWorkingBuild() snapshots the tree of every publish that succeeds.",
+      "defect": "'Yours alone' is still false and is a structural gap, not an oversight: there is one pod per extension at one cluster URL, every Studio user sees the same preview, and other verifiers' edits to base appeared in my session while I worked. REVIEW-SYSTEM.md names this explicitly as something it will not fix. 'Snapshotted per build' is also only true of a successful publish, not of a build, and the pointer lives in sessionStorage."
+    },
+    {
+      "id": "00-cross-screen-scope-creep-vs-brief",
+      "status": "fail",
+      "evidence": "Unchanged this wave. The Scope card on /barn/extensions/base/verification is real and did the comparison live: it read '3 files changed / Nothing this change adds mentions monitoring alerting history beyond belong hours - the words the brief used to say what it was not doing.' verification.vue extracts the non-goal terms from `## What we are deliberately not doing`, applies a stop-list, scans only the added lines of the working diff and skips BRIEF.md, and has four states (unstated, nothing-changed, clear, drifted).",
+      "defect": "There are still no resolutions. The drifted branch renders a warning banner plus a static list of term -> files (verification.vue lines 1276-1288) and nothing to press; there is no 'accept it into the brief' and no 'take it out' anywhere in the file. The flag is a note, not a decision point."
+    },
+    {
+      "id": "00-cross-screen-since-last-look",
+      "status": "fail",
+      "evidence": "The per-reviewer machinery was built this wave and is dead. review.ts defines Look, markLook(), lastLook(), deferPacket(), clearOwnDeferral(), migrateDeferral() and sinceLastLook(), keyed by a hash of the Rancher principal, and review-queue.vue calls sinceLastLook(name) per row and prefers its banner. But nothing calls markLook() - grep across pages and components returns nothing - so looks stays empty, lastPacket is always 0, behind is always false and banner is always ''. The live record confirmed it: after a code sign-off was written, barn-review-base held \"looks\": {}. The queue falls back to changesSince(gate.code, history, changes), which counts commits after the code sign-off's sha; that is per sign-off rather than per reviewer, and it needs an approval to exist first.",
+      "defect": "No 'since your last look' filter exists on screen 12 at all - grep for 'since' in review-change.vue returns nothing and a live text scan of /barn/review/base/working for 'since your last look' returned false. On screen 11 the packet-based banner can never fire because no reviewer's look is ever recorded and no packet is ever created. Wiring markLook() into review-change.vue's load is the missing line."
+    },
+    {
+      "id": "00-cross-screen-capability-parity",
+      "status": "fail",
+      "evidence": "Four of the five capabilities are intact and two improved. CLI: the workspace's Terminal tab is still the pod's exec session (xterm rendered live) and the raw output is still one click from the stream - [data-testid=\"barn-open-raw-output\"] under the last turn, and 'Open the terminal' in the empty state. Files: the Files tab lists the tree and the branch/commit history ('5814a08 Reviewed: 1 file', '8a704fb The seeded extension'), and screen 05 still renders. GitHub import: 'Import from GitHub' is still in the publish split menu and the import dialog is now a wizard. Settings: improved - a real page at /barn/settings plus a credential-only dialog, both through studio-settings.ts. Local publish: unchanged and deliberately ungated, with a comment in publishExtension() saying it must stay so. The new mandatory `branch` argument on publishExtensionToGithub() breaks no caller: its only two callers, handOverForReview() and distributeExtension(), both pass one, and no .vue calls it.",
+      "defect": "The GitHub publish lost a capability the current build had, and the dialogs in front of it now describe behaviour that is gone. (1) 'Push the source to GitHub' now runs handOverForReview() -> assemblePacket(), which throws 'This change has no brief...' for any extension without BRIEF.md. Reachable in practice, because brief.vue still offers 'Skip the brief'. Before this wave the same button pushed the source regardless. (2) assemblePacket() sweeps the whole working tree into a commit ('Uncommitted work, swept in at the hand-over', review.ts line 514-517) *before* it checks for the brief or for anything else, so a refused hand-over still moves HEAD; with no baseline ref anywhere in this cluster the baseline resolves to HEAD, and the Changes tab and screens 04 and 12 then show nothing at all for work that is still uncommitted-in-spirit. (3) PublishGithubModal ('This pushes straight to main... It does not open a pull request, and there is nothing here to undo it with') and PublishModal's GitHub row ('not a pull request: it pushes to the repository's default branch (main) directly') both still describe the removed behaviour, so the one dialog standing between a person and the push tells them the opposite of what it will do."
+    }
+  ]
+}

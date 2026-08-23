@@ -11,6 +11,7 @@ import {
   SModal, SButton, SField, SBanner
 } from './ui';
 import { readSettings } from '../extensions';
+import { distributionGate } from '../review';
 
 export default {
   name: 'PublishGithubModal',
@@ -35,12 +36,33 @@ export default {
       hasToken: true,
       loading:  true,
       pushing:  false,
+      // What the gate knows before the button is drawn. A hand-over needs neither a sign-off
+      // nor a brief; the distribution needs both, and this is the same reading.
+      gate:     null,
     };
   },
 
   computed: {
     repoInvalid() {
       return !!this.repo && !/^[\w.-]+\/[\w.-]+$/.test(this.repo);
+    },
+
+    /**
+     * Whether anybody wrote down what this change is for.
+     *
+     * Not a precondition of the hand-over: `assemblePacket()` records a missing brief on the
+     * packet and in the pull request rather than refusing, because refusing broke a capability
+     * that worked. It is a precondition of the *distribution*, which is what `distributionGate()`
+     * is answering here, so the warning is worth showing at the moment somebody asks for a
+     * review.
+     */
+    briefMissing() {
+      return this.gate?.state === 'no-brief';
+    },
+
+    /** The branch this will push. `n` is the next packet: packets are numbered, never reused. */
+    branch() {
+      return this.gate ? `barn/${ this.extension }/${ this.gate.packet + 1 }` : '';
     },
 
     canPublish() {
@@ -56,6 +78,10 @@ export default {
     this.repo = settings.repo;
     this.hasToken = settings.hasToken;
     this.loading = false;
+
+    // Separately, and after the fields are filled in: it is one exec into the pod and the
+    // repository box is worth having before it lands.
+    this.gate = await distributionGate(this.extension).catch(() => null);
   },
 
   methods: {
@@ -94,6 +120,16 @@ export default {
         <a href="#" @click.prevent="$emit('settings')">Add one in settings</a>, then come back.
       </SBanner>
 
+      <SBanner
+        v-if="briefMissing"
+        type="warning"
+        data-testid="barn-publish-github-no-brief"
+      >
+        {{ gate.reason }} The hand-over will go ahead anyway, and the pull request will say plainly
+        that no brief was written. What it costs is the outcome sign-off, which has no acceptance
+        criteria to walk and no recorded requester until somebody writes one.
+      </SBanner>
+
       <SField
         v-model="repo"
         label="GitHub repository"
@@ -107,18 +143,24 @@ export default {
       <!--
         What this actually does, said before it is done.
 
-        The design for screen 07 calls this destination a pull request, and a reader who took
-        that on trust would press this expecting a branch and a review. `publishExtensionToGithub`
-        runs `git push <remote> HEAD:refs/heads/main`: it lands on the default branch, with
-        nobody's approval, and there is no way back from here. Until that function pushes a
-        branch and opens a PR, this is the sentence that keeps the promise honest.
+        Read off the code rather than off the design. `handOverForReview()` assembles the packet,
+        calls `publishExtensionToGithub(name, repo, onProgress, packet.branch, packet.sha)` and
+        then opens the pull request; the packet's own commit is what is pushed, not HEAD, and
+        `publishExtensionToGithub()` now throws when it is given no branch at all, so there is no
+        path from this button to the default branch.
       -->
       <p
         class="publish-github__where"
         data-testid="barn-publish-github-where"
       >
-        This pushes straight to <strong>main</strong> in that repository. It does not open a pull
-        request, and there is nothing here to undo it with.
+        This hands the change over for review. It assembles the work into a packet, pushes that
+        packet to a branch of its own
+        <template v-if="branch">
+          (<strong>{{ branch }}</strong>)
+        </template>
+        in that repository, and opens a pull request against the default branch. Nothing is
+        merged and nothing is written to <strong>main</strong>, so closing the pull request and
+        deleting the branch is the way back.
       </p>
     </div>
 

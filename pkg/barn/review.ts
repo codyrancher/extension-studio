@@ -24,7 +24,7 @@ import { rancherFetch } from './api';
 import {
   EXT_NS, runInPackage, readExtensionFile, readSettings, publishExtensionToGithub,
   createPullRequest, commentOnPullRequest, githubDefaultBranch, provenanceFor,
-  BASELINE_OCI_REF, BASELINE_LOCAL_REF,
+  BASELINE_OCI_REF, BASELINE_LOCAL_REF, PublishError,
   type PublishProgress, type GithubPublishResult,
 } from './extensions';
 
@@ -91,6 +91,15 @@ export interface PacketRecord {
   /** Who pushed it. */
   by:     string;
   byName: string;
+  /**
+   * Whether a `BRIEF.md` was in the tree when the packet was assembled.
+   *
+   * Optional, and `undefined` means a packet written before this was recorded - which is a
+   * third state and not the same as `false`. A hand-over without a brief is allowed (see
+   * `assemblePacket`), so this is how a reviewer learns there is nothing to compare against
+   * instead of working it out from an empty section in the pull request.
+   */
+  brief?: boolean;
   /** `owner/name`, when it reached GitHub. */
   repo:   string;
   pr:     { number: number; url: string } | null;
@@ -264,6 +273,125 @@ export async function updateReview(
   return next;
 }
 
+// ---------------------------------------------------------------------------
+// Commit ids: one agreement, written down once.
+//
+// This product reads a commit id from two places that do not agree on its shape.
+// `changeProvenance` in extensions.ts asks git for `%h`, which is abbreviated, and both screens
+// that sign hand that straight to `signCodeReview` / `signOutcome`. `readPodPackets` below asks
+// for `%(objectname)`, which is the full forty characters, and that is what a packet's `sha`
+// is. Comparing the two with `===` says "different commit" about the same commit, so a sign-off
+// given against a packet did not cover it, `distributionGate` reported it stale or absent, and
+// the gate could never reach `open` no matter who signed what. Both halves were affected
+// identically, which is why it looked like the gate was simply broken rather than like a bug
+// about string lengths.
+//
+// The fix is at both ends, deliberately, and the two ends do different jobs:
+//
+//   `resolveCommit` normalises at WRITE time, so every id this product records from now on is
+//   the full one and future comparisons are exact.
+//
+//   `sameCommit` normalises at COMPARE time, so records already in a cluster - written with
+//   either shape, by a screen or by hand - still answer the question correctly.
+//
+// Write-time alone would leave every existing record unmatchable. Compare-time alone would work
+// and would leave the ambiguity in the data for the next reader to trip over. Doing both is not
+// belt and braces: it is a migration that needs no migration step.
+//
+// Every comparison of two commit ids in this file goes through `sameCommit`, including the ones
+// where both sides come from the same producer and `===` would do. That is on purpose. The bug
+// was not that one comparison was wrong; it was that there were five of them and no single
+// place said what "the same commit" means.
+// ---------------------------------------------------------------------------
+
+/**
+ * The shortest abbreviation this product will treat as naming a commit.
+ *
+ * Seven, which is what `git log --format=%h` gives by default and what git itself accepts on a
+ * command line. Below it, an id is short enough to match commits that are not the one meant, so
+ * it is refused rather than compared - see `sameCommit`.
+ */
+const MIN_SHA = 7;
+
+/**
+ * Do these two ids name the same commit?
+ *
+ * Compared on the shorter of the two, which is how git resolves an abbreviation, and refused
+ * outright when either side is shorter than `MIN_SHA` or is not hex.
+ *
+ * That refusal is the load-bearing half. A comparison that answers "yes" to a blank id is the
+ * failure this file just closed once already: a sign-off with no commit on it read as covering
+ * every commit, for ever, and opened a gate that should have been shut. An id too short to
+ * identify anything has to answer "no", so a record that cannot be matched reads as not
+ * matching rather than as matching everything. Wrong in the direction of a closed gate.
+ *
+ * Two different commits sharing a seven-character prefix would compare equal. That is the same
+ * risk `git checkout 1a2b3c4` carries and the same size of repository it is being taken in, and
+ * the alternative - refusing every record written before the ids were normalised - is worse.
+ */
+export function sameCommit(a: string, b: string): boolean {
+  const x = (a || '').trim().toLowerCase();
+  const y = (b || '').trim().toLowerCase();
+  const hex = /^[0-9a-f]+$/;
+
+  if (x.length < MIN_SHA || y.length < MIN_SHA || !hex.test(x) || !hex.test(y)) {
+    return false;
+  }
+
+  const n = Math.min(x.length, y.length);
+
+  return x.slice(0, n) === y.slice(0, n);
+}
+
+/**
+ * The full object id for a commit the pod knows about, or what was given.
+ *
+ * One `rev-parse` in the pod, at the moment a decision is recorded, so what goes into the record
+ * is unambiguous. `^{commit}` rather than a bare rev so a tag or a branch name resolves to the
+ * commit it points at rather than to itself.
+ *
+ * It falls back to what it was handed rather than throwing. A sign-off is a person's answer and
+ * it is not worth losing to a pod that will not answer or an id from a repository this Studio
+ * cannot reach; `sameCommit` compares an abbreviated id correctly anyway, which is exactly the
+ * case this fallback leaves behind.
+ */
+async function resolveCommit(extension: string, sha: string): Promise<string> {
+  const out = await runInPackage(
+    extension, `git rev-parse --verify -q ${ shellSingleQuote(`${ sha }^{commit}`) } 2>/dev/null`
+  ).catch(() => '');
+  const full = (out.trim().split('\n').pop() || '').trim();
+
+  return /^[0-9a-f]{40}$/.test(full) ? full : sha;
+}
+
+/**
+ * The commit an answer is about, or a refusal.
+ *
+ * A sign-off with no commit on it is worse than no sign-off at all, and this is not
+ * hypothetical: screen 12's approve() commits with `commitExtension` and signs against the last
+ * line of its output, and when there is nothing to commit that call makes no commit, leaves HEAD
+ * where it was and hands back git's "nothing to commit, working tree clean" instead of a hash.
+ * Signed anyway, the record carried an empty (or prose) `sha`, and an empty sha never compares
+ * unequal to the current commit - so the approval silently covered every commit that came after
+ * it. Refusing here puts the check in the function every sign-off goes through rather than in
+ * the one screen that was seen getting it wrong.
+ *
+ * Abbreviated ids are accepted, because `%h` is what the screens have to give. They are not
+ * *stored* abbreviated: `resolveCommit` expands them at the point of writing, and `sameCommit`
+ * compares whatever shape is already on record. See the note above those two.
+ */
+function requireSha(sha: string): string {
+  const value = (sha || '').trim();
+
+  if (!/^[0-9a-f]{7,40}$/.test(value)) {
+    throw new Error(
+      'This decision cannot be recorded, because nothing said which commit it is about. A sign-off is against the commit that was on the branch when it was given, and one with no commit on it would go on covering every change made afterwards. Commit the change first, then decide.'
+    );
+  }
+
+  return value;
+}
+
 /** Record an answer to the code question (screen 12). */
 export async function signCodeReview(
   extension: string,
@@ -271,6 +399,10 @@ export async function signCodeReview(
     verdict, sha, note = '', packet = 0,
   }: { verdict: string; sha: string; note?: string; packet?: number }
 ): Promise<Signoff> {
+  // Validated first, then expanded to the full object id, so the record does not depend on
+  // which producer the calling screen happened to read the commit from.
+  sha = await resolveCommit(extension, requireSha(sha));
+
   const signer = await currentSigner();
   const signoff: Signoff = {
     verdict, principal: signer.principal, name: signer.name, at: new Date().toISOString(), note, sha, packet,
@@ -332,6 +464,8 @@ export async function signOutcome(
     verdict, sha, note = '', packet = 0,
   }: { verdict: string; sha: string; note?: string; packet?: number }
 ): Promise<Signoff> {
+  sha = await resolveCommit(extension, requireSha(sha));
+
   const [signer, asked] = await Promise.all([currentSigner(), whoAsked(extension)]);
 
   if (asked && asked !== signer.principal) {
@@ -382,7 +516,15 @@ export interface GateState {
 export function gateFrom(record: ReviewRecord, sha: string): GateState {
   const code = record.signoffs.code || null;
   const outcome = record.signoffs.outcome || null;
-  const stale = (s: Signoff | null) => !!(s && sha && s.sha && s.sha !== sha);
+  // A sign-off that names no commit reads as stale, not as current. `requireSha` stops any new
+  // one being written, but records already in the cluster from before that check have to be
+  // read honestly rather than treated as covering whatever is on the branch today.
+  //
+  // `sameCommit` rather than `!==` because the two sides reach here in different shapes: screen
+  // 12 passes `changeProvenance`'s abbreviated `%h`, the queue passes a full object id, and the
+  // record holds whichever was written. An unknown current commit is still not staleness - it is
+  // a question this cannot answer - so `sha` being empty leaves every sign-off alone.
+  const stale = (s: Signoff | null) => !!(s && sha && !sameCommit(s.sha, sha));
   const codeStale = stale(code);
   const outcomeStale = stale(outcome);
 
@@ -422,9 +564,11 @@ export async function gateState(extension: string, sha: string): Promise<GateSta
 // pull request; leaving it - the distribution - is refused until two different principals have
 // signed the two different questions against that packet.
 //
-// The two halves need different checks, and that difference is the point. Pushing requires a
-// brief and something to hand over. It does not require a sign-off, because pushing is how you
-// *ask* for one.
+// The two halves need different checks, and that difference is the point. Pushing requires
+// something to hand over and somebody the cluster can name, and nothing else: not a sign-off,
+// because pushing is how you *ask* for one, and not a brief, because a brief-less change that
+// cannot even be shown to a reviewer is a change nobody can help with. The brief is required
+// at the other half, where it decides whether other people get the extension.
 // ---------------------------------------------------------------------------
 
 /** Where a packet lives in the pod. `<n>` is the packet number. */
@@ -461,6 +605,15 @@ interface PodPackets {
   head:    string;
   base:    string;
   brief:   boolean;
+  /**
+   * True when the working tree holds something HEAD does not.
+   *
+   * Read the same way `COUNT_SH` in extensions.ts reads it - the union of "tracked paths that
+   * differ" and "files git has never seen" - rather than with `git status`, which takes
+   * `index.lock`. This reading is on the gate's path and two of them racing on one pod would
+   * leave one silently doing nothing.
+   */
+  dirty:   boolean;
   /** packet number -> the commit it is at. */
   packets: Record<number, string>;
 }
@@ -473,6 +626,10 @@ async function readPodPackets(extension: string): Promise<PodPackets> {
       `echo "BASE=$(git rev-parse --verify -q ${ BASELINE_OCI_REF }`,
       `|| git rev-parse --verify -q ${ BASELINE_LOCAL_REF }`,
       '|| git rev-parse --verify -q HEAD)"',
+    ].join(' '),
+    [
+      'echo "DIRTY=$({ git diff --name-only --no-renames HEAD 2>/dev/null',
+      '; git ls-files -o --exclude-standard 2>/dev/null ; } | head -1)"',
     ].join(' '),
     `git for-each-ref --format='PACKET=%(refname:strip=3) %(objectname)' ${ PACKET_REFS }/ 2>/dev/null`,
   ].join(' ; ')).catch(() => '');
@@ -491,6 +648,7 @@ async function readPodPackets(extension: string): Promise<PodPackets> {
     head:  (/HEAD=(\S+)/.exec(out)?.[1] || '').trim(),
     base:  (/BASE=(\S+)/.exec(out)?.[1] || '').trim(),
     brief: out.includes('BRIEF=yes'),
+    dirty: !!(/DIRTY=(\S+)/.exec(out)?.[1] || '').trim(),
     packets,
   };
 }
@@ -502,36 +660,71 @@ async function readPodPackets(extension: string): Promise<PodPackets> {
  * only assembled at the push. What accumulates is the provenance log and the commits; what is
  * assembled here is the ref, the note and the branch.
  *
- * It refuses without a brief, which is how rule 14 becomes structural rather than a button
- * somebody remembered to press: a change with nothing to compare it against cannot be handed
- * to anybody, so the requirement lives at the boundary and not on the brief screen.
+ * READ EVERYTHING, REFUSE, AND ONLY THEN WRITE. The order is the point, and getting it wrong
+ * cost real work: this used to sweep the whole working tree into a commit as its first act and
+ * check the preconditions afterwards, so a hand-over that was going to be refused anyway had
+ * already moved HEAD by the time it said no. With no baseline ref in the pod the baseline
+ * resolves to HEAD, so the Changes tab and screens 04 and 12 then showed nothing at all for
+ * work that was still uncommitted a second earlier. Nothing below the "past this line" comment
+ * may move above it.
+ *
+ * A MISSING BRIEF NO LONGER REFUSES, and that is a deliberate reversal. The refusal made a
+ * capability that used to work stop working - "Push the source to GitHub" pushed brief or no
+ * brief, the brief screen still offers "Skip the brief", and an extension imported from GitHub
+ * has never had a BRIEF.md - while buying nothing, because pushing is how you *ask* for a
+ * review and refusing to let somebody ask is not a safety property. Rule 14 stays structural
+ * where it is load bearing: `distributionGate` refuses `no-brief` at the distribution boundary,
+ * which is the one hard gate rule 1 names. What a brief-less hand-over does instead is say so -
+ * in the packet record, in the provenance note and in the pull request body - so the reviewer
+ * finds out from the packet rather than from its absence.
  */
 export async function assemblePacket(extension: string): Promise<PacketRecord> {
-  // Anything still uncommitted goes in first. Usually there is nothing: the assistant's Stop
-  // hook commits each turn as it ends. What is left is what a person typed in the Terminal
-  // tab, and a packet that quietly left it out would be a hand-over of something other than
-  // what is in the pod.
-  await runInPackage(extension, [
-    'git add -A',
-    `git diff --cached --quiet || git -c user.email=barn@rancher.local -c user.name=barn commit -q -m ${ shellSingleQuote('Uncommitted work, swept in at the hand-over') }`,
-  ].join(' ; ')).catch(() => '');
+  // Every precondition, up front, before a single byte is written to the pod. `currentSigner`
+  // is in here rather than beside the write because a hand-over nobody can be attributed to is
+  // refused, and finding that out after the sweep is the same bug in a smaller coat.
+  const [before, signer] = await Promise.all([readPodPackets(extension), currentSigner()]);
 
-  const [state, signer] = await Promise.all([readPodPackets(extension), currentSigner()]);
+  if (!before.head && !before.dirty) {
+    throw new Error(`${ extension } has no git history in its pod, so there is nothing to hand over`);
+  }
+
+  const numbersBefore = Object.keys(before.packets).map(Number);
+  const latestBefore = numbersBefore.length ? Math.max(...numbersBefore) : 0;
+
+  // Nothing uncommitted and the newest packet already at the tip: there is genuinely nothing
+  // new, and the sweep below would have found nothing to sweep. Refuse here, where refusing is
+  // free, rather than after HEAD has moved.
+  if (!before.dirty && latestBefore && sameCommit(before.packets[latestBefore], before.head)) {
+    throw new Error(`Packet ${ latestBefore } is already at this commit, so there is nothing new to hand over.`);
+  }
+
+  // ---- past this line the pod is written to ----
+
+  let state = before;
+
+  if (before.dirty) {
+    // Anything still uncommitted goes in. Usually there is nothing: the assistant's Stop hook
+    // commits each turn as it ends. What is left is what a person typed in the Terminal tab,
+    // and a packet that quietly left it out would be a hand-over of something other than what
+    // is in the pod.
+    await runInPackage(extension, [
+      'git add -A',
+      `git diff --cached --quiet || git -c user.email=barn@rancher.local -c user.name=barn commit -q -m ${ shellSingleQuote('Uncommitted work, swept in at the hand-over') }`,
+    ].join(' ; ')).catch(() => '');
+
+    // Re-read rather than assume: the sweep moved HEAD, and it may also have created the very
+    // first commit in a pod that had none.
+    state = await readPodPackets(extension);
+  }
 
   if (!state.head) {
     throw new Error(`${ extension } has no git history in its pod, so there is nothing to hand over`);
   }
 
-  if (!state.brief) {
-    throw new Error(
-      'This change has no brief. The brief is what a reviewer compares the change against and what the outcome sign-off walks, so a change cannot be handed over without one. Write it on the brief screen first.'
-    );
-  }
-
   const numbers = Object.keys(state.packets).map(Number);
   const latest = numbers.length ? Math.max(...numbers) : 0;
 
-  if (latest && state.packets[latest] === state.head) {
+  if (latest && sameCommit(state.packets[latest], state.head)) {
     throw new Error(`Packet ${ latest } is already at this commit, so there is nothing new to hand over.`);
   }
 
@@ -550,6 +743,10 @@ export async function assemblePacket(extension: string): Promise<PacketRecord> {
     sha:    state.head,
     at:     new Date().toISOString(),
     by:     signer.principal,
+    // Whether anybody wrote down what this change is for. Recorded rather than enforced: the
+    // hand-over no longer refuses without one, so the fact has to travel with the packet or
+    // the reviewer has no way to know it was never written.
+    brief:  state.brief,
     // Recorded even when it is empty, because "we looked and there was nothing" and "we never
     // looked" are different facts and the screen says which.
     attribution,
@@ -577,6 +774,7 @@ export async function assemblePacket(extension: string): Promise<PacketRecord> {
     at:      new Date().toISOString(),
     by:      signer.principal,
     byName:  signer.name,
+    brief:     state.brief,
     repo:      '',
     pr:        null,
     prError:   '',
@@ -600,6 +798,14 @@ function shellSingleQuote(value: string): string {
  * The push and the PR are separately reported. A packet whose branch is up and whose PR could
  * not be opened is a real state - a token without pull-request scope produces exactly it - and
  * it is recorded as itself rather than being rolled back or hidden.
+ *
+ * What is checked before the packet exists, and why: assembling one writes to the pod (a ref, a
+ * note, a branch, and the sweep of anything uncommitted). A hand-over with no token or a
+ * repository that is not `owner/name` cannot possibly reach GitHub, so those two are read here,
+ * before `assemblePacket`, rather than being discovered inside the push with a packet already
+ * on disk. Anything that could plausibly succeed - a bad token, a repository that does not
+ * exist, a token without pull-request scope - is still found by the push and recorded as
+ * `pushError` on the packet it belongs to.
  */
 export async function handOverForReview(
   extension: string, repo: string, onProgress?: PublishProgress
@@ -608,6 +814,20 @@ export async function handOverForReview(
   const report = (stage: number) => onProgress?.(stage, HANDOVER_STAGES[stage - 1], total);
 
   report(1);
+
+  const settings = await readSettings(extension).catch(() => ({ hasToken: false, repo: '' }));
+
+  if (!settings.hasToken) {
+    throw new PublishError(
+      'No GitHub token is configured, so this change cannot be handed over. Add one in the editor settings.',
+      HANDOVER_STAGES[0],
+      ''
+    );
+  }
+
+  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new PublishError(`"${ repo }" is not owner/name`, HANDOVER_STAGES[0], '');
+  }
 
   const packet = await assemblePacket(extension);
 
@@ -641,7 +861,17 @@ export async function handOverForReview(
     '',
     '## The brief',
     '',
-    brief.trim() || '_There is no brief in the tree, which should not have been possible._',
+    // Said plainly rather than left as an empty heading. A hand-over without a brief is
+    // allowed, so the reviewer has to be told they are reading a change with nothing written
+    // down about what it is for, and told what that costs them at the outcome sign-off.
+    brief.trim() || [
+      'There is no `BRIEF.md` in this extension, so nobody wrote down what this change is for.',
+      '',
+      'The hand-over went ahead anyway - a brief is not required to *ask* for a review - but two',
+      'things follow from it. The outcome sign-off has no acceptance criteria to walk, and no',
+      'requester is recorded, so it will be given by whoever is standing there rather than by the',
+      'person who asked. Distribution is refused until a brief exists.',
+    ].join('\n'),
   ].join('\n');
 
   const record: PacketRecord = { ...packet, repo };
@@ -713,7 +943,12 @@ function covers(signoff: Signoff | null, packet: number, sha: string): boolean {
 
   // A sign-off given before packets existed carries only a commit. It counts when it is the
   // packet's own commit, which is the same question asked with less information.
-  return !!signoff.sha && signoff.sha === sha;
+  //
+  // This is the comparison the gate turned on and the one that was wrong: the sign-off's sha
+  // came from `%h` and the packet's from `%(objectname)`, so it answered "no" about a sign-off
+  // given against that exact packet and the gate could never open. `sameCommit` is the
+  // agreement between the two producers.
+  return sameCommit(signoff.sha, sha);
 }
 
 function who(signoff: Signoff | null): string {
@@ -744,7 +979,15 @@ export async function distributionGate(extension: string): Promise<DistributionG
   });
 
   if (!state.brief) {
-    return answer('no-brief', 'This change has no brief, so there is nothing to compare it against and nothing to hand over.');
+    // Still a refusal, and now the only one the brief makes. The hand-over stopped requiring a
+    // brief because refusing it broke a capability that worked; the distribution keeps
+    // requiring one because this is the boundary rule 1 names, and past it the extension is
+    // installable by people who cannot ask what it was for. The sentence has to say both, or a
+    // reader takes "no brief" to mean the change is stuck where it is.
+    return answer(
+      'no-brief',
+      'This change has no brief, so there is nothing written down for the outcome sign-off to be given against. It can still be handed over for review; it cannot be distributed until somebody writes one.'
+    );
   }
 
   if (!packet) {
@@ -754,7 +997,7 @@ export async function distributionGate(extension: string): Promise<DistributionG
     );
   }
 
-  if (state.head && sha && state.head !== sha) {
+  if (state.head && sha && !sameCommit(state.head, sha)) {
     return answer(
       'stale-packet',
       `The extension has moved on since packet ${ packet } was handed over, so any sign-off on record is about a different change. Hand the new work over as a new packet.`

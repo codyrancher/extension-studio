@@ -1,0 +1,114 @@
+{
+  "screen": "w2-queue-home",
+  "note": "Wave 2 re-verification of the 18 open items on 11-queue (7), 02-new (7) and 01-home (4), driven against the installed bundle (uiplugin endpoint barn-0.5.22 ?t=1787462337476), never a dev server. To exercise the queue's review states I created the ConfigMap barn-review-base with an approved code sign-off attributed to local://user-btc48 (Default Admin) against base's then-HEAD 8a704fb, rather than approving through screen 12, because screen 12's Approve commits the extension and base's pod is shared with other verifiers. I deleted that ConfigMap when I finished; `kubectl -n barn get cm | grep review` is now empty, so the next agent sees first-write behaviour. Two Blocked/requester states were produced by temporarily moving and then temporarily editing barn-demo-extension's BRIEF.md; that tree is restored (md5 52194a2978207c44473b2db6cf1940a1, `git status --porcelain` empty). While I worked, another verifier overwrote barn-review-base's code sign-off with a 'changes-requested' verdict at 06:03:36 and committed base's tree past 8a704fb; the observations below were taken before that.",
+  "verdicts": [
+    {
+      "id": "11-queue-open-brief",
+      "status": "pass",
+      "evidence": "Produced a blocked row rather than waiting for one: moved barn-demo-extension's BRIEF.md aside so readExtensionFile returned '' for it, reloaded /barn/review, and the demo card rendered 'No brief - nobody wrote down what this is for.' with a warning Blocked chip (title 'There is no brief, so there is nothing to review this against') and, in place of Review, a button reading 'Open the brief'. Clicked it: the URL became https://magic-closet-rancher/dashboard/barn/extensions/demo/brief and .brief__columns rendered. The other row on screen at the time (nodehealth, brief intact) still read 'Review', so the swap is driven by the reading and not by the screen. BRIEF.md restored afterwards.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-waiting",
+      "status": "pass",
+      "evidence": "Every card now carries a WAITING column: [data-testid=queue-waiting] read '1 day' for base, '8 hours' for nodehealth and demo. Cross-checked against the pods: base's last commit was 2026-08-21T22:37:47Z (31.5 hours before the reading, so ago() rounds to 1 day), nodehealth's 2026-08-22T22:25:12Z and demo's 2026-08-22T22:24:41Z (both 7.7 hours, rounding to 8). It is a real timestamp (extensionDetail's `git log -1 --format=%cI`), not a placeholder. The requester half is read rather than invented: [data-testid=queue-asked] said 'nothing records who asked for this' on all three rows, and when I appended '## Who asked\\nlocal://user-btc48' to demo's BRIEF.md the same cell changed to 'asked for by local://user-btc48' on demo's row only, the other two unchanged. Restored the brief. Deviation from the design worth knowing: the requester is printed as the raw principal id, not a display name.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-your-part",
+      "status": "pass",
+      "evidence": "There is no 'Your part' column - the column labels are WAITING, RISK, BRANCH - but each row does say which of the three parts is being asked, in the action cell, and I drove all three values. Blocked: with demo's brief removed the cell held a warning chip 'Blocked' plus the button 'Open the brief'. Outcome sign-off: with an approved code sign-off in barn-review-base the cell held an info chip 'Outcome sign-off' (title 'The code is approved. What is left is whether it did the job.') plus a primary 'Sign off'. Code review: the ordinary case carries no chip at all, only the 'Review' button. So the pill's value always matches the action button, which is what howToVerify asks, but the ordinary row states its part through the button rather than a chip. The reason is written at review-queue.vue:18-21 - a constant repeated on every row is not information - so anyone acting on this should add the third chip only if they want the readout uniform, not because the part is unknowable.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-sign-off",
+      "status": "pass",
+      "evidence": "With barn-review-base holding an approved code sign-off from local://user-btc48 against base's HEAD, base's action button changed from secondary 'Review' to primary 'Sign off' (data-testid queue-review-base) beside an 'Outcome sign-off' chip. Clicked it and landed on https://magic-closet-rancher/dashboard/barn/extensions/base/verification with .verify__body present - screen 13, not screen 12. The selection is real: gateFrom returns 'awaiting-outcome' only when the code question is approved and the outcome one is not, and nodehealth (no record) kept 'Review' throughout. When another verifier later flipped the same record to 'changes-requested', base's button reverted to 'Review', which is the same logic running the other way.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-since-banner",
+      "status": "pass",
+      "evidence": "base's card was topped with a tinted banner ([data-testid=queue-since], undo icon) reading '1 uncommitted file since Default Admin approved this on 2026-08-22.' It is counted, not claimed: the sign-off named commit 8a704fb, changesSince located that sha in the pod's git log and counted the commits above it (none) plus the uncommitted files (one, BRIEF.md), and the name and date came out of the record I wrote. No other row carried a banner, and the banner disappeared when the record was flipped to changes-requested. One thing the next person should know: the packet-based sentence from review.ts's sinceLastLook() can never fire today. It needs a Look with packet > 0, and the only writers of a Look are markLook() and deferPacket(), neither of which is called from any page (grep -rn 'markLook|deferPacket' over pkg/barn hits only review.ts's own definitions). So row.since always falls through to the code-sign-off count, which is the half that works.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-since-filter",
+      "status": "not-implemented",
+      "evidence": "With the re-review banner actually on screen (see 11-queue-since-banner) there is no link in it. The banner's DOM is an SIcon, the sentence span, and a .queue__since-note span whose text is 'The review screen shows the whole change; it cannot yet be scoped to only what has landed since.' - the product states the gap rather than drawing a control for it. `grep -rin 'Show only what changed' pkg/barn` is empty, and open(row) still pushes REVIEW_CHANGE_ROUTE with params { extension, change: 'working' } and no scope, so there is nothing for a link to pass.",
+      "defect": "Opening a change scoped to 'since my last look' is not implemented anywhere: the queue's navigation carries no scope parameter and review-change.vue has no such scope to receive. Its counterpart chip on screen 12 (38:1249) would be the other half of the same work."
+    },
+    {
+      "id": "11-queue-tab-waiting-on-others",
+      "status": "pass",
+      "evidence": "The tab is back and its predicate can be true, which I established both ways. Reading review.ts: waitingOnOthers filters rows where `mine` (one of the two sign-offs carries your principal with verdict approved) and `theirs` (no sign-off from a different principal is approved), so one approval from you and none from anybody else is a satisfiable state. Driving it: with no review record the tab read 'Waiting on others 0'; after writing an approved code sign-off for local://user-btc48 it read 1, the selected state moved to it on click (s-tab--selected, aria-selected=true), and the list content changed to base's card alone while 'Waiting on you' dropped from 2 to 1 - so the row moves between tabs rather than appearing in both. The empty state states the truth condition: 'A change appears here once you have approved one of its two questions and nobody else has answered the other.' I also blocked /v3/users?me=true and the SelfSubjectReview POST with page.route to make currentSigner throw, and the empty state changed to 'Rancher would not say who you are, so this list cannot tell your approvals apart from anybody else's.', which is the second half of what was asked for.",
+      "defect": null
+    },
+    {
+      "id": "02-new-target",
+      "status": "pass",
+      "evidence": "[data-testid=new-ext-target] is a real readout, not a placeholder: it read 'Build and preview against / local - v1.36.1+k3s1', and the same page's fetches returned displayName 'local' and gitVersion 'v1.36.1+k3s1' from /v1/management.cattle.io.clusters/local, version 'v1.36.1+k3s1' from /v3/clusters/local, and kubeletVersion 'v1.36.1+k3s1' from /v1/nodes - three independent readings agreeing. It is not a picker and does not pretend to be one: the element is a static div (new-ext__box--static), clicking it opened nothing (0 poppers/listboxes, focus fell back to .main-layout), there is no <select> on the page, and the hint underneath says 'Not a choice: every extension pod this Studio creates lives in this cluster, so there is nowhere else to point it.' That is the honest reading of a design note that itself calls the interactivity inferred, and this Rancher has exactly one cluster, so a picker would have had one entry.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-extensions",
+      "status": "pass",
+      "evidence": "This has changed since the last wave. On /barn/extensions/new the rail's 'Extension Studio' entry now has className 'option active-menu-link' and computed styles background rgb(2, 89, 55) with color rgb(255, 255, 255) - identical to its treatment on /barn/extensions, where it is also router-link-exact-active - while every sibling option on the same screen (Cluster Management, Continuous Delivery, Extensions) computes to background rgba(0, 0, 0, 0) with color rgb(0, 134, 87). So the section highlight persists into the create flow, which is what the frame promises.",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome",
+      "status": "fail",
+      "evidence": "Drove the field: typed 'w2-queue-home: on-call cannot see whether a node degraded slowly or spiked.' into .new-ext__box-input, and the bound value read back correctly beside the prompt's. No request of any kind fired while typing (recorded every non-asset request for 3s: none), so nothing in the Studio reads the two fields against each other. Screen 10 still says so in as many words: base's brief screen carries 'A request often names a solution rather than the problem behind it, and this Studio cannot tell you which this one is: nothing here has read it.' The challenge is delegated, not performed - extension-placement.ts:353 appends an instruction to the generated CLAUDE.md asking the pod's assistant to say so - and I did not observe that instruction firing.",
+      "defect": "Nothing in the Studio compares the description against the outcome; no prompt is sent on submit, and screen 10 confirms nothing has read either field. The challenge exists only as a line in the generated CLAUDE.md for the pod's assistant to obey. I could not re-verify the collection half (that the outcome reaches BRIEF.md's '## The problem') by driving it, because this wave's scope forbids creating extensions; extension-placement.ts:289 is the code path and the previous wave observed it working."
+    },
+    {
+      "id": "02-new-header-apps",
+      "status": "not-implemented",
+      "evidence": "Unchanged. Enumerated every button, anchor and role=button inside <header> on /barn/extensions/new: the hamburger (data-testid=top-level-menu), the rail's own links, the notifications bell (data-testid=notifications-center) and the user menu (data-testid=nav_header_showUserMenu). No grid or app-collection control. The header's full icon inventory is menu-icon, top-menu-icon, cluster-local-logo, pin, the eight rail group-icons, side-menu-logo-img and icon-notify-bell.",
+      "defect": "The design's header grid icon does not exist in this Rancher's chrome, and barn does not render the header at all, so it cannot add one from the extension."
+    },
+    {
+      "id": "02-new-header-more",
+      "status": "not-implemented",
+      "evidence": "Unchanged. Same enumeration as 02-new-header-apps on the create route: no kebab, ellipsis or overflow control anywhere in <header>. The only two controls outside the rail are the notifications bell and the user menu.",
+      "defect": "The design's header kebab is absent from the running product; it is Rancher shell chrome, not barn code."
+    },
+    {
+      "id": "02-new-nav-book",
+      "status": "not-implemented",
+      "evidence": "Unchanged. Opened the rail on the create route and read every entry with its icon class: Home (top-menu-icon), local (cluster-local-logo + pin), Cluster Management (icon-cluster-management), Continuous Delivery (icon-fleet), Extension Studio (icon-extension), Virtualization Management (icon-harvester), Base (icon-gear), Users & Authentication (icon-user), Extensions (icon-extension), Global Settings (icon-globe), About (no icon). No book or docs icon, and no entry with an external href.",
+      "defect": "There is no docs/catalog entry in this Rancher's top-level menu; Apps and Charts live inside a cluster explorer, not the rail."
+    },
+    {
+      "id": "02-new-header-logo",
+      "status": "fail",
+      "evidence": "Unchanged. Enumerated every img and svg in <header> with whether it has an ancestor anchor: the Rancher logo images (src .../rancher-logo.db10c962.svg, one bare and one with class side-menu-logo-img) both report closest('a') === null. The only element in the header with a wrapping anchor is svg.top-menu-icon, which is the rail's separate Home entry.",
+      "defect": "The header logo is not a link. It is Rancher shell chrome rather than barn code, so fixing it means wrapping Rancher's own header logo in a router-link to /dashboard/home. Home is already reachable from the rail's Home entry (href /dashboard/home)."
+    },
+    {
+      "id": "01-home-header-apps",
+      "status": "not-implemented",
+      "evidence": "Unchanged. On /barn/extensions the header's complete interactive inventory is the hamburger (data-testid=top-level-menu), the rail's own links, data-testid=notifications-center and data-testid=nav_header_showUserMenu. No grid or app-switcher control, and no icon class matching grid/apps/dots anywhere in the header.",
+      "defect": "The only product switcher in this Rancher is the hamburger's slide-out Application Bar, which is a different control (covered by 01-home-nav-menu). The design's header grid icon does not exist and barn does not render the header."
+    },
+    {
+      "id": "01-home-header-more",
+      "status": "not-implemented",
+      "evidence": "Unchanged. Same header enumeration on /barn/extensions: no kebab, ellipsis or overflow control. The header's icon list is menu-icon, top-menu-icon, cluster-local-logo, pin, eight rail group-icons, side-menu-logo-img and icon-notify-bell, and nothing else.",
+      "defect": "The design's header kebab is absent from the running product."
+    },
+    {
+      "id": "01-home-nav-book",
+      "status": "not-implemented",
+      "evidence": "Unchanged. Opened the rail on /barn/extensions and read all eleven entries with their icon classes and hrefs (Home /dashboard/home, local, Cluster Management, Continuous Delivery, Extension Studio /dashboard/barn/extensions, Virtualization Management, Base, Users & Authentication, Extensions /dashboard/c/local/uiplugins, Global Settings, About /dashboard/about). No book or docs icon, and no external link.",
+      "defect": "There is no docs/catalog entry in this Rancher's top-level menu."
+    },
+    {
+      "id": "01-home-header-logo",
+      "status": "fail",
+      "evidence": "Unchanged. Located the logo on /barn/extensions: IMG.side-menu-logo-img (src https://releases.rancher.com/dashboard/latest/img/rancher-logo.db10c962.svg) plus a second bare IMG with the same src; both report closest('a') === null. Dispatched a real click on it and waited 4s: the URL stayed https://magic-closet-rancher/dashboard/barn/extensions.",
+      "defect": "Clicking the header logo does nothing because it has no wrapping anchor. It is Rancher shell chrome, not barn code, so the fix is in Rancher's own header. The Home destination is already reachable from the rail's Home entry."
+    }
+  ]
+}

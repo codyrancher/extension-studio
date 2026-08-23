@@ -1,0 +1,179 @@
+{
+  "screen": "12-change + 04-review",
+  "verdicts": [
+    {
+      "id": "12-change-signoff-status",
+      "status": "pass",
+      "evidence": "The decision bar now draws two gates and both are real. Read [data-testid=rc-gate-code] / rc-gate-outcome on /barn/review/base/working: with no record they were 'Code review - not signed off' (data-done=no) and 'Outcome sign-off - not signed off - 2 of 4 criteria met' (data-done=no), the outcome summary counted off the same criteria list. I then clicked Approve the code: the pod gained commit 94f0478 ('Reviewed: 3 files'), ConfigMap barn-review-base appeared with signoffs.code = {verdict: approved, principal: local://user-btc48, name: 'Default Admin', at: 2026-08-23T06:25:04Z, sha: '94f0478'}, the code gate flipped to data-done=yes 'Default Admin, just now' and the outcome gate stayed data-done=no - exactly the promised one-of-two state. After a later commit (2abd586) moved HEAD past 94f0478 the same gate read 'Default Admin approved an earlier commit, so it no longer covers this one' with data-done=no, so the sign-off is compared against the sha it was given for. Request changes writes the other verdict: sending a note recorded signoffs.code = {verdict: 'changes-requested', name: 'Default Admin', sha: '8a704fb', note: '<my probe text>'} and the gate read 'changes requested by Default Admin 4 minutes ago' with the button relabelled 'Request changes (1 open)'. The design's literal owner labels ('you, now' / 'Ops Enablement, after') are not used - the outcome row names no owner, only the screen that takes it (in the section tooltip) - but the two-part gate is modelled, persisted and named, which is what the recorded defect said was missing.",
+      "defect": null
+    },
+    {
+      "id": "12-change-purpose-card",
+      "status": "fail",
+      "evidence": "The purpose half renders: 'What this is for' opens the packet with 'Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.', taken from BRIEF.md's first ## section. The provenance half still does not. In place of the design's 'Agreed with Ops Enablement on 18 Aug...' line the card prints 'Written under \"The problem\" in this extension's BRIEF.md. Nothing records who agreed it, when, or which ticket it came from - the brief has no field for any of that, so this screen does not invent one.' Confirmed against the live BRIEF.md, which has no such field.",
+      "defect": "Unchanged from the previous wave: no agreement provenance is recorded anywhere, so the second half of the promise cannot render. The screen says so honestly instead of faking it, which is right under the house rule, but the promise is still unmet. Closing it needs a data source (a provenance field written when a brief is agreed on screen 10, or a ticket reference on the extension), not more UI. If that data will never exist, retire the claim from features.json rather than leaving it open."
+    },
+    {
+      "id": "12-change-pr-link",
+      "status": "blocked",
+      "evidence": "The chip is now a real reading rather than a drawn number, but the environment cannot produce the state the promise is about. On base the chip renders 'No GitHub token' with class s-chip--clickable and title 'No GitHub token is configured, so nothing can be asked. Opens the editor settings.'; clicking it opened the Connect GitHub modal, which states 'No GitHub token is stored'. checkPullRequest() stops at the token check, so no PR lookup is ever made and there is no PR number to click through to. Verifying the promised effect (the chip opens the pull request in a new tab) needs a GitHub token and a repository configured for this extension, neither of which exists here and neither of which I can create.",
+      "defect": null
+    },
+    {
+      "id": "12-change-header-actions",
+      "status": "fail",
+      "evidence": "Enumerated every button in Rancher's <header> while on /barn/review/base/working: exactly three - 'Cluster menu item local', 'Open notification center', 'Open user menu'. The icon list is the nav group icons plus icon-notify-bell. There is no three-dot overflow and no app-collection grid. Same result on screen 04's route.",
+      "defect": "Two of the three header affordances the design draws do not exist on a Studio route. Only notifications is present. Rancher's kebab lives in the cluster-explorer header and this build's header has no app-collection grid at all, so pkg/barn cannot turn either on - it would have to inject its own controls into Rancher's header. Same finding as 04-review-header-more / 04-review-header-apps."
+    },
+    {
+      "id": "12-change-hunk-provenance",
+      "status": "not-implemented",
+      "evidence": "The capture layer now exists but the screen does not use it. extensions.ts:2593 exports provenanceFor() with HunkProvenance/TurnAttribution types that resolve hunks to turns by blame and report unattributed lines as 'unrecorded' rather than guessing a nearest turn - the honest behaviour the wave aimed at. Its only caller is review.ts:545 (assemblePacket); pages/review-change.vue does not import it. On the live screen the diff pane renders 35 rows with no provenance strip: /Prompt \\d+ of \\d+/ does not match the page, and grep over pkg/barn (excluding node_modules) for 'Prompt N of', 'See the conversation' and 'unrecorded' finds nothing in any page. So screen 12 shows neither an attribution nor the honest 'changed in the pod, no prompt recorded' - it shows nothing at all.",
+      "defect": "provenanceFor() is built and correct in principle but unwired to screen 12. The remaining work is display: call it from review-change.vue and render a per-hunk strip that shows the turns behind a hunk and the unrecorded-line count. Note the pod is logged out of claude, so every hunk would currently come back unrecorded, which is the state the strip has to render legibly."
+    },
+    {
+      "id": "12-change-file-scope",
+      "status": "not-implemented",
+      "evidence": "The chip renders as <span class=\"s-chip s-chip--subtle\">Reviewing all 1 file</span> - no s-chip--clickable, no chevron, no handler. Clicking it (force) changed nothing: the packet panel's text length was 1124 before and 1124 after, and no menu or popover opened. The file list below it is grouped by attention but there is no control that narrows what the review covers; the diff pane always shows the single file selected in the list.",
+      "defect": "The chip is a read-only count. No scope model exists: nothing filters the review to a subset of the change's files."
+    },
+    {
+      "id": "12-change-hide-generated",
+      "status": "not-implemented",
+      "evidence": "No such chip on the page (document.body.innerText does not contain 'Hide generated'), and grep -rl 'Hide generated' over pkg/barn excluding node_modules returns nothing. The generated/config/attention ranking used by the file list (the GENERATED table in review-change.vue) classifies whole files, not lines, so there is still no notion of a generated line for a toggle to fold away.",
+      "defect": "No line-level notion of generated content, and no toggle. The file-level ranking is the closest thing that exists and it cannot answer this question."
+    },
+    {
+      "id": "12-change-since-last-look",
+      "status": "not-implemented",
+      "evidence": "'Since my last look' does not appear on the page and grep -rl over pkg/barn finds it nowhere. review.ts does now have the state this would need - markLook()/lastLook()/sinceLastLook() at lines 988-1133 - but its only consumer is pages/review-queue.vue:386. review-change.vue imports nothing from that group, so nothing records that this reviewer opened this change and nothing narrows the diff.",
+      "defect": "The per-reviewer 'look' record exists in review.ts and is already used by the queue, but screen 12 neither marks a look nor offers the narrowing chip. This is now a wiring job on this screen rather than a missing model."
+    },
+    {
+      "id": "12-change-write-comment",
+      "status": "not-implemented",
+      "evidence": "Probed the rendered diff: 35 line rows, 0 of them clickable or role=button, 0 buttons and 0 textareas inside .rc__code. Hovering a line offers nothing. The only comment box on the screen is the change-level 'What needs to change?' modal behind Request changes, which is not anchored to a line. review.ts exports a ReviewComment model with a hunk field and addComment() (lines 132-146, 1181), but review-change.vue imports neither, and after I sent a Request-changes note the ConfigMap's \"comments\" array was still [] - the text went into signoffs.code.note instead.",
+      "defect": "No per-line comment affordance and no composer. The persistence model (ReviewComment, addComment, keyed to file + hunk) is already written in review.ts and unused by this screen, so the missing half is the diff-line UI and the call into it."
+    },
+    {
+      "id": "12-change-comment-thread",
+      "status": "not-implemented",
+      "evidence": "Nothing renders under any hunk: no thread, no avatar, no 'you . just now . on line 43' byline. Confirmed there is no store behind one either - after my Request-changes probe, barn-review-base contained \"comments\": [] while the text sat in signoffs.code.note. review-change.vue does not import addComment or ReviewComment from review.ts.",
+      "defect": "No comment thread is rendered or persisted per diff line, even though review.ts models one."
+    },
+    {
+      "id": "12-change-send-to-assistant",
+      "status": "not-implemented",
+      "evidence": "The design's control - a primary 'Send to the assistant' button on an inline thread - is absent: the string is not in the page and grep -rl over pkg/barn finds it in no file. A change-level equivalent now works and I drove it end to end: Request changes -> type a note -> 'Send it back' recorded verdict changes-requested in barn-review-base with the note, and the exact sentence arrived in the pod ('A reviewer looked at the working tree of the base extension and asked for a change: w2-review-probe 1787465016103: BRIEF.md threshold is hardcoded...' in tmux capture-pane -t mc-editor), then the screen routed to /barn/editor/base?tab=terminal. But that is one decision for the whole change, not a thread handed over, and nothing comes back to the review screen.",
+      "defect": "The per-thread hand-off does not exist because threads do not exist. The transport (askAssistant) is proven working from this screen via Request changes, so what is missing is the thread model and a per-thread button, plus something that returns the assistant's answer to the reviewer instead of dropping them into the terminal."
+    },
+    {
+      "id": "12-change-leave-for-author",
+      "status": "not-implemented",
+      "evidence": "'Leave it for the author' is not on the page and grep -rl over pkg/barn finds it in no file. There is no choice of destination anywhere on the screen: Request changes always goes to the pod's assistant (its own modal says so), and there is no human author recorded on a change to route to instead.",
+      "defect": "No destination model. A reviewer cannot choose between the assistant and a human, and no human author is recorded."
+    },
+    {
+      "id": "12-change-see-the-fix",
+      "status": "not-implemented",
+      "evidence": "'See the fix' is not on the page and grep -rl over pkg/barn finds it in no file. Nothing on this screen produces a draft, so there is nothing to open: after Request changes the reviewer is routed to the terminal, where the assistant's reply lives in a tmux pane, not in an addressable diff.",
+      "defect": "No drafted-fix object exists, so the button has nothing to open."
+    },
+    {
+      "id": "12-change-assistant-draft",
+      "status": "not-implemented",
+      "evidence": "No draft block renders. The page contains none of 'drafted a fix', 'Not applied' or 'See the fix', and grep -rl over pkg/barn finds none of them. I sent a real comment to the assistant through Request changes and confirmed it reached the pod's claude session, but the answer arrives only as text in the tmux pane; nothing captures it as an unapplied change with a file and line count. (The pod's claude is logged out - 'Not logged in - Please run /login' - so no answer was produced at all this time, but that is beside the point: there is no UI that would show one.)",
+      "defect": "The comment -> assistant -> unapplied draft loop terminates at the terminal. Nothing records the assistant's answer as a reviewable, unapplied change."
+    },
+    {
+      "id": "12-change-automated-checks",
+      "status": "not-implemented",
+      "evidence": "'Automated checks' is not on the page and grep -rl over pkg/barn finds it in no file. None of the five checks (build passes, no credentials in the diff, contrast and focus order, strings translatable, no private Rancher APIs) exists as a row, and nothing on this screen runs anything against the diff or the build.",
+      "defect": "No machine checks and no section to summarise them."
+    },
+    {
+      "id": "12-change-open-brief",
+      "status": "not-implemented",
+      "evidence": "The 'What this is for' section header has only the SLabel; no link. document.body.innerText does not contain 'Open the brief', and grep finds the string only in pages/review-queue.vue:651, pages/verification.vue and pages/extensions.vue - never in review-change.vue. The packet shows the brief's prose but offers no way to reach the brief screen (/barn/extensions/base/brief), its open questions or its history.",
+      "defect": "No link from the packet to the brief, even though three other screens already have one to copy."
+    },
+    {
+      "id": "12-change-see-conversation",
+      "status": "not-implemented",
+      "evidence": "There are no provenance strips at all on the hunks (see 12-change-hunk-provenance), so there is nowhere for the link to sit. 'See the conversation' is absent from the page and grep -rl over pkg/barn finds it in no file. assistantTurns() exists in extensions.ts but no screen opens a transcript at a given prompt.",
+      "defect": "No addressable conversation record and no strip to hang the link on."
+    },
+    {
+      "id": "12-change-talk-to-author",
+      "status": "not-implemented",
+      "evidence": "'Talk to the author' is not in the masthead or anywhere else on the page, and grep -rl over pkg/barn finds it in no file. The masthead's provenance line explicitly declines to name an author for an uncommitted tree, so there is nobody to open a conversation with.",
+      "defect": "No author is recorded on a change, so there is no conversation target."
+    },
+    {
+      "id": "12-change-ux-decision",
+      "status": "not-implemented",
+      "evidence": "'This is a UX decision, not a code one' and 'UX decision' are absent from the page, and grep -rl over pkg/barn finds neither. The decision bar offers only Request changes, Come back to it and Approve the code. There is no reviewer-role model in review.ts (Signoff carries a principal, not a role), so a point cannot be handed to anyone else.",
+      "defect": "No reviewer-role model, so nothing to reroute to. The only escape remains 'Come back to it', which defers rather than reroutes."
+    },
+    {
+      "id": "12-change-shot-before",
+      "status": "not-implemented",
+      "evidence": "The right column renders one live PreviewPanel iframe of the extension's dev server ('Rendered result | Loaded - 6s ago | Desktop'), not two stacked shots. The word 'Before' does not appear anywhere on the page. Nothing in the flow captures the pre-change state, so there is no before to show.",
+      "defect": "No before state is captured at any point, so a side-by-side comparison is impossible as things stand."
+    },
+    {
+      "id": "12-change-shot-after",
+      "status": "not-implemented",
+      "evidence": "Same pane: a single live iframe on whatever route the dev server is serving, with no 'After - with the change' header and no captured shot. 'After' does not appear on the page. What is framed is the running extension, which is not labelled as the change's result and is not pinned to the reviewed commit.",
+      "defect": "No captured after-shot. The live preview shows the current dev server, which is not the same thing as the result of the change being reviewed."
+    },
+    {
+      "id": "12-change-visual-mode",
+      "status": "not-implemented",
+      "evidence": "The preview pane's only controls are three unlabelled PreviewPanel buttons and a 'Desktop' viewport selector. There is no segmented Before/After/Overlay control: 'Overlay' is absent from the page and grep -rl over pkg/barn finds it in no file, and neither 'Before' nor 'After' appears as a segment.",
+      "defect": "Nothing to switch between: no before state and no overlay compositing."
+    },
+    {
+      "id": "12-change-diff-line-to-visual",
+      "status": "not-implemented",
+      "evidence": "Counted 35 line rows in .rc__code: 0 have an onclick, role=button or are buttons, and there are 0 buttons in the pane. The hint text ('Click anything above to jump to the code that draws it') is not on the page at all. Clicking a line does nothing and there is nothing in the live iframe to highlight into.",
+      "defect": "Diff lines are not addressable and no source-to-element mapping exists. The rendered result is a live iframe of a whole dashboard, not an annotated shot, so there is no target to highlight."
+    },
+    {
+      "id": "12-change-visual-to-code",
+      "status": "not-implemented",
+      "evidence": "The reverse direction is equally absent: the hint sentence is not rendered, and the preview is a cross-document iframe with no instrumentation injected, so a click inside it is not observable by the page and could not scroll the diff. grep over pkg/barn finds no element-to-source mapping in either direction.",
+      "defect": "No element-to-source mapping. It would need instrumentation inside the previewed build, which nothing injects."
+    },
+    {
+      "id": "04-review-diff-view-mode",
+      "status": "not-implemented",
+      "evidence": "On /barn/extensions/base/review the diff header holds only the file name and a 'Re-read this file' icon button; document.body.innerText does not contain 'Unified', 'split' or 'side-by-side'. The only occurrence of 'Unified' in pkg/barn is a code comment at components/DiffView.vue:11 explaining why side-by-side was not built. DiffView takes a single `patch` prop and has no mode prop or state.",
+      "defect": "No chip and no second layout. DiffView renders one mode with nothing to switch it."
+    },
+    {
+      "id": "04-review-open-in-files",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button in .review__diff-head: one, 'Re-read this file'. 'Open in Files' is absent from the page and grep -rl over pkg/barn finds the string in no file. The Files screen also takes no query or param for a preselected path, so both halves are missing.",
+      "defect": "The cross-screen jump does not exist, and the Files screen has no way to be told which file to open, so implementing it needs both ends."
+    },
+    {
+      "id": "04-review-revert-file",
+      "status": "not-implemented",
+      "evidence": "'Revert this file' is absent from the page and grep -rl over pkg/barn finds it in no file; the diff header's only control is the re-read button. extensions.ts still exports discardChanges(name, [path]) - the per-path capability the button would need - and nothing on the diff pane calls it. Not driven, because the only thing to revert on base is another verifier's working-tree change.",
+      "defect": "No per-file revert in the diff header. discardChanges(name, [path]) already supports exactly this, so the missing part is the control and its confirmation."
+    },
+    {
+      "id": "04-review-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated Rancher's header on this route: three buttons only - 'Cluster menu item local', 'Open notification center', 'Open user menu' - and the icon set is nav group icons plus icon-notify-bell. There is no grid icon and no app-collection popover.",
+      "defect": "Rancher's header in this build (2.15/head) has only the bell and the user menu at the far right; nothing in pkg/barn adds an app collection."
+    },
+    {
+      "id": "04-review-header-more",
+      "status": "not-implemented",
+      "evidence": "Same enumeration: no three-dot control exists in the header on this route, so there is nothing to open. pkg/barn adds no header controls of its own.",
+      "defect": "The overflow menu the design draws is not present in Rancher's header here and pkg/barn does not add one."
+    }
+  ]
+}

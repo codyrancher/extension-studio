@@ -23,6 +23,14 @@
 //     everything typed here. The brief is now drafted at creation time and seeded with the
 //     tree, which is also what screen 10 reads on mount - so skipping loses nothing.
 //
+//   Recorded rather than asked for. Whoever presses the button is written into the brief as the
+//   person who asked, under `## Who asked`, with their Rancher principal id. It is not a
+//   question on this form because the answer is already known: at creation the person
+//   describing the extension is the person who wants it. Nothing else in the product knew this,
+//   and `review.ts` has always refused an outcome sign-off from anybody but the requester - a
+//   rule that did nothing at all until something wrote the section it reads. Creation is also
+//   the only moment it can be written: the next screen has a "Skip the brief" button.
+//
 //   Stated rather than chosen. "Build and preview against" is a field with one possible value
 //   and it is now read rather than typed: the cluster's own name and the Kubernetes version it
 //   reports, off Rancher's API. It is not a picker and does not pretend to be one - every pod
@@ -39,6 +47,7 @@ import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import { toastError } from '../toast';
 import { ensureExtension, normalizeExtensionName, BUILT_IN_SEEDS, DEFAULT_SEED } from '../extensions';
+import { currentSigner } from '../review';
 import {
   PLACEMENTS, placementById, placementFiles, normalizeResource
 } from '../extension-placement';
@@ -198,12 +207,20 @@ export default {
 
       const name = normalizeExtensionName(this.name);
       const spec = placementById(this.placement);
+      // Who to record as having asked. `currentSigner` rather than a second reading of
+      // Rancher's user API, so the principal in the brief is the exact string `signOutcome`
+      // compares against later - two derivations of "who am I" are two chances to disagree,
+      // and the gate would then refuse the person it was written for. It throws when Rancher
+      // will not say; that is not a reason to fail the creation, and a brief with no
+      // `## Who asked` reads back as "the requester was never recorded", which is true.
+      const asked = await currentSigner().catch(() => null);
       const plan = {
         name,
         placement: this.placement,
         resource:  normalizeResource(this.resource),
         prompt:    this.prompt.trim(),
         outcome:   this.outcome.trim(),
+        asked,
       };
 
       try {
@@ -404,9 +421,15 @@ export default {
         <!-- footer (13:384) -->
         <div class="new-ext__footer">
           <span v-if="error" class="new-ext__error">{{ error }}</span>
-          <span v-else class="new-ext__hint">
+          <!--
+            The second sentence is the only place the recording is announced, and it belongs
+            here rather than in a field: it is not a question, because the answer is already
+            known, and a person should still be told what is being written about them.
+          -->
+          <span v-else class="new-ext__hint" data-testid="new-ext-hint">
             Next: agree a one-page brief. It takes about a minute and becomes the reviewer's
-            checklist.
+            checklist. You are recorded in it as the person who asked, which is what the
+            outcome sign-off later checks against.
           </span>
 
           <div class="new-ext__buttons">

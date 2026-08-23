@@ -776,12 +776,12 @@ export default {
     },
 
     /**
-     * What the publish dialog chose.
+     * What the publish dialog chose, in the order the dialog draws it.
      *
-     * Local first and GitHub second, which is the order the dialog draws them: the local build
-     * happens here, and GitHub still has a question of its own (which repository) that its own
-     * modal asks. Picking both therefore ends with that modal open over a finished local
-     * publish rather than with two long jobs racing each other in one pod.
+     * Local, then the distribution, then GitHub. The local build and the distribution both run
+     * here; GitHub has a question of its own (which repository) that its own modal asks, so it
+     * goes last and picking it with something else ends with that modal open over finished
+     * work rather than with two long jobs racing each other in one pod.
      */
     async onPublishChosen(targets) {
       this.choosingPublish = false;
@@ -795,26 +795,29 @@ export default {
         }
       }
 
-      if (targets.includes('github')) {
-        this.publishingGithub = true;
-
-        return;
-      }
-
-      // Leaving the gate. It has its own refusal in review.ts and needs no repository question,
-      // because a distribution goes to the repository the packet was handed over to.
+      // Leaving the gate. It needs no repository question, because a distribution goes to the
+      // repository the packet was handed over to, and it has its own refusal in review.ts:
+      // `distributeExtension()` opens with `assertGateOpen()`, so the check holds even if a
+      // future screen reaches it another way.
       //
-      // Two ids reach here and they are two different destinations, not one with two names.
-      // `repository` puts the reviewed packet on the repository's default branch, which is
-      // what a release is built from and is the one this product can perform. `oci` is a push
-      // to a registry, and it is listed by `distributionDestinations()` as unavailable with
-      // the reason: the pod has no helm, no oras and no chart to push, and no registry is
-      // configured anywhere. Routing it here anyway is deliberate - it goes through the same
-      // gate and comes back with that sentence, rather than being quietly dropped.
-      const destination = ['oci', 'repository', 'distribute'].find((id) => targets.includes(id));
+      // The dialog only emits destinations it has already established are available, which for
+      // the gate means `distributionDestinations()` can perform them AND `distributionGate()`
+      // is open. `oci` is in that list and is never available - the pod has no helm, no oras
+      // and no chart to build, and no registry is configured - so in practice `repository` is
+      // what arrives. It is still matched here, because dropping an id the dialog could emit
+      // is how the gate came to be unreachable in the first place.
+      const destination = ['repository', 'oci'].find((id) => targets.includes(id));
 
       if (destination) {
-        await this.publishTo('distribute', destination === 'distribute' ? 'repository' : destination);
+        const ok = await this.publishTo('distribute', destination);
+
+        if (!ok) {
+          return;
+        }
+      }
+
+      if (targets.includes('github')) {
+        this.publishingGithub = true;
       }
     },
 
@@ -895,7 +898,12 @@ export default {
         // The only moment in the product that can take this snapshot: the tree that has just
         // been proved to build. It is what turns "a way back" from a failure into the design's
         // guaranteed one, and it cannot be taken later, because by then something has broken.
-        recordWorkingBuild(this.extension, result.version);
+        //
+        // Only after the local publish. That is the one that compiles the package; a hand-over
+        // and a distribution are pushes, and they prove nothing about whether the tree builds.
+        if (target === 'local') {
+          recordWorkingBuild(this.extension, result.version);
+        }
 
         return true;
       } catch (e) {

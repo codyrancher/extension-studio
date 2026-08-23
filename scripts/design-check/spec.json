@@ -871,8 +871,8 @@
         ".brief__ac-box",
         ".s-banner",
         ".s-banner__bar",
-        ".s-banner--warning",
-        ".s-chip--warning"
+        ".s-chip--warning",
+        ".brief__insight"
       ],
       "expect": {
         ".brief__masthead": {
@@ -967,10 +967,6 @@
           "size": "4x*",
           "from": "4:36 layout_HCI0HF"
         },
-        ".s-banner--warning": {
-          "bg": "#FDF6E3",
-          "from": "4:46 fill_YR09MN"
-        },
         ".s-chip--warning": {
           "bg": "#FDF6E3",
           "color": "#C9A227",
@@ -979,6 +975,11 @@
         ".brief__title": {
           "font": "16/600",
           "from": "34:970 Heading/16 SemiBold"
+        },
+        ".brief__insight": {
+          "border": "0 0 0 3",
+          "bg": "#EAF4FB",
+          "from": "34:1013 accent fill_M3OSAI (#3D98D3) as a 3px bar, on 34:1012 fill"
         }
       }
     },

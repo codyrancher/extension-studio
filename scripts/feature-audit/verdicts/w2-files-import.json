@@ -1,0 +1,179 @@
+{
+  "screen": "w2-files-import",
+  "verdicts": [
+    {
+      "id": "05-files-ask-about-file",
+      "status": "pass",
+      "evidence": "The button now exists in the editor header (data-testid=files-ask-about-file, secondary + sparkle) and the whole round trip works. With pages/Home.vue open I clicked it: the route moved to /dashboard/barn/editor/base?tab=terminal, and the question reached the live assistant in the pod. Read the terminal back out: `tmux capture-pane -p -t mc-editor` in barn-base-extension (as uid 1000, HOME=/app/.home) contains the line \"Read pages/Home.vue in this package and explain it to somebody who...\". No queue file was written (/app/.queue/editor absent), which is the 'sent' branch of askAssistant rather than the queued one.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-select",
+      "status": "pass",
+      "evidence": "Created a second branch in the pod (`git branch verify-05-files 8a704fb`). The row at the top of the tree column opens a real menu: 'main | checked out' (disabled) and 'verify-05-files'. Picking verify-05-files checked the pod out for real (`git rev-parse --abbrev-ref HEAD` = verify-05-files) and reloaded every column: the tree lost BRIEF.md and verify-05-files.md, the history collapsed from 9 entries to 2 (snapshot 'probe point A' + 8a704fb), the masthead chip and the branch trigger both read verify-05-files, and the 'where used' rail re-ran. Switching back to main restored all four. The subtitle is a live readout of the pod ('2 branches in the pod'), not a fixed string - it read '1 branch in the pod' before I made the second one.",
+      "defect": "Minor, and stated in the UI rather than faked: the design's subtitle is 'up to date with origin', and the row instead says 'N branches in the pod · sync with origin is not read here'. Nothing on this screen measures ahead/behind against an upstream, so the sync half of the promise is declined rather than met. Would need a branchSync() reading in extensions.ts."
+    },
+    {
+      "id": "05-files-edit-file",
+      "status": "pass",
+      "evidence": "Edit swaps the read-only line table for a textarea (data-testid=files-edit-area, not readonly) and Save writes to the pod. Isolated run on verify-05-files.md: typed 'SAVED-BY-05-FILES-1787467671537', pressed Save, and `kubectl exec ... cat verify-05-files.md` had that exact content within 1.5s, with the toast 'Saved verify-05-files.md into the pod.' and the pane back to read-only. The conflict path is real: with the file open in Edit I overwrote it from kubectl, then pressed Save - the write was refused, the pane stayed in Edit, the pod file was untouched, and the banner read 'The file changed in the pod while you were editing it, so this was not saved. Re-read it, then make the edit again.' Save is also disabled while draft === contents.",
+      "defect": "The conflict banner's instruction cannot be followed from where it is shown. The 'Re-read this file' button carries :disabled=\"editing\" (pages/files.vue), so while the conflict is on screen it is greyed out; the only way to re-read is Cancel first, which throws the draft away. The banner should either enable the re-read, or offer a 'discard mine and re-read' action, or say that Cancel is the way through."
+    },
+    {
+      "id": "05-files-header-apps",
+      "status": "not-implemented",
+      "evidence": "Re-enumerated every button, link, [role=button] and icon inside the page's <header> on /barn/extensions/base/files (25 elements). It is the application bar: Home, the local cluster selector and its pin, eight product links (Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings), About, 'Open notification center' and 'Open user menu'. A regex over the header's outerHTML for /icon-apps|app-collection|icon-grid|application-bar/ is false.",
+      "defect": "Unchanged from the previous wave. Figma draws an app-collection grid icon in the top bar; the Rancher 2.15 shell this Studio runs inside does not render one. Not owned by pkg/barn."
+    },
+    {
+      "id": "05-files-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header inventory as above. Regex over the header outerHTML for /icon-actions|icon-more|icon-dots/ is false, and none of the 25 header elements is an overflow trigger. (The masthead's own three-dot is a different control and does exist.)",
+      "defect": "Unchanged from the previous wave. The running Rancher shell has no three-dot control in its top bar. Not owned by pkg/barn."
+    },
+    {
+      "id": "05-files-history-working-changes",
+      "status": "pass",
+      "evidence": "The working row exists, is live, and opens the working diff. With a clean tree it is absent entirely (historyRows only adds it when changes > 0 - I saw the list start at the newest commit). After I made two changes in the pod (created verify-05-files.md, added a line to l10n/en-us.yaml) the top row read 'working | Working changes | 2 files not yet committed · now'. Clicking it put the working diff in the middle column: header 'working | Working changes | 2 files not yet committed · now | Review them | Back to index.ts', body 'Working changes / 2 files +3-0' with per-file hunks (l10n/en-us.yaml +1-0 showing '+  verify05: touched by 05-files', verify-05-files.md +2-0). The count follows the pod: after deleting one of them it read '1 file not yet committed'.",
+      "defect": null
+    },
+    {
+      "id": "05-files-open-live-preview",
+      "status": "pass",
+      "evidence": "Clicked 'Open the live preview' with pages/Home.vue open. A new tab opened on https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/ (which the app then moved to /proxy/home itself) and it rendered a real running dashboard - the tab's body text includes 'Welcome to Rancher Prime', the cluster list and the side menu with 'Base' in it. So it is the extension's own dev server serving through the apiserver proxy, not a stub.",
+      "defect": "It opens the dev server root rather than the file's own route, which is deliberate and disclosed: the note beside it says the dev server has no history fallback so a deep link to /base/c/local/home is a 404, and names the route instead. The design's promise ('the real, running page the file produces') is met only as far as the app, not the page."
+    },
+    {
+      "id": "05-files-preview-thumb",
+      "status": "pass",
+      "evidence": "The miniature is real and the labels are derived, not fixed. With pages/Home.vue open the panel shows a chip 'local' and a code route '/base/c/local/home' - which is exactly what routing/index.ts + product.ts in the pod produce (path `/${PRODUCT_NAME}/c/:cluster/${HOME_PAGE}` with PRODUCT_NAME='base', HOME_PAGE='home'), so the map is read from the pod's own source. The thumbnail is deferred behind 'Show the running extension'; after clicking it an iframe 307x192 loads .../barn-base-extension:8005/proxy/ and I read its contentDocument body: 'Skip to main content / Home / local / GLOBAL APPS / Cluster Management ... Welcome to Rancher Prim' - a live page, same-origin, not an image. Selecting product.ts (no route) removes the panel and says so: 'product.ts does not render a page of its own. Only the components named in routing/index.ts have a route...'.",
+      "defect": "Same limit as the preview button: the frame is the dev server root, so the miniature is the app's home rather than the page this file renders. The route is named beside it instead. Honest, but the design's 'miniature of the live page the file produces' is only half true."
+    },
+    {
+      "id": "05-files-publish",
+      "status": "blocked",
+      "evidence": "The button now exists and everything short of the build is proved. data-testid=files-publish is the masthead primary with a rocket icon; with a clean tree it is disabled and titled 'Nothing has changed since the last commit', and with one changed file in the pod it is enabled. Clicking it opens a confirmation titled 'Publish base' whose body reads 'base is built in its pod from the working tree you have been reading, and this Rancher is pointed at the result. Everybody signed into this cluster gets the new build the next time they load a page.' plus 'Nothing is committed and nothing is pushed anywhere.', with a danger-free footer of Cancel and 'Publish to this Rancher'. Cancel dismisses it and leaves the URL unchanged. I did not press the confirm: startPublish() pushes EDITOR_ROUTE with ?publish=local, and pages/editor.vue line 604 calls publishTo(publish) straight off that query with no second confirmation - so the click starts a real multi-minute build in the shared base pod and installs a new UIPlugin into the Rancher every other verifier is driving. Blocked on that rather than bought by wrecking the wave.",
+      "defect": null
+    },
+    {
+      "id": "05-files-revert-file",
+      "status": "pass",
+      "evidence": "Both cases confirmed against the pod, and the confirmation distinguishes them. Tracked-and-modified (verify-05-files.md, mark 'edited'): the dialog is titled 'Revert verify-05-files.md' and says 'goes back to its last commit. Everything the assistant or you have changed in it since then is thrown away.'; the confirm reads 'Revert it'; after pressing it the pod file went back to its committed content ('first line from 05-files / second line') and `git status --porcelain` no longer listed it. Never-committed (verify-05-files-new.md, mark 'new'): the dialog says 'has never been committed, so there is nothing to put back: reverting it deletes the file from the pod.', the confirm reads 'Delete it', and after pressing it `ls` in the pod returned 'No such file or directory', git status was empty and the row was gone from the tree. Both dialogs also state 'Only this file. Nothing else in the working tree is touched'. Revert is only offered when there is something to throw away (canRevert).",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-change-marks",
+      "status": "pass",
+      "evidence": "The marks are real git status, read live. Starting from a clean tree (no marks anywhere, badge 'Live', Publish disabled) I created verify-05-files.md and edited l10n/en-us.yaml in the pod; on reload the tree rows read 'verify-05-files.md NEW' and 'en-us.yaml EDITED', the badge flipped to 'Unsaved' and the masthead read 'Review 2 changes'. Reverting each one cleared its badge. The badge title is 'Different from what this Rancher is running', which matches changedFiles measuring against the published baseline rather than HEAD.",
+      "defect": "The third mark can never appear. MARKS maps deleted -> 'gone', but the tree is built from listExtensionFiles (a find over the package), so a deleted file has no row to carry the badge. I deleted a tracked file in the pod: the working-changes row correctly counted it ('1 file not yet committed') but the file simply vanished from the tree with no 'gone' mark. Either the tree has to union the paths changedFiles reports, or the MARKS entry is dead."
+    },
+    {
+      "id": "05-files-tree-sort",
+      "status": "pass",
+      "evidence": "There is now a control at the right of the FILES heading (aria-label 'Order the tree (Name)'). It opens a two-item menu with notes and marks the current order: 'Name / folders first, then A to Z · current' and 'Changed first / uncommitted files at the top'. With one new file in the pod, choosing 'Changed first' moved verify-05-files.md from its alphabetical slot (between tsconfig.json and vue.config.js) to the head of the loose files, immediately after the folders; choosing 'Name' put it back. The choice persists - window.localStorage['barn.files.sort'] read 'changed' afterwards.",
+      "defect": "With nothing uncommitted the two orders are identical, which is correct but makes the control look inert on a clean tree. The menu's note says why."
+    },
+    {
+      "id": "05-files-nav-rail-icons",
+      "status": "pass",
+      "evidence": "Both halves now hold. On /barn/extensions/base/files the 'Extension Studio' row in the application bar carries className 'option active-menu-link' and it is the only highlighted row - the previous wave read plain 'option' here. Clicking 'Cluster Management' navigated to /dashboard/c/_/manager/provisioning.cattle.io.cluster and the highlight moved to Cluster Management; clicking 'Extension Studio' came back to /dashboard/barn/extensions and the highlight moved back.",
+      "defect": null
+    },
+    {
+      "id": "06-import-change-connection",
+      "status": "pass",
+      "evidence": "Stored a throwaway token through the dialog, then drove Change. It does exactly what the design asks and destroys nothing: step 1 went from state='done' / 'GitHub connected' back to state='active' / 'Connect GitHub' with the token field open, and steps 2 and 3 both re-locked (data-state='locked', grey markers, their inputs removed from the DOM). It also grows a second exit, 'Keep the one that is stored'. Pressing that put step 1 back to done and steps 2 and 3 back to active - and the values I had typed before pressing Change came back with them, repo='rancher/kubewarden-ui' and name='w2-import-typed-name'. The skip link ('carry on without connecting') reappears while step 2 is re-locked, so Change does not trap anyone either.",
+      "defect": null
+    },
+    {
+      "id": "06-import-connected-account",
+      "status": "not-implemented",
+      "evidence": "With a token stored, step 1 is headed 'GitHub connected' but names no account, no scopes and no expiry. Its whole body is: 'A token is stored in this Rancher, so a private repository clones too. Studio keeps it in a Secret for the pod that runs the clone and never reads it back into this page, so it cannot tell you which account it belongs to, what it is allowed to do or when it expires.' No handle, no 'repo · read:org', no 'expires in N days' anywhere in the modal.",
+      "defect": "The data the design asks for already exists in the codebase and nothing calls it. extensions.ts:2939 exports githubIdentity(), which returns exactly { login, scopes, expiresAt } from GET /user through githubApiAnywhere (a pod, so the Secret is reachable). `grep -rn githubIdentity` over pkg/barn outside node_modules matches only its own definition. So the modal's stated reason (the page cannot read the token back) is true of the page but not of the product: wiring githubIdentity() into the connected row would satisfy this feature as drawn."
+    },
+    {
+      "id": "06-import-precheck",
+      "status": "pass",
+      "evidence": "The check is real - it borrows a running extension's pod, does git ls-remote and a blob-less shallow clone, and reports four distinct outcomes. rancher/dashboard: green, 'This looks like a Rancher extension.' / 'Found pkg/aks/package.json, pkg/aks/index.ts, a pkg/ directory and the rancher annotations block. It does not say which Rancher it was built against, so Studio cannot tell you what has moved since. This Rancher is 2.15.' rancher/kubewarden-ui: green, same shape, plus a real version comparison - 'It asks for Rancher >= 2.11.0-0, and this Rancher is 2.15.' A nonexistent repo (kwwii/definitely-not-a-repo-w2-import): amber, 'Studio could not see ... on GitHub.' / 'It may be private, in which case connect GitHub in step 1 ... Otherwise the name is wrong.' - it claims nothing about the repository and does not say a check passed. A nonexistent branch (rancher/dashboard @ no-such-branch-w2-import): amber, 'rancher/dashboard has no branch called no-such-branch-w2-import.' / 'Choose one of its 183 branches instead. Import is off until you do, because the clone would fail on it.' and the Import button went disabled. The marker files named are the ones actually in those repos, and the found/missing split changes per repo.",
+      "defect": "For an unreadable repository Import stays enabled (submit disabled = false). Deliberate - a private repo the anonymous check cannot see may still import with the token - but it means the only thing the check gates is the missing branch."
+    },
+    {
+      "id": "06-import-repo-meta",
+      "status": "not-implemented",
+      "evidence": "There is no repository list, so there are no rows to carry visibility or a last-updated time. Step 2 renders exactly one control, a text field (data-testid=barn-import-repo, label 'GitHub repository', placeholder 'owner/name, or paste the repository URL'), plus a note saying 'Studio does not list your repositories.' No lock/book icon and no relative time appears anywhere in the modal.",
+      "defect": "Same root as 06-import-repo-pick: extensions.ts:2970 exports listGithubRepos(), whose GithubRepo already carries `private` and `updatedAt` (and defaultBranch, description), and nothing calls it. `grep -rn listGithubRepos` over pkg/barn outside node_modules matches only the definition."
+    },
+    {
+      "id": "06-import-repo-search",
+      "status": "not-implemented",
+      "evidence": "No search field exists in step 2. Enumerated every input/select/textarea inside [data-testid=barn-import-step-2] in both the connected and the skipped state: the list is exactly ['barn-import-repo'], the repository name field itself. There is no magnifier icon and nothing filters anything, because there is no list below to filter.",
+      "defect": "Depends on the repository listing (see 06-import-repo-pick). listGithubRepos() exists and is uncalled; once a list is rendered a filter over fullName is the small part."
+    },
+    {
+      "id": "06-import-branch",
+      "status": "pass",
+      "evidence": "It is a real list of the repository's branches with the default pre-selected, and it degrades to free text honestly. For rancher/dashboard the control became a <select> (data-testid=barn-import-branch-select) with 183 options, first 'master (default)' and selected, and the hint under it read \"The repository's default.\" - and `git ls-remote` is where those came from, since the same run reported 183 branches. For rancher/kubewarden-ui it listed that repo's branches with 'main (default)' selected. Changing the repository throws the old branch answer away rather than carrying it over. A pasted URL brings its branch: 'https://github.com/rancher/dashboard/tree/release-2.9' left the select on release-2.9 with the list still populated. When no listing can be had (unreachable repo) it falls back to an SField with placeholder \"the repository's default\" and hint \"Leave blank for the repository's default.\", and 'Type a branch name instead' / 'Choose from the list instead' toggles between the two by hand.",
+      "defect": null
+    },
+    {
+      "id": "06-import-repo-pick",
+      "status": "not-implemented",
+      "evidence": "The list the design draws does not exist. Step 2 is a single text field taking 'owner/name' or a github.com URL, and the modal says so under it: 'Studio does not list your repositories. The token that could ask GitHub for that list lives in a Secret this page never reads back, so the listing would have to come from the pod, and it does not yet.' No rows, no highlight, no check icon; the only step 2 input is barn-import-repo. What the field does do works: typing 'rancher/kubewarden-ui' filled step 3's name with 'kubewarden-ui' and hinted 'Taken from the repository.'",
+      "defect": "The stated reason is out of date. extensions.ts:2970 exports listGithubRepos(limit), which asks GET /user/repos?sort=updated&affiliation=owner,collaborator,organization_member through githubApiAnywhere - i.e. from the pod, with the Secret - and returns fullName/private/updatedAt/defaultBranch/description. `grep -rn listGithubRepos` over pkg/barn outside node_modules matches only its own definition, so the pod-side listing the note says does not exist is written and dead. This one function is what 06-import-repo-pick, -repo-search and -repo-meta are all waiting on."
+    },
+    {
+      "id": "06-import-step-markers",
+      "status": "pass",
+      "evidence": "Three stacked steps, all visible at once, each with a 22px round marker, and the states are driven by whether GitHub is connected rather than drawn. With a token stored: step 1 is data-state='done' with background rgb(62,140,79) (#3E8C4F) and a check icon in place of the digit, heading 'Step 1. GitHub connected'; steps 2 and 3 are data-state='active' with background rgb(61,152,211) (#3D98D3) and the digits 2 and 3, and both are open for input (step 2 renders barn-import-repo, step 3 renders barn-import-branch and barn-import-name). Pressing Change re-locked 2 and 3 and turned step 1 back into a blue '1', and Keep put all three back, so the markers track the real state rather than a fixed prop.",
+      "defect": null
+    },
+    {
+      "id": "06-import-submit",
+      "status": "blocked",
+      "evidence": "Everything short of the clone is proved and the gating is right, but a completed import creates a pod in the shared barn namespace and this wave was told not to. The button is the green primary with a download icon (data-testid=barn-import-submit). It is disabled while step 1 is unfinished (opacity 0.4, and a forced click does nothing), disabled while the check is running, disabled for a branch the repository provably does not have, and enabled once a repo resolves and a name is free - I watched it flip to enabled for rancher/dashboard@master and rancher/kubewarden-ui@main, and back to disabled for rancher/dashboard@no-such-branch-w2-import. canImport also refuses a taken name. Not driven to completion.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-authorise",
+      "status": "not-implemented",
+      "evidence": "There is no Authorise button. With the barn-settings Secret empty (its `data` is absent, confirmed by kubectl) I opened the dialog and counted buttons matching 'Authorise': 0. `grep -rniF \"Authorise with GitHub\" pkg/barn --include=*.vue --include=*.ts` returns two hits and both are prose: a design note at ImportExtensionModal.vue:33 and the sentence the dialog itself shows at line 605.",
+      "defect": "Deliberate and said out loud in step 1: 'There is no \"Authorise with GitHub\" because Studio has no OAuth app of its own to send you to.' OAuth needs a client id and a callback this product has no server for, so the token field is the whole of step 1. Recorded as not-implemented rather than fail because the control is absent by choice and the absence is explained where the button would be."
+    },
+    {
+      "id": "06a-import-first-step-markers",
+      "status": "pass",
+      "evidence": "Read the computed styles off the markers in both states. Unconnected: step 1's marker is rgb(61,152,211) (the #3D98D3 blue) holding a white '1' with data-state='active'; steps 2 and 3 are rgb(240,241,244) with grey digits and grey headings, data-state='locked'. Connected (after storing a token): step 1 turns rgb(62,140,79) - #3E8C4F - and its content is an SIcon check rather than a digit, data-state='done', and steps 2 and 3 both turn blue rgb(61,152,211) with data-state='active'. Pressing Change put all three back to the first-run colours.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-steps-locked",
+      "status": "pass",
+      "evidence": "Genuinely absent, not disabled. With no token stored I enumerated every input, select and textarea inside [data-testid=barn-import-step-2] and step-3: both returned []. Step 3 renders no content element at all (its .import-step__content is null) - only the grey marker and the grey heading 'Step 3. Branch and name'. Step 2 renders one paragraph and nothing else: 'Locked until GitHub is connected. A public repository needs no token, so carry on without connecting if the one you want is public.' No repository field, no branch control, no name control and no check panel exist to be focused. ImportStep only renders a #locked slot for a locked step, so this is a content swap rather than a disabled copy, exactly as the design note says.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-token-help",
+      "status": "pass",
+      "evidence": "The help sits under the token field and the deep link is real, not the plain caption the design drew. Text: 'Needs the `repo` scope only. Create one on GitHub with the scope pre-selected. It is stored in a Secret in this Rancher, not in your browser, because the thing that spends it is a pod - which also means it is shared with everyone using this Rancher's Studio, not held per user.' The anchor's href is https://github.com/settings/tokens/new?scopes=repo&description=Rancher%20Extension%20Studio with target=_blank and rel=noopener, so the pre-selected-scopes route the design only promised is actually there.",
+      "defect": "The design's storage promise is 'the token is stored per user, never in the extension'. Half of that holds - it is in the barn-settings Secret, not in the extension - but it is not per user: one Secret is shared by everyone using this Rancher's Studio. The copy corrects the promise rather than repeating it, which is the right call, but anyone reading the audit against the Figma should know the two say different things."
+    },
+    {
+      "id": "06a-import-first-connect-copy",
+      "status": "pass",
+      "evidence": "Step 1 is headed 'Step 1. Connect GitHub' and carries the explanatory paragraph: 'Studio clones the repository from a pod in this cluster, which takes a few seconds and happens without leaving this dialog. A public repository needs nothing at all. A private one needs a token, and you can paste it here without losing what you have typed. There is no \"Authorise with GitHub\" because Studio has no OAuth app of its own to send you to.' All three things the design asks for are said: what the access is for, roughly how long it takes, and that you are not navigated away - and I confirmed the last one by pasting a token and pressing Connect, which left me in the same dialog with step 1 flipped to done.",
+      "defect": "Two wordings differ from the design and both are downgrades to the truth: 'a few seconds' rather than 'about fifteen seconds', and the purpose is 'clone the repository' rather than 'list your repositories and clone one', because nothing here lists repositories (see 06-import-repo-pick)."
+    },
+    {
+      "id": "06a-import-first-import-disabled",
+      "status": "pass",
+      "evidence": "With no token stored, [data-testid=barn-import-submit] has disabled=true and a computed opacity of exactly 0.4 (the modal overrides the primitive's 0.5 for this). Forcing a click on it did nothing: the dialog stayed open, the URL was unchanged and no extension was created. The gate lifts as the design says it should - after connecting (or after the public-repo escape) and choosing rancher/dashboard, the same button read disabled=false.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-token-choice",
+      "status": "pass",
+      "evidence": "It is a real disclosure, closed by default. Before clicking, [data-testid=barn-import-token-field] does not exist in the DOM (count 0). Clicking 'Paste a personal access token' (data-testid=barn-import-token-toggle) renders the panel: a labelled 'Personal access token' field of type=password in a monospace face (font-family 'JetBrains Mono'...), a Connect button that is disabled until something is typed and enabled after, and the scope help under it. I typed a value and confirmed the input reports type=password so the characters are masked.",
+      "defect": "The design pairs this with 'Authorise with GitHub' separated by the word 'or', and draws it as a ghost button. Here there is no Authorise button and no 'or' - it is a text link inside the step 1 paragraph, because the token path is the only path (see 06a-import-first-authorise). The choice the feature is named for therefore is not a choice; the disclosure behaviour it promises does work."
+    }
+  ]
+}

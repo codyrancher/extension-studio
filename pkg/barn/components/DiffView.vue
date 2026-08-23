@@ -10,6 +10,12 @@
 //
 // Unified rather than side by side. Side by side needs twice the width to say the same thing,
 // and this is a pane inside a dialog inside a pane.
+//
+// Two optional scoped slots, `hunk-head` and `hunk-foot`, put a caller's own row above and
+// below each hunk's lines - which is how screen 12 hangs a provenance strip and a comment
+// thread off a hunk without a second copy of this parser. Each is handed `{ file, hunk, index }`
+// and renders nothing at all when the caller does not fill it, so every other caller of this
+// component is unchanged.
 
 // The token sheet, so this file's diff colours resolve whether or not the screen around it
 // happens to have imported it.
@@ -210,6 +216,11 @@ export default {
                 {{ hunk.header || '…' }}
               </td>
             </tr>
+            <tr v-if="$slots['hunk-head']" class="diff__aside">
+              <td colspan="3" class="diff__aside-cell">
+                <slot name="hunk-head" :file="file" :hunk="hunk" :index="h" />
+              </td>
+            </tr>
             <tr
               v-for="(line, l) in hunk.lines"
               :key="`${ h }-${ l }`"
@@ -222,6 +233,11 @@ export default {
                 {{ line.new ?? '' }}
               </td>
               <td class="diff__code"><span class="diff__sign">{{ sign(line.kind) }}</span>{{ line.text }}</td>
+            </tr>
+            <tr v-if="$slots['hunk-foot']" class="diff__aside">
+              <td colspan="3" class="diff__aside-cell">
+                <slot name="hunk-foot" :file="file" :hunk="hunk" :index="h" />
+              </td>
             </tr>
           </template>
         </tbody>
@@ -267,6 +283,14 @@ export default {
 
   &__removed {
     color: var(--error);
+  }
+
+  // A caller's own row above or below a hunk (see the slots at the top). The cell gives the
+  // slot the full width and gets out of the way; the wrapping is undone because slot content
+  // is prose, not code, and the caller sets its own font on what it puts in here.
+  &__aside > &__aside-cell {
+    padding:     0;
+    white-space: normal;
   }
 
   &__file {

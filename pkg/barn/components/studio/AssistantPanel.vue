@@ -17,12 +17,27 @@
 //   paths that go with it: whatever is on them is named in the line the assistant receives,
 //   so the word "context" is a description rather than a promise.
 //
-//   Half real. The activity stream. Your side of it is: every message the composer sends is a
-//   turn, with the time it was sent, and it survives a reload. The assistant's side is not, and
-//   is not faked - claude's output is a character stream, not a sequence of typed events, and
-//   turning one into the other is a parser nobody has written. So the stream carries a standing
-//   note under the last turn saying exactly that, and the strip beside it opens the terminal,
-//   where the reply actually is. No invented steps, no invented durations.
+//   Real, and it was the last thing here that was not. The activity stream. It used to be this
+//   tab's own record of what the composer had sent and nothing else, because claude's output in
+//   the pane is a character stream rather than a sequence of events. It is now fed by the pod:
+//   claude's own UserPromptSubmit, PostToolUse and Stop hooks write /app/.barn/provenance.jsonl
+//   and `assistantTurns()` reads it back, so the stream shows every turn the pod recorded -
+//   prompts typed straight into the Terminal tab included - with when it was sent, the screen
+//   and Rancher user when the product itself sent it, the files the turn left and the commit it
+//   ended in.
+//
+//   Two sources, merged rather than swapped. The composer's own messages are still kept in
+//   sessionStorage by the page and still passed in as `turns`, because a message that has just
+//   been sent is in the stream before the pod has recorded it. A message that appears in both is
+//   counted once, matched on the text that was actually sent.
+//
+//   What is still not here, and is not faked: steps. Nothing in the pod records a step, a step's
+//   status, a step's duration or live sub-progress - the hooks fire on a prompt, on a
+//   file-editing tool and at the end of a turn, and nothing between - so no step row is drawn,
+//   the stream says so under the last turn, and the strip beside it opens the terminal where the
+//   reply itself is. A turn with no end recorded is drawn as exactly that and given no duration:
+//   this pod's claude can be signed out, in which case a prompt is recorded and the Stop hook
+//   never fires for it.
 //
 //   Informational. The chip on the status row. The design's version says "Ask before each file
 //   edit", and the pod runs `claude --dangerously-skip-permissions` (see pod/claude-session.sh)
@@ -41,7 +56,7 @@ import {
 import ActivityTurn from './ActivityTurn.vue';
 import { toastSuccess, toastError } from '../../toast';
 import {
-  countChanges, publishedVersion, listExtensionFiles, writePodImage, assistantLogin
+  countChanges, publishedVersion, listExtensionFiles, writePodImage, assistantLogin, assistantTurns
 } from '../../extensions';
 
 /**
@@ -56,6 +71,27 @@ const ATTACH_DIR = '/app/.attachments';
 
 /** Big enough for a screenshot or a log, small enough that the chunked write is not a wait. */
 const MAX_ATTACHMENT = 8 * 1024 * 1024;
+
+/**
+ * How often the pod is asked for its turns.
+ *
+ * It is an exec into the pod, so not every second; but it is the one thing on this panel that
+ * moves while somebody watches it - the assistant is working in the pane below - so not the
+ * minute the changes count uses either.
+ */
+const TURNS_POLL_MS = 15000;
+
+/**
+ * How long after a send before asking again.
+ *
+ * The prompt goes into the pane through tmux and the hook that records it runs when claude
+ * receives it, which is not instant. This is the one extra read that turns "your message is in
+ * the stream" into "the pod has it", and after it the ordinary poll takes over.
+ */
+const SEND_SETTLE_MS = 4000;
+
+/** How many turns are read back. A conversation, not an archive. */
+const TURN_LIMIT = 25;
 
 export default {
   name: 'AssistantPanel',
@@ -86,8 +122,12 @@ export default {
     },
 
     /**
-     * The activity stream, when there is one. Shape per ActivityTurn's props. Empty is the
-     * normal case today - see the note at the top.
+     * What this tab has sent from the composer, oldest first, as `{ role, text, when }`.
+     *
+     * The page's own record, kept in sessionStorage so a reload does not lose it. It is not the
+     * whole stream and no longer pretends to be: the pod's record is read here and the two are
+     * merged, with a message that appears in both counted once. This half still matters because
+     * it is the half that exists the instant Send is pressed, before any hook has run.
      */
     turns: {
       type:    Array,
@@ -144,6 +184,20 @@ export default {
        */
       login:      null,
       loginTimer: null,
+      /**
+       * The turns the pod recorded, newest first, exactly as `assistantTurns` returns them.
+       *
+       * `podRead` is false until the first answer comes back, because "the pod has recorded
+       * nothing" and "the pod has not been asked yet" are different things to put on screen.
+       */
+      podTurns:   [],
+      podRead:    false,
+      turnsTimer: null,
+      sendTimer:  null,
+      // Ticked so that "2 minutes ago" on a turn counts up rather than freezing at what it
+      // said when the pod was last read.
+      now:        Date.now(),
+      nowTimer:   null,
     };
   },
 
@@ -211,6 +265,104 @@ export default {
         label: `${ who ? `Assistant signed in as ${ who }` : 'The assistant is signed in' }${ detached }`,
         title: 'Read from the credential the claude in this pod is running with.',
       };
+    },
+
+    /**
+     * The stream itself: the pod's record, then whatever this composer has sent that is not in
+     * it yet.
+     *
+     * Oldest first, because the stream scrolls to the bottom. The pod answers newest first.
+     *
+     * The merge is a count rather than a set, so that sending the same sentence twice and
+     * having only the first recorded still shows two turns. Matching is on the text that was
+     * actually sent: `askAssistant` flattens whitespace before it types, and the hook records
+     * what claude received, so the two agree after the same flattening.
+     *
+     * Each entry is `{ key, props }` rather than a bare props object, because the array is
+     * rebuilt every second by the clock and a turn keyed by its position would hand one turn's
+     * expanded file list to another the moment a new turn arrives.
+     */
+    stream() {
+      const recorded = [...this.podTurns].reverse();
+      const out = [];
+      const unmatched = new Map();
+
+      recorded.forEach((turn) => {
+        const text = this.flatten(turn.prompt);
+
+        if (text) {
+          unmatched.set(text, (unmatched.get(text) || 0) + 1);
+        }
+
+        this.recordedEntries(turn).forEach((props) => {
+          out.push({ key: `${ turn.turn }-${ props.role }`, props });
+        });
+      });
+
+      this.turns.forEach((turn, i) => {
+        const text = this.flatten(turn.text);
+        const left = unmatched.get(text) || 0;
+
+        // Already in the stream, from the pod's own record of it, which is the richer one.
+        if (text && left > 0) {
+          unmatched.set(text, left - 1);
+
+          return;
+        }
+
+        out.push({
+          key:   `composer-${ i }`,
+          props: {
+            role: 'user',
+            text: turn.text || '',
+            when: turn.when || '',
+            note: 'Sent from this composer · the pod has not recorded it yet',
+          },
+        });
+      });
+
+      return out;
+    },
+
+    /** Watched rather than the array, which is rebuilt every second by the clock above. */
+    streamLength() {
+      return this.stream.length;
+    },
+
+    /**
+     * The standing note under the last turn: what the stream is showing and what it is not.
+     *
+     * The second half is the one that matters and it has to keep being said, because the panel
+     * looks complete without it: no step in the design's sense is recorded anywhere, so no step
+     * row is drawn.
+     */
+    streamNote() {
+      return `Each turn above is what the pod recorded for it: the prompt, when it was sent, the screen and
+        user when the Studio sent it, and the files the turn left behind. The per-step detail the design
+        draws - a status and a duration for each step, and live progress on the one in flight - is not
+        here, because the hooks record a turn's start, the files its editing tools touch and its end, and
+        nothing in between. The replies themselves are in the terminal.`.replace(/\s+/g, ' ');
+    },
+
+    /**
+     * Why nothing in this stream ever finishes, when that is the reason.
+     *
+     * Said only when the pod has actually been asked and answered that it has no credential.
+     * Without it a stream of turns that all read "no completion recorded" looks like a broken
+     * panel rather than a signed-out assistant.
+     */
+    streamStalled() {
+      if (!this.login?.read || this.login.signedIn) {
+        return '';
+      }
+
+      if (!this.podTurns.some((turn) => !turn.endedAt)) {
+        return '';
+      }
+
+      return `No turn here has an end recorded because the assistant in this pod is not signed in: the
+        prompt is delivered and nothing answers it. Run /login in the terminal and the turns after that
+        will carry a duration and a commit.`.replace(/\s+/g, ' ');
     },
 
     changesLabel() {
@@ -289,11 +441,20 @@ export default {
     // /login in the pane below is exactly how it changes, and the strip that told you to do it
     // should notice that you did.
     this.loginTimer = setInterval(() => this.refreshLogin(), 30000);
+
+    this.refreshTurns();
+    this.turnsTimer = setInterval(() => this.refreshTurns(), TURNS_POLL_MS);
+    this.nowTimer = setInterval(() => {
+      this.now = Date.now();
+    }, 1000);
   },
 
   beforeUnmount() {
     clearInterval(this.countTimer);
     clearInterval(this.loginTimer);
+    clearInterval(this.turnsTimer);
+    clearInterval(this.nowTimer);
+    clearTimeout(this.sendTimer);
   },
 
   watch: {
@@ -305,11 +466,7 @@ export default {
     // do. On a new turn only: the relative times in the meta lines are recomputed every second,
     // so the array's identity changes constantly and scrolling on every change of it would drag
     // the view back down under anybody reading further up.
-    turns(next, prev) {
-      if (next.length === (prev || []).length) {
-        return;
-      }
-
+    streamLength() {
       // After the render, not with it - the element being scrolled to does not exist yet.
       this.$nextTick(() => {
         const stream = this.$refs.stream;
@@ -324,7 +481,10 @@ export default {
       this.changes = 0;
       this.version = '';
       this.login = null;
+      this.podTurns = [];
+      this.podRead = false;
       this.refreshLogin();
+      this.refreshTurns();
       // The paths belonged to the extension that was open; none of them means anything in the
       // next one's pod.
       this.context = [];
@@ -345,6 +505,204 @@ export default {
         .catch(() => ({ read: false, signedIn: false, account: '' }));
     },
 
+    async refreshTurns() {
+      const asked = this.extension;
+      const turns = await assistantTurns(asked, TURN_LIMIT).catch(() => []);
+
+      // The answer to a question about the extension that is no longer open is not an answer
+      // about this one. Switching pods while an exec is in flight is otherwise how a stream
+      // ends up showing another extension's conversation.
+      if (asked !== this.extension) {
+        return;
+      }
+
+      this.podTurns = Array.isArray(turns) ? turns : [];
+      this.podRead = true;
+    },
+
+    /** The one line `askAssistant` types, which is what the hook on the other end records. */
+    flatten(text) {
+      return String(text || '').replace(/\s+/g, ' ').trim();
+    },
+
+    /**
+     * One recorded turn, as the stream's entries: your side, then the assistant's.
+     *
+     * Two entries and not one, because the design's stream alternates and because the two
+     * halves are recorded by different hooks and can exist without each other. A turn with no
+     * prompt record has no user entry at all - it is a commit the pod made with nothing asked
+     * for it - and the assistant entry says exactly that rather than borrowing the prompt above.
+     */
+    recordedEntries(turn) {
+      const entries = [];
+
+      if (turn.at) {
+        entries.push({
+          role: 'user',
+          text: turn.prompt || 'The prompt for this turn was not recorded.',
+          when: this.ago(turn.at),
+          note: this.originNote(turn),
+        });
+      }
+
+      entries.push(this.outcomeEntry(turn));
+
+      return entries;
+    },
+
+    /**
+     * Where a prompt came from, and never a guess at it.
+     *
+     * Only prompts the Studio sent leave an origin stamp, so a prompt typed straight into the
+     * Terminal tab carries no screen and no name. That is reported rather than filled in with
+     * whoever is signed in to this Rancher, which is the substitution the whole provenance
+     * system exists to avoid.
+     */
+    originNote(turn) {
+      const screen = (turn.screen || '').trim();
+      const who = (turn.who || '').trim();
+
+      if (screen && who) {
+        return `Sent from the ${ screen } screen by ${ who }`;
+      }
+
+      if (screen) {
+        return `Sent from the ${ screen } screen · no Rancher user recorded`;
+      }
+
+      if (who) {
+        return `Sent by ${ who }`;
+      }
+
+      return 'Recorded in the pod · no screen and no Rancher user recorded for it';
+    },
+
+    /**
+     * The assistant's half of a recorded turn: what it ended in, or that it has not ended.
+     *
+     * No duration for a turn with no end, and no invented result for one. This is the ordinary
+     * case in a pod whose claude is signed out: the prompt is delivered, the UserPromptSubmit
+     * hook records it and the Stop hook never fires, so the turn stays open for good.
+     */
+    outcomeEntry(turn) {
+      const files = Array.isArray(turn.files) ? turn.files : [];
+      const commit = (turn.commit || '').slice(0, 7);
+      const n = files.length;
+      const plural = n === 1 ? '' : 's';
+
+      if (!turn.endedAt) {
+        return {
+          role:       'assistant',
+          pending:    true,
+          when:       '',
+          text:       turn.at
+            ? 'No end was recorded for this turn, so there is nothing yet to show for it.'
+            : 'A turn was recorded with neither a prompt nor an end.',
+          note:       turn.at ? `Started ${ this.ago(turn.at) } · no duration, because nothing recorded its end` : '',
+          files,
+          filesLabel: n ? `${ n } file${ plural } its editing tools have touched so far` : '',
+        };
+      }
+
+      const took = this.lasted(turn.at, turn.endedAt);
+      const facts = [];
+
+      // Only ever measured between two recorded timestamps. A turn with no prompt record has
+      // an end and no start, and gets no duration rather than one counted from somewhere else.
+      if (took) {
+        facts.push(`Took ${ took }`);
+      }
+
+      if (commit) {
+        facts.push(`Commit ${ commit }`);
+      }
+
+      let text;
+
+      if (!turn.at) {
+        // The rule the whole record is built on: a change nobody watched is reported as
+        // unattributed, never handed to the nearest turn that does have a prompt.
+        text = 'Changed in the pod with no prompt recorded.';
+      } else if (commit) {
+        text = 'Finished, and committed what it left behind.';
+      } else if (n) {
+        text = 'Finished. No commit was recorded for it.';
+      } else {
+        text = 'Finished without changing any files.';
+      }
+
+      return {
+        role:       'assistant',
+        pending:    false,
+        when:       this.ago(turn.endedAt),
+        text,
+        note:       facts.join(' · '),
+        files,
+        filesLabel: n
+          ? `${ n } file${ plural } ${ commit ? 'in this turn\'s commit' : 'its editing tools touched' }`
+          : '',
+      };
+    },
+
+    /** The design's meta line words, from an ISO timestamp the pod wrote. */
+    ago(iso) {
+      const at = Date.parse(iso || '');
+
+      if (Number.isNaN(at)) {
+        return '';
+      }
+
+      const secs = Math.max(0, Math.round((this.now - at) / 1000));
+
+      if (secs < 10) {
+        return 'just now';
+      }
+
+      if (secs < 60) {
+        return `${ secs } seconds ago`;
+      }
+
+      const mins = Math.round(secs / 60);
+
+      if (mins < 60) {
+        return `${ mins } minute${ mins === 1 ? '' : 's' } ago`;
+      }
+
+      const hours = Math.round(mins / 60);
+
+      if (hours < 48) {
+        return `${ hours } hour${ hours === 1 ? '' : 's' } ago`;
+      }
+
+      return `${ Math.round(hours / 24) } days ago`;
+    },
+
+    /** How long a turn took. Only ever between two timestamps that both exist. */
+    lasted(from, to) {
+      const a = Date.parse(from || '');
+      const b = Date.parse(to || '');
+
+      if (Number.isNaN(a) || Number.isNaN(b) || b < a) {
+        return '';
+      }
+
+      const ms = b - a;
+
+      if (ms < 10000) {
+        return `${ (ms / 1000).toFixed(1) }s`;
+      }
+
+      const secs = Math.round(ms / 1000);
+
+      if (secs < 60) {
+        return `${ secs }s`;
+      }
+
+      const mins = Math.floor(secs / 60);
+
+      return `${ mins }m ${ secs % 60 }s`;
+    },
+
     submit() {
       const text = this.draft.trim();
 
@@ -360,6 +718,11 @@ export default {
       // never see that the message was recorded at all. The strip under the last turn is the
       // way to the terminal, and it says so.
       this.$emit('update:tab', 'assistant');
+
+      // Ask the pod again shortly, so the turn stops being "not recorded yet" as soon as it is
+      // recorded rather than at the end of the poll it happened to land in.
+      clearTimeout(this.sendTimer);
+      this.sendTimer = setTimeout(() => this.refreshTurns(), SEND_SETTLE_MS);
     },
 
     /**
@@ -557,27 +920,34 @@ export default {
         class="assistant-panel__stream"
         data-testid="barn-activity-stream"
       >
-        <template v-if="turns.length">
+        <template v-if="stream.length">
           <ActivityTurn
-            v-for="(turn, i) in turns"
-            :key="i"
-            v-bind="turn"
+            v-for="entry in stream"
+            :key="entry.key"
+            v-bind="entry.props"
+            data-testid="barn-turn"
             @raw="$emit('update:tab', 'terminal')"
           />
 
           <!--
-            The other half of the stream, said rather than invented. Every turn above is a
-            message this composer actually sent; the reply to it is a character stream in the
-            pane below and nothing here parses it into steps. Rather than draw an assistant
-            turn with made-up steps and made-up durations, the stream says what is missing and
-            the strip goes to where the answer really is.
+            What the stream is showing and what it is not. The turns above are the pod's own
+            record; the steps the design draws under an assistant turn are not recorded by
+            anything, so none is drawn and this says why rather than inventing four rows with
+            statuses and durations nobody measured.
           -->
-          <div class="assistant-panel__gap">
+          <div class="assistant-panel__gap" data-testid="barn-stream-note">
             <SIcon name="sparkle" :size="13" />
-            <span>
-              The assistant's replies are in the terminal. Its output is a character stream, not
-              typed events, so this view cannot yet show them as steps with durations.
-            </span>
+            <span>{{ streamNote }}</span>
+          </div>
+
+          <!-- Why every turn here is open, when that is the reason. Read from the pod. -->
+          <div
+            v-if="streamStalled"
+            class="assistant-panel__gap assistant-panel__gap--warn"
+            data-testid="barn-stream-stalled"
+          >
+            <SIcon name="alert" :size="13" />
+            <span>{{ streamStalled }}</span>
           </div>
 
           <button
@@ -597,8 +967,8 @@ export default {
         <SEmpty
           v-else
           icon="sparkle"
-          title="Nothing sent in this session yet"
-          message="What you send from the composer appears here as a turn. The assistant's own replies stay in the terminal: its output is a character stream, not typed events, so this view cannot yet show them as steps with durations."
+          :title="podRead ? 'No turn has been recorded for this extension' : 'Reading what this pod has recorded'"
+          message="Every prompt this pod's assistant receives is recorded as a turn - from the composer, from another Studio screen, or typed into the Terminal tab - with when it was sent, who sent it and what it left behind. The replies themselves stay in the terminal."
         >
           <SButton
             variant="secondary"
@@ -801,6 +1171,14 @@ export default {
     border-radius: var(--studio-radius);
     font:          var(--studio-caption-12);
     color:         var(--studio-text-tertiary);
+
+    // The same note, when what it is saying is a problem rather than a boundary.
+    &--warn {
+      background:   var(--studio-warning-bg);
+      border-color: var(--studio-warning);
+      border-style: solid;
+      color:        var(--studio-text-secondary);
+    }
   }
 
   // The design's collapsed raw-output strip (32:893). It opens the terminal rather than

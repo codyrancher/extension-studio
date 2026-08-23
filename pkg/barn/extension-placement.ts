@@ -67,12 +67,28 @@ export function normalizeResource(input: string): string {
   return (input || '').trim().toLowerCase().replace(/[^a-z0-9./-]/g, '');
 }
 
+/**
+ * Whoever is signed in at the moment the extension is created.
+ *
+ * `review.ts`'s `currentSigner` is what produces it, so the principal written into the brief is
+ * the same string `signOutcome` later compares against. Deriving it a second way here would let
+ * the two drift, and the gate would then refuse the person it was written for.
+ */
+export interface Requester {
+  principal: string;
+  name:      string;
+  /** `YYYY-MM-DD`. Defaults to today, and is a parameter so this stays testable. */
+  at?:       string;
+}
+
 export interface PlacementPlan {
   name:      string;
   placement: string;
   resource:  string;
   prompt:    string;
   outcome:   string;
+  /** Absent when Rancher would not say who is signed in. See `whoAskedSection`. */
+  asked?:    Requester | null;
 }
 
 const INSIDE_A_CLUSTER = `// Where it appears: inside a cluster, in the cluster explorer's own nav.
@@ -268,6 +284,48 @@ export function placementSection(plan: PlacementPlan): string[] {
 }
 
 /**
+ * `## Who asked`, written at creation because that is the only moment it is known.
+ *
+ * `review.ts` has always been able to read this section - `whoAsked` looks for a principal id
+ * under it and `signOutcome` refuses an outcome sign-off from anybody else - but nothing in the
+ * product wrote it, so the rule was inert. This is the write.
+ *
+ * Creation is the honest place for it. The person pressing "Draft the brief" is by construction
+ * the person who wants the extension; the brief screen, by contrast, is a form anybody can open
+ * later, so a requester recorded there would be whoever happened to have the page up, which is
+ * exactly the "quietly satisfied by whoever is standing there" that `whoAsked` warns against.
+ * Screen 10 also has "Skip the brief", and a section written only there is lost on that path.
+ *
+ * The principal is first on the line and followed by a space, because `whoAsked` takes the
+ * first `scheme://...` run of non-space characters it finds - a trailing bracket or full stop
+ * would be read as part of the id and would then never match the signer.
+ *
+ * No principal means no section. An empty `## Who asked` and a missing one both read back as
+ * "never recorded", and the missing one does not claim to have tried.
+ */
+export function whoAskedSection(asked?: Requester | null): string[] {
+  if (!asked?.principal) {
+    return [];
+  }
+
+  const on = asked.at || new Date().toISOString().slice(0, 10);
+  const name = asked.name?.trim();
+  const who = name
+    ? `${ asked.principal } - ${ name }, on ${ on }.`
+    : `${ asked.principal } - on ${ on }.`;
+
+  return [
+    '',
+    '## Who asked',
+    who,
+    '',
+    'Recorded from whoever was signed in when this extension was created. The outcome sign-off',
+    'is theirs to give: it asks whether the thing does the job that was asked for, and nobody',
+    'else can answer that on their behalf.',
+  ];
+}
+
+/**
  * The brief as it stands the moment the extension is created.
  *
  * Written now rather than left to screen 10, because screen 10 has a "Skip the brief" button
@@ -294,6 +352,7 @@ export function briefDraft(plan: PlacementPlan): string {
     '',
     '## What you were handed',
     plan.prompt.trim() || '_not stated_',
+    ...whoAskedSection(plan.asked),
     '',
     '## The problem',
     problem || '_not stated_',

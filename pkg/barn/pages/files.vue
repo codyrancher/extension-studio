@@ -38,7 +38,8 @@ import {
   ensureRepo,
   listExtensionFiles, readExtensionFile, writeExtensionFile, listHistory, listBranches,
   checkoutBranch, countChanges, changedFiles, discardChanges, workingDiff, askAssistant,
-  findUsages, showCommit, fileProvenance, extensionUrl, DEFAULT_EXTENSION
+  findUsages, showCommit, fileProvenance, extensionUrl, createSnapshot, runInPackage,
+  DEFAULT_EXTENSION
 } from '../extensions';
 import { highlight } from '../highlight';
 import { EDITOR_ROUTE, STUDIO_ROUTE, REVIEW_ROUTE } from '../editor-product';
@@ -61,10 +62,35 @@ const TREE_SORTS = [
  * `changedFiles` reads against the last published baseline rather than against HEAD, so these
  * mark every file that differs from what this Rancher is running - which is the set the review
  * screens are about, and is what the badge's title says out loud.
+ *
+ * `deleted` needs the listing's help to appear at all. The tree is a `find` in the pod, and a
+ * file that has been deleted is not there to be found, so until `gonePaths` put those paths
+ * back into the listing this entry marked rows that could not exist and the badge was dead
+ * code. The deleted paths come from git rather than from the filesystem for exactly that
+ * reason: git is the only reader that still knows the file was ever there.
  */
 const MARKS = {
   added: 'new', deleted: 'gone', modified: 'edited',
 };
+
+/**
+ * A string as base64, in the single quotes the pod's shell needs around it.
+ *
+ * `btoa` cannot take anything above U+00FF and a source file is full of characters that are, so
+ * the text is encoded to UTF-8 bytes first - the same two steps `writeExtensionFile` takes, for
+ * the same reason. Nothing in the base64 alphabet means anything to a shell, so the quotes are
+ * the whole of the escaping.
+ */
+function podBase64(text) {
+  const bytes = new TextEncoder().encode(text || '');
+  let binary = '';
+
+  bytes.forEach((b) => {
+    binary += String.fromCharCode(b);
+  });
+
+  return `'${ btoa(binary) }'`;
+}
 
 /** Where the tree's order is kept, so it is the same order the next time you open the screen. */
 const SORT_KEY = 'barn.files.sort';
@@ -270,6 +296,10 @@ export default {
       searching: false,
       filter:   '',
       allPaths: [],
+      // The paths git reports as deleted against the baseline. Kept apart from `allPaths`,
+      // which is what the pod's `find` returned: these are the files that are *not* there, and
+      // everything that opens or writes a file has to know the difference.
+      gonePaths: [],
       // The commit the middle column is showing instead of the file, or null. Its patch is
       // held beside it rather than re-fetched on every render - `git show` is an exec into
       // the pod, and a computed would run it again on each keystroke in the filter box.
@@ -291,6 +321,14 @@ export default {
       editedFrom: '',
       savingFile: false,
       conflict: '',
+      // What Save found on disk when it refused to write, and the diff between that and the
+      // draft. Both are held so the conflict has a way out that keeps the draft: the banner can
+      // show what the other writer did, hand the draft to the clipboard, or write it over the
+      // pod's copy after snapshotting what it replaces.
+      conflictDisk: '',
+      conflictPatch: '',
+      showConflict: false,
+      conflictBusy: '',
       // The uncommitted diff, shown where the file was when the top history row is picked.
       working:  false,
       workingPatch: '',
@@ -521,9 +559,26 @@ export default {
       }, ...this.history];
     },
 
-    /** Whether the open file has something to throw away. */
+    /**
+     * Every path the tree lists: the files in the pod, plus the ones git says were deleted.
+     *
+     * Sorted and de-duplicated, so a deleted file sits where it used to sit rather than at the
+     * end of its folder, and a path that is somehow in both lists is one row.
+     */
+    listedPaths() {
+      const gone = this.gonePaths.filter((p) => !this.allPaths.includes(p));
+
+      return gone.length ? [...this.allPaths, ...gone].sort() : this.allPaths;
+    },
+
+    /** Whether the open file is one git says is deleted, so there is nothing on disk to read. */
+    currentGone() {
+      return this.currentMark === 'gone';
+    },
+
+    /** Whether the open file has something to throw away, or something to put back. */
     canRevert() {
-      return !!this.current && (this.currentMark === 'new' || this.currentMark === 'edited');
+      return !!this.current && ['new', 'edited', 'gone'].includes(this.currentMark);
     },
   },
 
@@ -533,6 +588,14 @@ export default {
 
     filter: 'rebuildTree',
     sort:   'rebuildTree',
+
+    /** A comparison is of one draft. Type into it and the one on screen is of the old one. */
+    draft() {
+      if (this.conflictPatch) {
+        this.conflictPatch = '';
+        this.showConflict = false;
+      }
+    },
   },
 
   mounted() {
@@ -562,6 +625,11 @@ export default {
 
       this.allPaths = paths;
       this.marks = changed.reduce((out, f) => ({ ...out, [f.path]: MARKS[f.status] || 'edited' }), {});
+      // A deleted file has no row in a listing built from `find`, so the "gone" badge could
+      // never render. These are the paths git says are missing, and the tree is built from the
+      // union of the two, so a file the assistant deleted is visible and revertible instead of
+      // silently absent.
+      this.gonePaths = changed.filter((f) => f.status === 'deleted').map((f) => f.path);
       this.history = history;
       this.branch = branches?.current || '';
       this.branches = branches?.branches || [];
@@ -584,7 +652,8 @@ export default {
     /** The tree the filter and the order between them produce, from one listing. */
     rebuildTree() {
       const term = this.filter.trim().toLowerCase();
-      const paths = term ? this.allPaths.filter((p) => p.toLowerCase().includes(term)) : this.allPaths;
+      const listed = this.listedPaths;
+      const paths = term ? listed.filter((p) => p.toLowerCase().includes(term)) : listed;
 
       this.tree = toTree(paths, this.marks, this.sort);
     },
@@ -597,7 +666,7 @@ export default {
       this.working = false;
       this.workingPatch = '';
       this.editing = false;
-      this.conflict = '';
+      this.clearConflict();
       this.showThumb = false;
 
       if (!this.current) {
@@ -791,14 +860,23 @@ export default {
     startEditing() {
       this.draft = this.contents;
       this.editedFrom = this.contents;
-      this.conflict = '';
+      this.clearConflict();
       this.editing = true;
     },
 
     cancelEditing() {
       this.editing = false;
       this.draft = '';
+      this.clearConflict();
+    },
+
+    /** Forget a conflict and everything held for resolving it. */
+    clearConflict() {
       this.conflict = '';
+      this.conflictDisk = '';
+      this.conflictPatch = '';
+      this.showConflict = false;
+      this.conflictBusy = '';
     },
 
     async saveFile() {
@@ -807,29 +885,166 @@ export default {
       }
 
       this.savingFile = true;
-      this.conflict = '';
+      this.clearConflict();
 
       try {
         const onDisk = await readExtensionFile(this.extension, this.current);
 
         if (onDisk !== this.editedFrom) {
-          this.conflict = 'The file changed in the pod while you were editing it, so this was not saved. Re-read it, then make the edit again.';
+          // The copy that was found, kept: it is half of the comparison the banner offers, and
+          // it is also what the draft would be written over if the reader decides theirs wins.
+          this.conflictDisk = onDisk;
+          this.conflict = 'The file changed in the pod while you were editing it, so this was not saved.';
 
           return;
         }
 
-        await writeExtensionFile(this.extension, this.current, this.draft);
-        this.editing = false;
-        this.contents = this.draft;
-        toastSuccess(this.$store, `Saved ${ this.current } into the pod.`);
-        // The badge, the counts and the provenance line are all now out of date.
-        await this.load();
-        await this.refreshProvenance();
+        await this.writeDraft();
       } catch (e) {
         toastError(this.$store, e?.message || String(e), { title: `Could not save ${ this.current }` });
       } finally {
         this.savingFile = false;
       }
+    },
+
+    /** The write itself, and everything that is out of date once it lands. */
+    async writeDraft() {
+      await writeExtensionFile(this.extension, this.current, this.draft);
+      this.editing = false;
+      this.contents = this.draft;
+      this.clearConflict();
+      toastSuccess(this.$store, `Saved ${ this.current } into the pod.`);
+      // The badge, the counts and the provenance line are all now out of date.
+      await this.load();
+      await this.refreshProvenance();
+    },
+
+    /**
+     * Show what the other writer did, as a diff against the draft.
+     *
+     * Computed by the pod's own `diff`, over two files in `/tmp` that are removed in the same
+     * command that reads them, rather than by a differ written here: the pod is where both
+     * versions can be put side by side without touching the package, and a temporary file
+     * inside the package would show up in the very `git status` this screen renders.
+     *
+     * The draft is untouched by all of this. It is still in `draft`, and the textarea comes
+     * back with it when the comparison is closed.
+     */
+    async compareConflict() {
+      if (this.showConflict) {
+        this.showConflict = false;
+
+        return;
+      }
+
+      if (this.conflictPatch) {
+        this.showConflict = true;
+
+        return;
+      }
+
+      this.conflictBusy = 'compare';
+
+      try {
+        const id = `${ Date.now() }-${ Math.floor(Math.random() * 1e6) }`;
+        const dir = `/tmp/barn-files-conflict-${ id }`;
+        const script = [
+          `d=${ dir }`,
+          'mkdir -p "$d"',
+          `printf %s ${ podBase64(this.conflictDisk) } | base64 -d > "$d/pod"`,
+          `printf %s ${ podBase64(this.draft) } | base64 -d > "$d/draft"`,
+          'diff -u -L pod-copy -L your-draft "$d/pod" "$d/draft"',
+          'rm -rf "$d"',
+        ].join(' ; ');
+
+        const out = await runInPackage(this.extension, script);
+
+        if (!out.trim()) {
+          // Two writers, one answer: what is on disk is already what was typed, so there is
+          // nothing to resolve and Save can be let through.
+          this.editedFrom = this.conflictDisk;
+          this.conflict = 'The pod\'s copy now matches your draft, so there is nothing to merge. Save writes it.';
+          this.conflictPatch = '';
+
+          return;
+        }
+
+        // DiffView reads files out of a patch by their `diff --git` line, and `diff -u` does not
+        // write one. The header is added here so the pane names the file rather than /tmp.
+        this.conflictPatch = `diff --git a/${ this.current } b/${ this.current }\n${ out }`;
+        this.showConflict = true;
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not compare the two copies' });
+      } finally {
+        this.conflictBusy = '';
+      }
+    },
+
+    /**
+     * Put the draft on the clipboard, so discarding it is a choice rather than a loss.
+     *
+     * `writeText` needs a secure context and a permission the dashboard usually has; the
+     * fallback is the old one that always works, and either way the growl says which happened.
+     */
+    async copyDraft() {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(this.draft);
+        } else {
+          const area = document.createElement('textarea');
+
+          area.value = this.draft;
+          area.setAttribute('readonly', '');
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          document.body.removeChild(area);
+        }
+
+        toastSuccess(this.$store, `Your draft of ${ this.current } is on the clipboard.`);
+      } catch (e) {
+        toastError(this.$store, 'The browser would not give this page the clipboard. Select the text in the editor and copy it.', { title: 'Nothing was copied' });
+      }
+    },
+
+    /**
+     * Write the draft over the copy that changed underneath it.
+     *
+     * The pod's copy is snapshotted first, and that is what makes this offerable at all: the
+     * snapshot is a commit of the whole working tree hung off HEAD, it appears in the history
+     * list under this pane, and its patch opens in the same column - so the work being written
+     * over is recoverable rather than gone. Without it this button would be the data loss the
+     * conflict check exists to prevent.
+     */
+    async keepMyVersion() {
+      if (this.conflictBusy) {
+        return;
+      }
+
+      this.conflictBusy = 'keep';
+
+      try {
+        // The label is the basename: `createSnapshot` strips anything that is not a word, a
+        // space, a dot or a dash out of it, so a path would arrive with its slashes gone.
+        await createSnapshot(this.extension, `before overwriting ${ this.basename }`);
+        this.editedFrom = this.conflictDisk;
+        await this.writeDraft();
+        toastSuccess(this.$store, 'The copy you wrote over was snapshotted first, and is in the history under this file.', { title: 'Snapshot taken' });
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: `Could not save ${ this.current }` });
+      } finally {
+        this.conflictBusy = '';
+      }
+    },
+
+    /** Give up the draft and read the pod's copy back into the pane. */
+    discardDraft() {
+      this.draft = '';
+      this.editing = false;
+      this.clearConflict();
+      this.openCurrent();
     },
 
     /** Re-read only what the header says, after a write that did not change which file is open. */
@@ -851,15 +1066,41 @@ export default {
 
       const path = this.current;
       const wasNew = this.currentMark === 'new';
+      const wasGone = this.currentMark === 'gone';
 
       try {
         await discardChanges(this.extension, [path]);
-        toastSuccess(this.$store, wasNew ? `Removed ${ path }.` : `Reverted ${ path } to the last commit.`);
         await this.load();
 
-        // A file that was never committed is gone, so the pane has to move somewhere. Setting
-        // `current` is enough - the watcher on it re-reads the column - and calling openCurrent
-        // as well would read the same file twice.
+        // What to say is decided after the reading, not before it, because for a deleted file
+        // the reading is the only thing that knows whether it worked. `discardChanges` restores
+        // from the last commit, and the marks are measured against the last published version -
+        // so a deletion that has been committed since that version is marked "gone" and has
+        // nothing to check out. Saying "restored" in that case would be the screen lying about
+        // a file it can see is still missing.
+        let said = `Reverted ${ path } to the last commit.`;
+
+        if (wasNew) {
+          said = `Removed ${ path }.`;
+        } else if (wasGone) {
+          said = `Restored ${ path } from the last commit.`;
+        }
+
+        if (wasGone && !this.allPaths.includes(path)) {
+          toastError(
+            this.$store,
+            `The deletion of ${ path } is already committed, so there was nothing in the working tree to put back. The commit that still has it is in the history under the file.`,
+            { title: `${ path } was not restored` }
+          );
+        } else {
+          toastSuccess(this.$store, said);
+        }
+
+        // A file that was never committed is gone from the tree, so the pane has to move.
+        // Setting `current` is enough - the watcher on it re-reads the column - and calling
+        // openCurrent as well would read the same file twice. A deletion that could not be
+        // undone still has a row, so the pane stays on it and shows the empty state rather
+        // than jumping somewhere the reader did not ask for.
         if (wasNew && !this.allPaths.includes(path)) {
           this.current = this.allPaths[0] || '';
         } else {
@@ -1239,8 +1480,11 @@ export default {
               >
                 Ask about this file
               </SButton>
-              <!-- 22:1067 -->
+              <!-- 22:1067. Not offered for a file that is not there: an edit would write it
+                   back with whatever the pane last held, which is not an edit but a restore
+                   with the wrong contents. Revert is the control for that. -->
               <SButton
+                v-if="!currentGone"
                 variant="neutral"
                 size="sm"
                 icon="code"
@@ -1262,12 +1506,17 @@ export default {
               </SButton>
             </template>
 
+            <!--
+              Disabled mid-edit, because re-reading throws the draft away and a one-click
+              icon is no place to do that. The way out of an edit is Cancel, and the way out
+              of a conflict is the banner in the pane, which keeps the draft.
+            -->
             <SButton
               variant="ghost"
               size="sm"
               icon="refresh"
               icon-only
-              title="Re-read this file"
+              :title="editing ? 'Re-read this file: finish or cancel the edit first' : 'Re-read this file'"
               :disabled="editing"
               @click="openCurrent"
             />
@@ -1319,17 +1568,93 @@ export default {
           </div>
 
           <!--
+            A file in the tree that is not on disk. It is listed because git still knows it was
+            there, and this is the pane saying why there is nothing to read rather than
+            rendering an empty file and letting somebody conclude the pod lost it.
+          -->
+          <SEmpty
+            v-else-if="currentGone"
+            icon="trash"
+            title="Deleted in the working tree"
+            data-testid="files-gone"
+            :message="`${ current } is in the last published version and is not in the pod any more, so there is nothing to read. Revert puts it back from that version; the working diff in the history below shows it going.`"
+          />
+
+          <!--
             The editable pane (22:1067). A textarea rather than a code editor: the highlighting
             beside it is a tokeniser over a string, not an editing surface, and a plain
             textarea is the one control that cannot lose a keystroke or reformat somebody's
             file on the way in.
           -->
           <div v-else-if="editing" class="files__edit">
-            <div v-if="conflict" class="files__conflict">
+            <!--
+              A conflict is a fork in the road, not a wall. The banner used to say "re-read it,
+              then make the edit again" next to a re-read button disabled by the very edit it
+              was telling you to abandon, so the only way out was Cancel and the draft went with
+              it. Every button here keeps the draft: see what the other writer did, take it with
+              you, or write over their copy having snapshotted it first.
+            -->
+            <div v-if="conflict" class="files__conflict" data-testid="files-conflict">
               <SIcon name="alert" :size="15" />
-              <span>{{ conflict }}</span>
+              <div class="files__conflict-text">
+                <p class="files__conflict-head">
+                  {{ conflict }}
+                </p>
+                <p class="files__conflict-note">
+                  Nothing has been written and your draft is still here. Compare it with the
+                  pod's copy, take a copy of it, or write it over theirs - which snapshots what
+                  it replaces into the history below first.
+                </p>
+              </div>
+              <div class="files__conflict-actions">
+                <SButton
+                  variant="secondary"
+                  size="sm"
+                  icon="compare"
+                  data-testid="files-conflict-compare"
+                  :loading="conflictBusy === 'compare'"
+                  @click="compareConflict"
+                >
+                  {{ showConflict ? 'Back to my draft' : 'Compare' }}
+                </SButton>
+                <SButton
+                  variant="neutral"
+                  size="sm"
+                  data-testid="files-conflict-copy"
+                  @click="copyDraft"
+                >
+                  Copy my draft
+                </SButton>
+                <SButton
+                  variant="neutral"
+                  size="sm"
+                  icon="save"
+                  data-testid="files-conflict-keep"
+                  :loading="conflictBusy === 'keep'"
+                  @click="keepMyVersion"
+                >
+                  Keep my version
+                </SButton>
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  icon="refresh"
+                  data-testid="files-conflict-reread"
+                  @click="discardDraft"
+                >
+                  Discard mine, re-read
+                </SButton>
+              </div>
             </div>
+
+            <DiffView
+              v-if="showConflict && conflictPatch"
+              class="files__conflict-diff"
+              :patch="conflictPatch"
+              subject="Removed lines are the pod's copy, added lines are your draft"
+            />
             <textarea
+              v-else
               v-model="draft"
               class="files__edit-area"
               spellcheck="false"
@@ -1519,6 +1844,10 @@ export default {
           <strong>{{ current }}</strong> has never been committed, so there is nothing to put
           back: reverting it deletes the file from the pod.
         </template>
+        <template v-else-if="currentGone">
+          <strong>{{ current }}</strong> was deleted. Reverting writes it back into the pod as
+          its last commit left it.
+        </template>
         <template v-else>
           <strong>{{ current }}</strong> goes back to its last commit. Everything the assistant
           or you have changed in it since then is thrown away.
@@ -1539,7 +1868,15 @@ export default {
           data-testid="files-revert-confirm"
           @click="revertFile"
         >
-          {{ currentMark === 'new' ? 'Delete it' : 'Revert it' }}
+          <template v-if="currentMark === 'new'">
+            Delete it
+          </template>
+          <template v-else-if="currentGone">
+            Restore it
+          </template>
+          <template v-else>
+            Revert it
+          </template>
         </SButton>
       </template>
     </SModal>
@@ -2016,6 +2353,39 @@ export default {
     background:  var(--studio-surface-subtle);
     font:        var(--studio-caption-12);
     color:       var(--studio-text);
+  }
+
+  &__conflict-text {
+    display:        flex;
+    flex-direction: column;
+    gap:            2px;
+    // The text takes the space the buttons do not, and wraps rather than pushing them off the
+    // end of a narrow column.
+    flex:           1 1 auto;
+    min-width:      0;
+  }
+
+  &__conflict-head {
+    font-weight: 600;
+  }
+
+  &__conflict-note {
+    color: var(--studio-text-secondary);
+  }
+
+  &__conflict-actions {
+    display:     flex;
+    align-items: center;
+    flex-wrap:   wrap;
+    gap:         var(--studio-space-8);
+    flex:        0 0 auto;
+  }
+
+  &__conflict-diff {
+    flex:       1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding:    0 var(--studio-space-16);
   }
 
   /* Where the open file surfaces (22:1157). */

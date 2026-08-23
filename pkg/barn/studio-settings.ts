@@ -21,7 +21,7 @@
 // silently winning.
 import { rancherFetch } from './api';
 import {
-  EXT_NS, DEFAULT_EXTENSION, extensionObject, readSettings, saveSettings
+  EXT_NS, DEFAULT_EXTENSION, extensionObject, githubIdentity, readSettings, saveSettings
 } from './extensions';
 
 // The cluster every object in this product lives in. Written out rather than imported because
@@ -145,9 +145,10 @@ export interface ConnectResult {
  *
  * Three outcomes, and they are different on purpose. GitHub rejects it: nothing is stored and
  * this throws, because storing a credential that is already known not to work is worse than
- * refusing it. GitHub cannot be reached: it is stored with nothing recorded against it, because
- * a browser with no egress is not evidence about the token. GitHub answers: stored, with the
- * account.
+ * refusing it. GitHub cannot be reached from the browser: it is stored anyway, because a browser
+ * with no egress is not evidence about the token, and a pod is asked instead - a pod can reach
+ * GitHub and can read the Secret, so the account is usually recorded even then. GitHub answers:
+ * stored, with the account.
  *
  * The recorded connection is always replaced, including with `null`, so a new token can never
  * leave the previous token's account name on the screen.
@@ -174,7 +175,8 @@ export async function connectGithub(token: string): Promise<ConnectResult> {
       connection = {
         login: user?.login || '',
         // GitHub's CORS policy exposes the scopes header to a browser. It does not expose the
-        // expiry header, which is why nothing here can show one.
+        // expiry header, which is why the expiry is read by `githubIdentity` from a pod rather
+        // than recorded here.
         scopes:     resp.headers.get('x-oauth-scopes') || '',
         authorised: new Date().toISOString(),
       };
@@ -191,6 +193,23 @@ export async function connectGithub(token: string): Promise<ConnectResult> {
   }
 
   await saveSettings('', { token });
+
+  // The browser could not be told whose token this is - either GitHub was unreachable from it
+  // or CORS stopped the answer being read. A pod can ask, and now that the token is in the
+  // Secret it can read it, so the account is recorded from there instead of being left blank.
+  // The token still never comes back into the browser: what returns is what GitHub said.
+  if (!connection) {
+    connection = await githubIdentity()
+      .then((who) => (who ? {
+        login:      who.login,
+        scopes:     who.scopes.join(', '),
+        authorised: new Date().toISOString(),
+      } : null))
+      .catch(() => null);
+
+    unchecked = !connection;
+  }
+
   await writeStudioSettings((current) => ({ ...current, github: connection }));
 
   return { connection, unchecked };

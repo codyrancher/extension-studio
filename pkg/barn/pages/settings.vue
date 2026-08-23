@@ -21,7 +21,9 @@
 // What is persisted, and where:
 //
 //   - the GitHub credential: Secret `barn-settings` (extensions.ts owns it, write-only, never
-//     read back into a page).
+//     read back into a page). A pod can read it, and `githubIdentity()` uses that to spend it
+//     against GitHub and hand back the answer - the login, the scopes and the expiry - so this
+//     page can state them without the token itself ever coming back into the browser.
 //   - everything else this page can set: ConfigMap `barn-studio-settings` in namespace `barn`,
 //     one JSON key, the same shape review.ts uses for its own record.
 //
@@ -33,7 +35,7 @@ import {
 } from '../components/ui';
 import { rancherFetch } from '../api';
 import {
-  EXT_NS, extensionObject, listExtensions, SETTINGS_SECRET
+  EXT_NS, extensionObject, listExtensions, githubIdentity, SETTINGS_SECRET
 } from '../extensions';
 import {
   LEVELS, DEFAULT_POLICY, SETTINGS_OBJECT, TokenRejected,
@@ -118,6 +120,18 @@ const PERMISSION_LEVELS = [
   },
 ];
 
+/**
+ * A date, in the reader's own format.
+ *
+ * GitHub writes the expiry header as `2026-10-18 12:00:00 UTC`, which Date can read; anything
+ * it cannot is passed through rather than shown as "Invalid Date".
+ */
+function asDay(value) {
+  const at = Date.parse(value || '');
+
+  return at ? new Date(at).toLocaleDateString() : String(value || '');
+}
+
 /** "4h 12m", from an ISO timestamp. Empty for anything that is not a time. */
 function uptimeSince(iso) {
   const started = Date.parse(iso || '');
@@ -157,6 +171,13 @@ export default {
       // GitHub connection.
       hasToken:      false,
       connection:    null,
+      // What GitHub says about the stored token right now, asked from a pod because a browser
+      // is not allowed to read the header the expiry is in. Null until it answers; the error
+      // is kept rather than swallowed, because "GitHub would not say" and "GitHub says this
+      // token is no good" are different facts and the row has to be able to tell them apart.
+      identity:        null,
+      identityError:   '',
+      identityLoading: false,
       token:         '',
       showToken:     false,
       storing:       false,
@@ -202,23 +223,74 @@ export default {
       return SETTINGS_OBJECT;
     },
 
-    /** The line under "Connected", or '' when there is nothing recorded to put there. */
+    /**
+     * Who the stored token belongs to.
+     *
+     * What GitHub said a moment ago comes first, and what was recorded when the token was
+     * pasted is the fallback: the recorded copy only exists for tokens that went in through
+     * this page, and `githubIdentity` answers for any of them.
+     */
+    accountLogin() {
+      return this.identity?.login || this.connection?.login || '';
+    },
+
+    /** The line under "Connected", or '' when there is nothing to put there. */
     connectionDetail() {
-      if (!this.connection) {
+      if (!this.hasToken) {
         return '';
       }
 
       const parts = [];
+      const scopes = this.identity ? this.identity.scopes.join(', ') : (this.connection?.scopes || '');
 
-      if (this.connection.scopes) {
-        parts.push(`Scopes: ${ this.connection.scopes }`);
+      if (scopes) {
+        parts.push(`Scopes: ${ scopes }`);
+      } else if (this.identity) {
+        // A fine-grained token lists no scopes at all, which is a fact about the token rather
+        // than a gap in the reading.
+        parts.push('Scopes: none listed, which is what a fine-grained token reports');
       }
 
-      if (this.connection.authorised) {
+      if (this.identity?.expiresAt) {
+        parts.push(`expires ${ asDay(this.identity.expiresAt) }`);
+      } else if (this.identity) {
+        parts.push('no expiry date');
+      }
+
+      if (this.connection?.authorised) {
         parts.push(`stored ${ new Date(this.connection.authorised).toLocaleDateString() }`);
       }
 
       return parts.join(' · ');
+    },
+
+    /**
+     * Whether GitHub answered about the token and the answer was no.
+     *
+     * A 401 or a 403 is GitHub saying the credential is bad. Anything else - no egress from the
+     * pod, no pod at all, a timeout - is nobody having asked, which is a different sentence.
+     */
+    rejected() {
+      return /\b40[13]\b/.test(this.identityError);
+    },
+
+    /**
+     * The chip beside the account.
+     *
+     * "Active" is a claim about the credential, so it is only made once GitHub has answered
+     * for it. A token GitHub rejects, or one nothing could ask about, gets a chip that says
+     * which of those happened rather than a green pill over a credential that does not work.
+     */
+    connectionChip() {
+      if (!this.hasToken) {
+        return null;
+      }
+
+      if (this.identityError) {
+        return { tone: 'warning', label: this.rejected ? 'Rejected by GitHub' : 'Unverified' };
+      }
+
+      return { tone: 'success', label: 'Active' };
     },
   },
 
@@ -254,8 +326,41 @@ export default {
       this.cluster = cluster;
       this.loading = false;
 
-      // The two slower ones, after the page is on the screen.
-      await Promise.all([this.readDevServers(), this.readAccess()]);
+      // The slower ones, after the page is on the screen. Each is a read of something outside
+      // this browser - the pods, Rancher's role bindings, and GitHub by way of a pod - and none
+      // of them is worth making the card wait.
+      await Promise.all([this.readDevServers(), this.readAccess(), this.readIdentity()]);
+    },
+
+    /**
+     * What GitHub says the stored token is, asked from a pod.
+     *
+     * The browser cannot ask this itself. GitHub's CORS policy does not expose the
+     * `github-authentication-token-expiration` header to a page, and Studio never reads the
+     * credential back into the browser anyway - so the question is put from a pod, which can
+     * read the Secret, and only the answer comes back. That is also why this covers tokens
+     * this page never saw: the recorded `connection` only exists for one pasted here.
+     */
+    async readIdentity() {
+      this.identity = null;
+      this.identityError = '';
+
+      if (!this.hasToken) {
+        return;
+      }
+
+      this.identityLoading = true;
+
+      try {
+        this.identity = await githubIdentity();
+      } catch (e) {
+        // Kept and shown. A token GitHub rejects and a pod that cannot reach GitHub both end
+        // up here, and the row says which by repeating what came back. Flattened and capped:
+        // GitHub's 401 body arrives as pretty-printed JSON and this is one line of a row.
+        this.identityError = String(e?.message || e).replace(/\s+/g, ' ').trim().slice(0, 160);
+      } finally {
+        this.identityLoading = false;
+      }
     },
 
     // ---------------------------------------------------------------- sign-off
@@ -324,8 +429,12 @@ export default {
         this.showToken = false;
 
         toastSuccess(this.$store, unchecked ?
-          'Token stored. GitHub could not be reached from this browser, so the account it belongs to is not recorded.' :
+          'Token stored. GitHub could not be reached to say whose it is, so nothing was recorded against it.' :
           `Token stored${ connection?.login ? ` for ${ connection.login }` : '' }.`);
+
+        // The row states what GitHub says about the token that is stored now, not the one that
+        // was stored a moment ago.
+        await this.readIdentity();
       } catch (e) {
         this.tokenError = e instanceof TokenRejected ? e.message : (e?.message || String(e));
       } finally {
@@ -346,6 +455,8 @@ export default {
 
         this.hasToken = false;
         this.connection = null;
+        this.identity = null;
+        this.identityError = '';
         this.token = '';
         toastSuccess(this.$store, 'The stored GitHub token was removed.');
       } catch (e) {
@@ -452,11 +563,22 @@ export default {
      *
      * The counts are the only honest half of this card: Studio does not gate access at all, so
      * the rows say who can already get in, and the number says how many that is.
+     *
+     * The cluster bindings come from Steve rather than from `/v3`. `/v3/clusterRoleTemplateBindings`
+     * answers this Rancher with `{"pagination":{"total":0}}` even for an admin, so the two rows
+     * read a confident "0 users" over two real bindings - and a wrong number is worse here than
+     * no number, because the whole point of the count is the blast radius of the row. The Steve
+     * collection is the CRD itself, so the fields are the Kubernetes ones (clusterName,
+     * roleTemplateName, userName) rather than the v3 ones; both spellings are matched so this
+     * still counts correctly if the v3 shape ever comes back.
+     *
+     * A read that genuinely fails still says so: `count` returns null for a list that is not
+     * there, and null prints as "Rancher would not say" rather than as a zero.
      */
     async readAccess() {
       const [globals, bindings, users] = await Promise.all([
         rancherFetch('/v3/globalRoleBindings').catch(() => null),
-        rancherFetch('/v3/clusterRoleTemplateBindings').catch(() => null),
+        rancherFetch('/v1/management.cattle.io.clusterroletemplatebindings').catch(() => null),
         rancherFetch('/v3/users').catch(() => null),
       ]);
 
@@ -468,15 +590,20 @@ export default {
         const people = new Set();
 
         (list.data || []).filter(match).forEach((binding) => {
-          people.add(binding.userId || binding.userPrincipalId || binding.groupPrincipalId || binding.id);
+          people.add(binding.userName || binding.userId || binding.userPrincipalName ||
+            binding.userPrincipalId || binding.groupPrincipalName || binding.groupPrincipalId || binding.id);
         });
 
         return people.size;
       };
 
+      /** One role on the local cluster, in either the Steve spelling or the v3 one. */
+      const onLocal = (role) => (b) => (b.clusterName || b.clusterId) === 'local' &&
+        (b.roleTemplateName || b.roleTemplateId) === role;
+
       const admins = count(globals, (b) => ['admin', 'restricted-admin'].includes(b.globalRoleId));
-      const owners = count(bindings, (b) => b.clusterId === 'local' && b.roleTemplateId === 'cluster-owner');
-      const members = count(bindings, (b) => b.clusterId === 'local' && b.roleTemplateId === 'cluster-member');
+      const owners = count(bindings, onLocal('cluster-owner'));
+      const members = count(bindings, onLocal('cluster-member'));
       const everyone = users ? (users.data || []).length : null;
 
       const say = (n, word) => (n === null ? 'Rancher would not say' : `${ n } ${ n === 1 ? word : `${ word }s` }`);
@@ -660,8 +787,8 @@ export default {
 
             <div class="settings__row-text">
               <p class="settings__row-head">
-                <template v-if="hasToken && connection && connection.login">
-                  Connected as {{ connection.login }}
+                <template v-if="hasToken && accountLogin">
+                  Connected as {{ accountLogin }}
                 </template>
                 <template v-else-if="hasToken">
                   A token is stored
@@ -670,24 +797,41 @@ export default {
                   Not connected
                 </template>
               </p>
-              <p class="settings__row-note">
-                <template v-if="hasToken && connectionDetail">
-                  {{ connectionDetail }}. GitHub does not report a token's expiry to a browser
-                  request, so this cannot show one.
-                </template>
-                <template v-else-if="hasToken">
-                  Studio never reads the credential back, so it cannot name the account this one
-                  belongs to. Reconnect, paste a replacement, and the account and its scopes are
-                  recorded at that moment.
-                </template>
-                <template v-else>
+              <p class="settings__row-note" data-testid="settings-github-detail">
+                <template v-if="!hasToken">
                   Importing a public repository still works. A private one, and publishing to
                   GitHub, do not.
+                </template>
+                <template v-else>
+                  <template v-if="connectionDetail">{{ connectionDetail }}.</template>
+                  <template v-if="identityLoading">
+                    Asking GitHub what this token is, from a pod.
+                  </template>
+                  <template v-else-if="identityError && rejected">
+                    GitHub says this token is no good: {{ identityError }}. Reconnect with a
+                    replacement; the one stored now will fail the next import or push.
+                  </template>
+                  <template v-else-if="identityError">
+                    Nothing could ask GitHub about it just now: {{ identityError }}. Anything
+                    above it is what was recorded when it was stored.
+                  </template>
+                  <template v-else-if="identity">
+                    Read from GitHub a moment ago. The question is put from an extension pod,
+                    which is what can read the Secret; the credential itself never comes back
+                    into this page.
+                  </template>
+                  <template v-else>
+                    Stored, and nothing has been asked about it.
+                  </template>
                 </template>
               </p>
             </div>
 
-            <SChip v-if="hasToken" tone="success" label="Active" />
+            <SChip
+              v-if="connectionChip"
+              :tone="connectionChip.tone"
+              :label="connectionChip.label"
+            />
 
             <SButton
               variant="neutral"
@@ -951,9 +1095,14 @@ export default {
                 Secrets, kubeconfigs and credentials
               </p>
               <p class="settings__row-note">
-                The design promises these are never sent, redacted on the way out and scanned again
-                before publish. Nothing in this build does either. The GitHub token above sits in a
-                Secret the same ServiceAccount can read.
+                The design promises two things: redaction on the way out, and a scan again before
+                publish. The scan is real, the redaction is not. Nothing redacts - the GitHub token
+                above sits in a Secret the pod's ServiceAccount can read, so a credential the
+                assistant opens goes to the model as it is written. The publish dialog does scan:
+                before a publish it reads the added lines of the diff for tokens, keys and
+                kubeconfig client credentials and names the file and line it found one on. That is
+                a warning at the end and not a block, and it reads the diff rather than anything
+                already sent.
               </p>
             </div>
           </div>

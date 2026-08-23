@@ -28,8 +28,14 @@ import { toastSuccess, toastError } from '../toast';
 import {
   ensureRepo,
   readExtensionFile, writeExtensionFile, extensionUrl, extensionReady, changedFiles, workingDiff,
-  askAssistant, DEFAULT_EXTENSION
+  changeProvenance, askAssistant, DEFAULT_EXTENSION
 } from '../extensions';
+// The review record: where a decision about a change lives, so that it is readable by the
+// queue, the review screen and the publish modal without any of them opening this brief. The
+// brief stays the human record of the outcome; this is the one the gate reads.
+import {
+  readReview, updateReview, gateFrom, currentSigner, whoAsked, signOutcome
+} from '../review';
 import { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
@@ -132,6 +138,49 @@ function clock(at) {
   return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * `2 hours ago`, from an ISO timestamp. '' for anything that is not one.
+ *
+ * The same relative time screens 12 and the publish modal put on a sign-off row, so the two
+ * halves of one gate are not worded two ways on two screens.
+ */
+function ago(iso) {
+  const then = Date.parse(iso || '');
+
+  if (!Number.isFinite(then)) {
+    return '';
+  }
+
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  // Each pair is "how many of the unit below make one of these", and the unit it makes.
+  const scales = [
+    [60, 'minute'], [60, 'hour'], [24, 'day'], [7, 'week'], [4.35, 'month'], [12, 'year'],
+  ];
+
+  let value = seconds;
+  let unit = 'second';
+
+  for (const [size, next] of scales) {
+    if (value < size) {
+      break;
+    }
+
+    value = Math.floor(value / size);
+    unit = next;
+  }
+
+  if (unit === 'second' && value < 45) {
+    return 'just now';
+  }
+
+  return `${ value } ${ unit }${ value === 1 ? '' : 's' } ago`;
+}
+
+/** An empty review record, so the gate can be read before the first fetch lands. */
+const NO_REVIEW = {
+  signoffs: {}, packets: {}, looks: {}, comments: [],
+};
+
 export default {
   name: 'BarnVerification',
 
@@ -164,6 +213,21 @@ export default {
       // Who signed the outcome off and when, as recorded in the brief. Cleared the moment a
       // verdict changes, because it was a sign-off on the answers as they stood.
       signedOff:  null,
+      // The review record: both sign-offs, with the principal and the commit each was given
+      // against. The brief's sign-off line is the human record of the same fact; this is the
+      // one the queue, the review screen and the distribution gate read.
+      review:     NO_REVIEW,
+      // The commit the sign-off is given against, so a later commit leaves it on record and no
+      // longer covering the change. Same reading screen 12 signs the code half against.
+      sha:        '',
+      // The principal the brief records under `## Who asked`, and '' when it records nobody -
+      // which is every brief today, because nothing writes that section yet.
+      asked:      '',
+      // Who the apiserver says is asking. Needed before the sign-off, not after it: the
+      // requester check has to be answerable on screen rather than only in a thrown error.
+      me:         null,
+      // A withdrawal of the outcome sign-off is in flight.
+      revoking:   false,
       // Which criterion the preview was last driven to, so the pane can say what it is showing.
       showing:    -1,
       // The criterion a "Send this back" is in flight for, by index.
@@ -268,7 +332,8 @@ export default {
      * an answer somebody gave, and a criterion nobody can judge is a fact about the criterion.
      */
     canSignOff() {
-      return !!this.criteria.length && !this.failed && !this.undecided && !this.saving;
+      return !!this.criteria.length && !this.failed && !this.undecided && !this.saving &&
+        !this.revoking && !this.requesterBlocker;
     },
 
     /** Why the sign-off button is refusing, in the words the criteria are answered in. */
@@ -285,7 +350,159 @@ export default {
         return `${ this.undecided } criteri${ this.undecided === 1 ? 'on has' : 'a have' } not been looked at yet.`;
       }
 
-      return '';
+      // Last, because it is a fact about who is standing here rather than about the criteria,
+      // and because on every brief that exists today it is empty.
+      return this.requesterBlocker;
+    },
+
+    /**
+     * Where the two questions stand, read from the review record at the current commit.
+     *
+     * The same reduced gate screen 12 draws, so the two screens cannot disagree about who has
+     * answered what. A sign-off given before the branch moved is shown as what it is: still on
+     * record, still named, and no longer about this change.
+     */
+    gate() {
+      return gateFrom(this.review, this.sha);
+    },
+
+    /**
+     * The code gate, as a chip (39:1187).
+     *
+     * The design draws this as "Code approved by Ana Silva" and its job is to tell the reviewer
+     * their job is only the outcome. It is the other half of the gate, so it is read rather
+     * than asserted: when nobody has answered the code question it says so, and when somebody
+     * asked for changes it says that instead of implying an approval.
+     */
+    codeChip() {
+      const signoff = this.gate.code;
+
+      if (!signoff) {
+        return {
+          tone:  'subtle',
+          icon:  'clock',
+          label: 'Code not reviewed yet',
+          title: 'Nobody has answered the code question yet. It is a separate sign-off, taken on the review screen, and it is not yours to give here.',
+        };
+      }
+
+      const who = signoff.name || signoff.principal || 'somebody Rancher did not name';
+      const when = ago(signoff.at);
+
+      if (signoff.verdict === 'changes-requested') {
+        return {
+          tone:  'error',
+          icon:  'alert',
+          label: `${ who } asked for changes to the code`,
+          title: signoff.note || 'No reason was recorded with the request.',
+        };
+      }
+
+      if (this.gate.codeStale) {
+        return {
+          tone:  'warning',
+          icon:  'alert',
+          label: `Code approved by ${ who }, at an earlier commit`,
+          title: `Approved ${ when } against ${ signoff.sha || 'a commit that is no longer the tip' }, and the branch has moved past it. The code question is open again.`,
+        };
+      }
+
+      return {
+        tone:  'success',
+        icon:  'check',
+        label: `Code approved by ${ who }`,
+        title: `Approved ${ when } against ${ signoff.sha || 'this commit' }. Your job here is the outcome: whether it does what the brief said it would.`,
+      };
+    },
+
+    /**
+     * The two gate rows the footer draws (39:1392, 39:1400).
+     *
+     * One boundary with two halves, and the design draws both here so the reviewer can see that
+     * theirs is the second one. `done` is what fills the marker, and it is only true for an
+     * approval that still covers this commit - a stale one is on record and is not a gate that
+     * is closed.
+     */
+    gates() {
+      const say = (signoff, stale, waiting) => {
+        if (!signoff) {
+          return { done: false, text: waiting };
+        }
+
+        const who = signoff.name || signoff.principal || 'somebody Rancher did not name';
+        const when = ago(signoff.at);
+
+        if (signoff.verdict === 'changes-requested') {
+          return { done: false, text: `changes requested by ${ who } ${ when }` };
+        }
+
+        return {
+          done: !stale,
+          text: stale
+            ? `${ who } approved an earlier commit, so it no longer covers this one`
+            : `${ who } · ${ when }`,
+        };
+      };
+
+      // "you · in progress" is what the design draws, and it is true whenever the sign-off is
+      // this session's to give. When the brief names somebody else it is not, and the row says
+      // who it is waiting for rather than pretending it is waiting for the reader.
+      const waitingOutcome = this.asked && this.me && this.asked !== this.me.principal
+        ? `waiting on ${ this.asked }`
+        : 'you · in progress';
+
+      return [
+        {
+          id: 'code', label: 'Code review', ...say(this.gate.code, this.gate.codeStale, 'not signed off'),
+        },
+        {
+          id:    'outcome',
+          label: 'Outcome sign-off',
+          ...say(this.gate.outcome, this.gate.outcomeStale, waitingOutcome),
+        },
+      ];
+    },
+
+    /**
+     * Whether the person standing here is the one the brief says asked for this.
+     *
+     * '' means nothing is holding them back, which is either because the brief names them or
+     * because it names nobody. The distinction is said out loud in `requesterNote` rather than
+     * folded away, because "no requester recorded" and "you are the requester" are different
+     * facts and only one of them is a check.
+     */
+    requesterBlocker() {
+      if (!this.asked) {
+        return '';
+      }
+
+      if (!this.me) {
+        return `The brief records ${ this.asked } as the person who asked for this, and Rancher would not say who you are, so a sign-off here could not be attributed to anybody.`;
+      }
+
+      return this.asked === this.me.principal
+        ? ''
+        : `The brief records ${ this.asked } as the person who asked for this, and the outcome sign-off is theirs to give. You are signed in as ${ this.me.principal }.`;
+    },
+
+    /**
+     * What the screen says about the requester check, including when there is nothing to check.
+     *
+     * Nothing in the Studio writes a `## Who asked` section into a brief today, so on every
+     * extension that exists the check is inert. Saying "the requester is verified" would be a
+     * claim about a section that is never written; saying nothing at all would imply a check
+     * that is not happening. So it says which of the two it is.
+     */
+    requesterNote() {
+      if (this.requesterBlocker) {
+        return this.requesterBlocker;
+      }
+
+      if (this.asked) {
+        return 'The brief records you as the person who asked for this, so the outcome sign-off is yours to give.';
+      }
+
+      return 'This brief records no `## Who asked`, and nothing in the Studio writes one yet, so the sign-off is not held to a requester. Whoever gives it is recorded by name against this commit.';
     },
 
     /** What the preview pane is showing, said on the pane rather than left to be inferred. */
@@ -481,11 +698,23 @@ export default {
 
       this.loading = true;
 
-      const [brief, changed, diff, pkg] = await Promise.all([
+      const [brief, changed, diff, pkg, review, provenance, asked, me] = await Promise.all([
         readExtensionFile(this.extension, 'BRIEF.md').catch(() => ''),
         changedFiles(this.extension).catch(() => []),
         workingDiff(this.extension).catch(() => ''),
         readExtensionFile(this.extension, 'package.json').catch(() => ''),
+        // Who has decided what about this change. A missing record is the normal state of an
+        // extension nobody has reviewed and costs one 404.
+        readReview(this.extension).catch(() => NO_REVIEW),
+        // The commit a sign-off is given against, so it can go stale when the branch moves.
+        changeProvenance(this.extension).catch(() => null),
+        // Who the brief says asked for this, and '' when it says nobody - which is every brief
+        // today. Read here rather than only inside `signOutcome` so the screen can say whose
+        // sign-off this is before the button is pressed.
+        whoAsked(this.extension).catch(() => ''),
+        // Who the apiserver attributes this session to. Null when Rancher would not say, which
+        // is the one case where nothing here can be attributed and the sign-off has to refuse.
+        currentSigner().catch(() => null),
       ]);
 
       this.brief = brief;
@@ -498,6 +727,10 @@ export default {
       // box, so recording again silently dropped them.
       this.notes = this.recordedNotes(brief);
       this.signedOff = this.recordedSignoff(brief);
+      this.review = review;
+      this.sha = provenance?.commit?.sha || '';
+      this.asked = asked;
+      this.me = me;
       this.version = this.versionOf(pkg);
       this.loading = false;
 
@@ -715,9 +948,60 @@ export default {
       // takes you back to. Taking the answer back takes the route with it: a route recorded
       // against no verdict is a claim that somebody checked something.
       criterion.route = off ? '' : this.route;
+      const recorded = !!this.gate.outcome;
+
       // A sign-off is a judgement on the answers as they stood. Change one and it is no longer
       // a judgement on anything, so it goes - and the next save writes the file without it.
       this.signedOff = null;
+
+      // The brief's line goes on the next save, which is how this has always worked. The
+      // review record cannot wait for that: it is what the distribution gate reads, and a gate
+      // left open on a verdict somebody has just changed is worse than no gate at all. So the
+      // authoritative half is withdrawn now, and the button that writes the file catches up.
+      if (recorded) {
+        this.revokeOutcome();
+      }
+    },
+
+    /**
+     * Take the outcome sign-off back out of the review record.
+     *
+     * The other half of what changing a verdict already did to the brief. Read-change-write
+     * through `updateReview`, so a second reviewer writing between the two gets a 409 rather
+     * than having their answer silently dropped.
+     */
+    async revokeOutcome(announce = true) {
+      if (this.revoking) {
+        return;
+      }
+
+      this.revoking = true;
+
+      try {
+        this.review = await updateReview(this.extension, (record) => {
+          const signoffs = { ...record.signoffs };
+
+          delete signoffs.outcome;
+
+          return { ...record, signoffs };
+        });
+
+        if (announce) {
+          toastSuccess(
+            this.$store,
+            'The outcome sign-off is out of the review record, so the distribution gate is shut again. The line in BRIEF.md goes when you record the result.',
+            { title: 'Sign-off withdrawn' }
+          );
+        }
+      } catch (e) {
+        toastError(
+          this.$store,
+          `${ e?.message || String(e) } The sign-off is still on record, so the gate is still open on it.`,
+          { title: 'Could not withdraw the sign-off' }
+        );
+      } finally {
+        this.revoking = false;
+      }
     },
 
     /** "Checked 12:41 · admin", or just the time when the shell has no name for the user. */
@@ -738,6 +1022,14 @@ export default {
       this.saving = true;
 
       try {
+        // The brief and the review record are two halves of one fact, so a save writes both.
+        // `record()` below drops the sign-off line whenever `signedOff` is null; this drops the
+        // matching entry. It is a safety net rather than the main path - `set()` withdraws it
+        // the moment the verdict changes - and it is quiet, because that toast has been shown.
+        if (!this.signedOff && this.gate.outcome) {
+          await this.revokeOutcome(false);
+        }
+
         await writeExtensionFile(this.extension, 'BRIEF.md', this.record(this.brief));
         toastSuccess(this.$store, message, 'Written into BRIEF.md.');
         await this.load();
@@ -753,19 +1045,48 @@ export default {
      *
      * The judgement this screen exists to take, and it is about the problem rather than about
      * the code: every criterion the brief set has been answered, and none of them was answered
-     * No. It is refused while one is, which is the design's rule and the only half of it this
-     * screen can keep - nothing in the publish path reads the brief, so signing off does not
-     * unblock a publish and the screen does not say that it does.
+     * No. It is refused while one is, which is the design's rule.
      *
-     * It is recorded in the brief, beside the verdicts it was given for, so it survives a
-     * reload and anybody who opens the file can see who closed it and when.
+     * It is one of the two answers the distribution gate needs, so it does hold that shut. It
+     * does not hold a local load or a push to GitHub, which are deliberately ungated, and the
+     * screen says which of the three it is rather than implying it blocks a publish.
+     *
+     * It is recorded twice, and the two records are not redundant. The review ConfigMap is the
+     * authority: it carries the Rancher principal the apiserver attributes this session to and
+     * the commit the answer was given against, and it is what the queue, the review screen and
+     * the distribution gate read. The brief carries the human sentence, beside the verdicts it
+     * was given for, so anybody who opens the file in the repository can see who closed it.
+     *
+     * The record goes first. If it is refused - and it is refused when the brief names somebody
+     * else as the person who asked - nothing is written to the brief either, because a brief
+     * claiming a sign-off the gate does not hold is the worst of the three outcomes.
      */
     async signOff() {
       if (!this.canSignOff) {
         return;
       }
 
-      this.signedOff = { by: this.signedInAs, on: today() };
+      this.saving = true;
+
+      let signoff = null;
+
+      try {
+        signoff = await signOutcome(this.extension, {
+          verdict: 'approved',
+          sha:     this.sha,
+          note:    this.notes.trim(),
+        });
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The outcome sign-off was refused' });
+      } finally {
+        this.saving = false;
+      }
+
+      if (!signoff) {
+        return;
+      }
+
+      this.signedOff = { by: signoff.name || signoff.principal, on: today() };
 
       await this.save('Outcome signed off');
     },
@@ -1048,6 +1369,19 @@ export default {
 
       <SBadge :status="verdictBadge" :label="verdictLabel" />
 
+      <!--
+        39:1187: the other half of the gate, so the reviewer knows their job is only the
+        outcome. Read out of the review record rather than asserted, so it says "not reviewed
+        yet" and "asked for changes" as readily as it says "approved".
+      -->
+      <SChip
+        data-testid="verify-code-gate"
+        :icon="codeChip.icon"
+        :tone="codeChip.tone"
+        :label="codeChip.label"
+        :title="codeChip.title"
+      />
+
       <span class="verify__grow" />
 
       <SButton
@@ -1210,8 +1544,10 @@ export default {
                 <div v-if="c.verdict === 'fail' || c.note" class="verify__failed">
                   <p v-if="c.verdict === 'fail'" class="verify__failed-rule">
                     A No holds the outcome sign-off open until it is answered Yes; a "Can't
-                    tell" does not. It does not stop a publish - nothing in the publish path
-                    reads this brief.
+                    tell" does not. The sign-off is one of the two answers the distribution gate
+                    needs, so a No holds that shut as well. It does not stop loading this into
+                    this Rancher or pushing the source to GitHub - those are deliberately
+                    ungated.
                   </p>
 
                   <div class="verify__note">
@@ -1358,8 +1694,46 @@ export default {
 
     <!-- sign-off bar (39:1391) -->
     <div class="verify__signoff">
-      <SIcon name="user" :size="15" />
-      <span class="verify__signoff-text">{{ signoffText }}</span>
+      <div class="verify__signoff-say">
+        <!--
+          39:1392 and 39:1400: both gates, in the order the design puts them, so the reviewer
+          can see that theirs is the second one. The same rows screen 12 and the publish modal
+          draw, off the same record.
+        -->
+        <div
+          class="verify__gates"
+          data-testid="verify-signoffs"
+          title="Two questions, and they are not the same question: whether the code is right, and whether it did the job. Each is recorded against the commit it was given for, with the Rancher principal who gave it - recorded, not attested: there is no server in this product to sign anything."
+        >
+          <div
+            v-for="g in gates"
+            :key="g.id"
+            class="verify__gate"
+            :data-testid="`verify-gate-${ g.id }`"
+            :data-done="g.done ? 'yes' : 'no'"
+          >
+            <span class="verify__gate-dot" :class="{ 'verify__gate-dot--on': g.done }">
+              <SIcon v-if="g.done" name="check" :size="9" />
+            </span>
+            <span class="verify__gate-label">{{ g.label }}</span>
+            <span class="verify__gate-sub">{{ g.text }}</span>
+          </div>
+        </div>
+
+        <div class="verify__signoff-line">
+          <SIcon name="user" :size="15" />
+          <span class="verify__signoff-text">{{ signoffText }}</span>
+        </div>
+
+        <!--
+          Who the sign-off belongs to, and the honest version of that on every brief that
+          exists: nothing writes `## Who asked` yet, so the requester check has nothing to
+          check. Said rather than left out, because silence here reads as a check happening.
+        -->
+        <p class="verify__requester" data-testid="verify-requester">
+          {{ requesterNote }}
+        </p>
+      </div>
 
       <span class="verify__grow" />
 
@@ -1394,7 +1768,7 @@ export default {
         data-testid="verify-sign-off"
         :loading="saving"
         :disabled="!canSignOff"
-        :title="signOffBlocker || 'Records in the brief that the outcome is signed off'"
+        :title="signOffBlocker || 'Records the outcome sign-off against this commit, in the review record the distribution gate reads and in the brief'"
         @click="signOff"
       >
         Sign off on the outcome
@@ -1821,9 +2195,72 @@ $verdicts-edge:   1px;
     flex:        0 0 auto;
   }
 
+  &__signoff-say {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-4);
+    min-width:      0;
+  }
+
+  &__signoff-line {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+  }
+
   &__signoff-text {
     font:  var(--studio-body-13);
     color: var(--studio-text-secondary);
+  }
+
+  &__gates {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-16);
+    flex-wrap:   wrap;
+  }
+
+  // One gate: a marker that is filled or not, the question it answers, and who answered it.
+  // The same shape screen 12's decision bar draws, because it is the same fact.
+  &__gate {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+  }
+
+  &__gate-dot {
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    flex:            0 0 auto;
+    width:           13px;
+    height:          13px;
+    border-radius:   var(--studio-radius-pill);
+    border:          1px solid var(--studio-border-strong);
+    background:      var(--studio-surface);
+    color:           var(--studio-on-status);
+
+    &--on {
+      background:   var(--studio-green-500);
+      border-color: var(--studio-green-500);
+    }
+  }
+
+  &__gate-label {
+    font:  var(--studio-body-13);
+    color: var(--studio-text-secondary);
+  }
+
+  &__gate-sub {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
+  }
+
+  &__requester {
+    margin:    0;
+    font:      var(--studio-caption-12);
+    color:     var(--studio-text-tertiary);
+    max-width: 70ch;
   }
 
   &__notes-input {

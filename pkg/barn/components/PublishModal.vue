@@ -6,23 +6,33 @@
 // separate choice", replacing "the single Publish locally split button", so nothing here may be
 // ticked for you and nothing may be implied.
 //
-// Two of the four destinations exist in this product and two do not, and this dialog says which
-// is which rather than drawing four boxes and quietly dropping two of them:
+// The frame draws four destinations and this dialog draws five, because the boundary the frame
+// puts behind "OCI repository" is one this product can cross - just not by that route. So the
+// gate gets two rows, the one that works and the one that does not, and each says which it is
+// rather than four boxes with two quietly dropped:
 //
 //   This Rancher     - real. Builds in the pod and points a UIPlugin at the result. Ungated by
 //                      design (INTENT rule 2: "dev preview and developer load ask nobody").
-//   OCI repository   - THE GATE, and not built. Nothing in this product produces an OCI artefact
-//                      or pushes one, so the box is not offered. The sign-offs it would demand
-//                      are still read and shown, because they are real and they are what the
-//                      row would be waiting for.
-//   GitHub           - real, but it is a push to the repository's default branch, not the pull
-//                      request the design promises. The row says so in those words. See the
-//                      return note: fixing that is `publishExtensionToGithub()`'s job, and that
-//                      function lives in a file this screen does not own.
+//   OCI repository   - THE GATE, and not built. A registry push needs a Helm chart built from
+//                      the extension and a client to push it with; the pod has neither, and no
+//                      registry is configured anywhere in this product. The row stays, with its
+//                      reason and its "The gate" tag, because hiding it would hide the model.
+//   The repository   - THE GATE, and the half that works. `distributeExtension()` puts the
+//                      signed packet's own commit on the connected repository's default branch,
+//                      and its first line is `assertGateOpen()`. Ticking this row is how the
+//                      gate is reached from a screen.
+//   GitHub           - real, and it is the way in rather than the way out. `handOverForReview()`
+//                      assembles a packet, pushes `barn/<extension>/<n>` and opens a pull
+//                      request against the default branch. Nothing is merged, and it asks
+//                      nobody for a sign-off, because pushing is how you ask for one.
 //   SUSE catalog     - no catalog to submit to from anywhere in this environment, and no
 //                      submission to make. Listed, because it is the destination that costs the
 //                      most approval and leaving it out would hide that; not tickable, because
 //                      ticking it could not do anything.
+//
+// Both gated rows render `distributionGate()`'s sentence underneath them. The gate has eight
+// refusal states and a whole sentence for each precisely so that the person who is blocked
+// reads the one that applies to them, instead of a disabled control with no reason on it.
 //
 // The three pre-flight checks are two real scans and one honest blank:
 //
@@ -51,16 +61,24 @@ import {
   changedFiles, publishedVersion, workingDiff, changeProvenance,
   readExtensionFile, writeExtensionFile
 } from '../extensions';
-import { readReview, gateFrom } from '../review';
+import {
+  readReview, gateFrom, distributionGate, distributionDestinations
+} from '../review';
+import { readStudioSettings, DEFAULT_POLICY, LEVELS } from '../studio-settings';
 import { readFailure } from '../publish-failure';
 import { REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, BUILD_FAILED_ROUTE } from '../editor-product';
 
 /**
- * The four destinations the frame draws, in its order.
+ * The destinations, in the frame's order with the working half of the gate beside the one that
+ * is not built.
  *
  * `available: false` is not a disabled checkbox with no explanation. Each unavailable row states
  * what would have to exist for it to work, which is the difference between a control that is off
  * and a control that lies.
+ *
+ * `gated: true` means the row is answered at render from `distributionDestinations()` (can this
+ * Studio perform it) and `distributionGate()` (is it allowed to). Neither is a constant, so
+ * neither `available` nor the requirement chip is written down here.
  */
 const TARGETS = [
   {
@@ -77,11 +95,16 @@ const TARGETS = [
     id:        'oci',
     label:     'Push to an OCI repository',
     tag:       'The gate',
-    requires:  'Code review required',
-    requiresIcon: 'code',
-    available: false,
+    gated:     true,
     note:      'The one hard gate in the design: the point an extension becomes installable by people who did not build it, and the only step that asks anybody for permission.',
-    why:       'Not built. Nothing in this Studio produces an OCI artefact or pushes one, and no registry is configured for it to push to. The sign-offs below are read and shown anyway, because they are what this row would be waiting for.',
+  },
+  {
+    id:        'repository',
+    label:     'Put the reviewed packet on the repository',
+    tag:       'The gate',
+    gated:     true,
+    note:      'The same boundary by the route this Studio can take: the signed packet\'s own commit goes onto the connected repository\'s default branch, which is what a release is built from.',
+    undo:      'Not reversible from here. What leaves is the commit that was signed off, not whatever the tip has become since.',
   },
   {
     id:        'github',
@@ -90,10 +113,12 @@ const TARGETS = [
     requires:  'No sign-off',
     requiresIcon: '',
     available: true,
-    note:      'Commits the package and pushes it to the connected repository. The next dialog asks which one, and for a token if there is not one yet.',
-    // The design promises a pull request here. The code does not open one, and saying "PR" over
-    // a push to main would be a materially different promise from the one being kept.
-    undo:      'Not reversible from here, and not a pull request: it pushes to the repository\'s default branch (main) directly.',
+    note:      'Hands the change over for review: it assembles a packet, pushes it as a branch of its own and opens a pull request. The next dialog asks which repository, and for a token if there is not one yet.',
+    // Corrected against the code rather than against the design. `handOverForReview()` pushes
+    // `barn/<extension>/<n>` and opens a PR against the default branch, and
+    // `publishExtensionToGithub()` now throws when it is called with no branch at all, so there
+    // is no longer a path from this row to the default branch.
+    undo:      'Nothing is merged: it lands on the branch barn/<extension>/<n> and opens a pull request against the default branch. Closing that pull request is the way back.',
   },
   {
     id:        'catalog',
@@ -106,6 +131,134 @@ const TARGETS = [
     why:       'There is no SUSE catalog reachable from this environment and no submission for this Studio to make, so there is nothing behind this box. It is listed because it is the destination that costs the most approval, not because it can be ticked.',
   },
 ];
+
+/**
+ * The requirement chip on a gated row, per gate state.
+ *
+ * The frame writes "Code review required" on the OCI row as a constant, which is wrong the
+ * moment somebody signs it: the chip is the row's own reading of the gate and has to change
+ * when the thing it names is satisfied. The sentence underneath says who and what; this is the
+ * three words a person scanning the list needs.
+ */
+const GATE_CHIPS = {
+  'no-brief':          { label: 'Needs a brief', icon: 'lock', tone: 'warning' },
+  'no-packet':         { label: 'Never handed over', icon: 'lock', tone: 'warning' },
+  'stale-packet':      { label: 'Sign-offs are stale', icon: 'alert', tone: 'warning' },
+  'awaiting-code':     { label: 'Code review outstanding', icon: 'code', tone: 'warning' },
+  'awaiting-outcome':  { label: 'Outcome sign-off outstanding', icon: 'lock', tone: 'warning' },
+  'changes-requested': { label: 'Changes requested', icon: 'alert', tone: 'error' },
+  'same-signer':       { label: 'Needs a second signer', icon: 'lock', tone: 'warning' },
+  open:                { label: 'Both sign-offs in', icon: 'check', tone: 'success' },
+};
+
+const GATE_READING = { label: 'Reading the sign-offs', icon: 'clock', tone: 'default' };
+const GATE_UNREAD = { label: 'Sign-offs unread', icon: 'alert', tone: 'error' };
+
+/**
+ * Which row of the settings page's sign-off matrix governs which destination here.
+ *
+ * The matrix has four rows and two of them are settable. `dev-preview` is the pod's own dev
+ * server, which this dialog does not publish to, and `catalog` is locked in the settings page
+ * for the same reason it is locked here: there is no catalog to submit to.
+ *
+ * `github` is deliberately absent. The matrix's `repo` row is about the moment an extension
+ * becomes installable by somebody who did not build it, and the GitHub hand-over is not that
+ * moment: it opens a pull request and merges nothing. Pushing is how you ask for a sign-off,
+ * so a policy that demanded one before you could ask would be a policy against asking.
+ */
+const POLICY_ROW = {
+  local:      'dev-load',
+  oci:        'repo',
+  repository: 'repo',
+};
+
+const COLUMN = { code: 'a code review', outcome: 'an outcome sign-off' };
+
+function levelLabel(value) {
+  return LEVELS.find((level) => level.value === value)?.label || value;
+}
+
+/** `a and b`, or `a`, or ''. Two columns is as long as this list ever gets. */
+function list(items) {
+  return items.length > 1 ? `${ items.slice(0, -1).join(', ') } and ${ items[items.length - 1] }` : (items[0] || '');
+}
+
+function columnsAt(row, level) {
+  return ['code', 'outcome'].filter((column) => row[column] === level).map((column) => COLUMN[column]);
+}
+
+/**
+ * What the stored sign-off policy asks for at one destination, and where the design overrules it.
+ *
+ * The policy decides what is REQUIRED. The review record decides what is SATISFIED, and
+ * `distributionGate()` is the only thing that compares the two. This says neither: it is what
+ * the row tells you it is being held to, and it says out loud when a stored value is not the
+ * one being obeyed.
+ *
+ * Neither settable row can change what happens, and that is the design rather than an omission:
+ *
+ *   dev-load  reaches only this Rancher and is ungated forever (REVIEW-SYSTEM rule 2), so no
+ *             value here can add a sign-off to it.
+ *   repo      is the one hard gate (rule 1) and takes two approvals from two different people,
+ *             which is already the strongest thing the matrix can say, so no value here can
+ *             take one away.
+ *
+ * So a stored value either agrees with the design or is ignored, and this is which. Anything
+ * that has to be able to change the answer belongs in `distributionGate()`, not in a dialog:
+ * a gate enforced in the UI and not in the function is not a gate.
+ */
+function policyNote(id, policy) {
+  const row = policy[POLICY_ROW[id]];
+
+  if (!row) {
+    return '';
+  }
+
+  if (POLICY_ROW[id] === 'dev-load') {
+    const required = columnsAt(row, 'required');
+
+    if (required.length) {
+      return `Settings ask for ${ list(required) } before a developer load. That is recorded and not obeyed: this destination reaches only this Rancher, it is ungated by design, and nothing here asks anybody for anything.`;
+    }
+
+    const notified = columnsAt(row, 'notified');
+
+    if (notified.length) {
+      return `Settings ask to be notified of ${ list(notified) } here. That is why the sign-offs are shown below; they never hold this destination up.`;
+    }
+
+    return '';
+  }
+
+  const weaker = ['code', 'outcome'].filter((column) => row[column] !== 'required');
+
+  if (!weaker.length) {
+    return 'Settings require both sign-offs here, which is what the gate enforces.';
+  }
+
+  const put = weaker.map((column) => `${ COLUMN[column] } at "${ levelLabel(row[column]) }"`);
+
+  return `Settings put ${ list(put) }. The gate takes both regardless, because this is the one boundary the design fixes, so the weaker value is recorded and not obeyed.`;
+}
+
+/**
+ * The requirement chip when the policy has something to add to it.
+ *
+ * Only the developer load, and only for "Notified": the row still requires no sign-off, which
+ * is what the chip says, but "shown to you and never waited for" is a different thing from
+ * "nobody is looking", and the chip is where that difference is read at a glance.
+ */
+function policyChip(id, policy) {
+  const row = policy[POLICY_ROW[id]];
+
+  if (!row || POLICY_ROW[id] !== 'dev-load') {
+    return null;
+  }
+
+  const notified = columnsAt(row, 'notified').length && !columnsAt(row, 'required').length;
+
+  return notified ? { label: 'Sign-offs advisory', icon: 'info', tone: 'default' } : null;
+}
 
 // --- pure scan helpers (tested by scripts/feature-audit scratch harness) ---
 
@@ -386,8 +539,21 @@ export default {
       changelog:    '',
 
       provenance: { edited: '', commit: { sha: '', subject: '' } },
-      review:     { signoffs: {} },
+      review:     { signoffs: {}, packets: {} },
       failure:    null,
+
+      // The gate, and what this Studio can distribute to. Two separate reads because they are
+      // two separate questions - whether the destination exists, and whether it is allowed -
+      // and either can fail without the other.
+      distGate:          null,
+      distGateError:     '',
+      destinations:      [],
+      destinationsError: '',
+
+      // The sign-off policy the settings page writes. Null until it has been read, and null
+      // for a cluster that has never opened that page - both read as the defaults, so this
+      // dialog behaves exactly as it did before the matrix existed.
+      policy: null,
 
       saving: false,
       error:  '',
@@ -395,8 +561,97 @@ export default {
   },
 
   computed: {
+    /**
+     * The rows, with the two gated ones answered from the live gate rather than from constants.
+     *
+     * A row is tickable only when this Studio can perform the destination AND the gate is open,
+     * and whichever of the two says no says so in a whole sentence beside the row. That is the
+     * point of the gate having eight refusal states: the person who is blocked reads the one
+     * that applies to them.
+     */
     targets() {
-      return TARGETS;
+      const policy = this.studioPolicy;
+
+      return TARGETS.map((target) => {
+        if (!target.gated) {
+          // The policy never decides `available` here. What a destination costs is a setting;
+          // what the design fixes is not, and the two ungated rows stay ungated whatever the
+          // matrix holds. `policyNote` is where a value that is not being obeyed is admitted.
+          const override = policyChip(target.id, policy);
+
+          return {
+            ...target,
+            requires:     override?.label || target.requires,
+            requiresIcon: override?.icon || target.requiresIcon,
+            requiresTone: override?.tone || (target.requires === 'No sign-off' ? 'subtle' : 'warning'),
+            gateReason:   '',
+            policyNote:   policyNote(target.id, policy),
+          };
+        }
+
+        const destination = this.destinations.find((each) => each.id === target.id) || null;
+        const chip = this.gateChip;
+
+        let why = '';
+
+        if (this.destinationsError) {
+          why = `This Studio could not read where it can distribute to, so nothing here can be ticked: ${ this.destinationsError }`;
+        } else if (!destination) {
+          why = 'Reading what this Studio can distribute to.';
+        } else if (!destination.available) {
+          why = destination.reason;
+        }
+
+        return {
+          ...target,
+          // Still the gate and the destination, and deliberately not the policy: the strongest
+          // thing the matrix can say about this row is what the gate already enforces, so a
+          // policy that could change this would be a second gate disagreeing with the first.
+          available:    !!destination?.available && !!this.distGate?.open,
+          why,
+          gateReason:   this.gateSentence,
+          requires:     chip.label,
+          requiresIcon: chip.icon,
+          requiresTone: chip.tone,
+          policyNote:   policyNote(target.id, policy),
+        };
+      });
+    },
+
+    /** The stored policy, or the defaults when it has never been written or could not be read. */
+    studioPolicy() {
+      return this.policy || DEFAULT_POLICY;
+    },
+
+    /** Three words for the chip. */
+    gateChip() {
+      if (this.distGateError) {
+        return GATE_UNREAD;
+      }
+
+      return this.distGate ? (GATE_CHIPS[this.distGate.state] || GATE_READING) : GATE_READING;
+    },
+
+    /** The sentence the gate refuses with, or the one it opens with. */
+    gateSentence() {
+      if (this.distGateError) {
+        return `The sign-offs could not be read, so this Studio cannot say whether the gate is open: ${ this.distGateError }`;
+      }
+
+      return this.distGate ? this.distGate.reason : 'Reading the packet and the sign-offs out of the pod.';
+    },
+
+    /**
+     * The pull request the packet the gate is talking about was handed over on.
+     *
+     * The gate's sentence names a packet number; this is the link to it. It is the review
+     * record's own `packets[n].pr`, which nothing else on any screen reads.
+     */
+    gatePacketPr() {
+      const n = this.distGate?.packet;
+      const packet = n ? (this.review.packets || {})[String(n)] : null;
+
+      return packet?.pr?.url ? packet.pr : null;
     },
 
     added() {
@@ -446,7 +701,12 @@ export default {
       }
 
       if (gate.codeStale) {
-        return `Reviewed by ${ who } ${ ago(signoff.at) }, against an earlier commit than this one.`;
+        // `gateFrom` reports a sign-off that names no commit as stale too, and that is a
+        // different fact from a branch that moved: nothing was recorded about what was
+        // reviewed, so there is nothing that could cover this commit or any other.
+        return signoff.sha
+          ? `Reviewed by ${ who } ${ ago(signoff.at) }, against an earlier commit than this one.`
+          : `Reviewed by ${ who } ${ ago(signoff.at) }, but the review records no commit, so nothing says it was this change.`;
       }
 
       return `Reviewed by ${ who } ${ ago(signoff.at) }.`;
@@ -476,11 +736,22 @@ export default {
           return { tone: 'refused', icon: 'alert', text: `${ who } asked for changes ${ when }.` };
         }
 
+        if (stale && !signoff.sha) {
+          // Stale for the other reason: the record names no commit at all. Written before
+          // `signCodeReview`/`signOutcome` began refusing a sha that is not an object id, and
+          // read honestly rather than as an approval of whatever is on the branch today.
+          return {
+            tone: 'stale',
+            icon: 'alert',
+            text: `${ who } approved ${ when }, without recording which commit. It cannot be said to cover this one.`,
+          };
+        }
+
         if (stale) {
           return {
             tone: 'stale',
             icon: 'alert',
-            text: `${ who } approved ${ when }, at ${ signoff.sha || 'an earlier commit' }. The branch has moved past it.`,
+            text: `${ who } approved ${ when }, at ${ signoff.sha.slice(0, 12) }. The branch has moved past it.`,
           };
         }
 
@@ -501,11 +772,11 @@ export default {
      * Why the sign-offs are here at all (42:1229).
      *
      * The note in the frame ties them to the destination rather than to publishing: loading into
-     * a Rancher to try it needs nobody. That is INTENT rule 2, and it stays true here even though
-     * the destination that demands them cannot be ticked.
+     * a Rancher to try it needs nobody. That is INTENT rule 2, and it is what keeps the two
+     * ungated destinations ungated while the two gated ones are refused above.
      */
     signoffNote() {
-      return 'Two people answer two questions, and only the OCI push asks for them. Loading this into a Rancher to try it, or pushing the source to GitHub to ask for a review, needs nobody.';
+      return 'Two people answer two questions, and only leaving the gate - putting the packet where people who did not build it can install it - asks for them. Loading this into a Rancher to try it, or handing it over on GitHub to ask for a review, needs nobody.';
     },
 
     /** The three pre-flight rows (16:844, 16:850, 16:862). */
@@ -648,11 +919,19 @@ export default {
         parts.push('the load into this Rancher can be taken back off with "Remove local install"');
       }
 
-      if (this.chosen.includes('github')) {
-        parts.push('the push to GitHub cannot be undone from here, because it lands on the default branch');
+      if (this.chosen.includes('repository')) {
+        parts.push('the distribution puts the signed packet on the default branch and cannot be undone from here');
       }
 
-      return `${ parts.join(', and ') }.`;
+      if (this.chosen.includes('github')) {
+        parts.push('the hand-over on GitHub merges nothing, so closing its pull request is the way back');
+      }
+
+      // Two reads as "a, and b"; three as "a, b and c". Joining every pair with ", and" was
+      // fine while there were only two destinations that could be ticked.
+      const last = parts.pop();
+
+      return `${ parts.length ? `${ parts.join(', ') } and ` : '' }${ last }.`;
     },
 
     publishLabel() {
@@ -719,6 +998,28 @@ export default {
 
     readReview(this.extension).then((review) => {
       this.review = review;
+    }).catch(() => null);
+
+    // The gate, read before the rows are drawn. An enabled control that throws is as
+    // unacceptable here as a disabled one with no reason: the state is known first, and both
+    // gated rows are drawn from it.
+    distributionGate(this.extension).then((gate) => {
+      this.distGate = gate;
+    }).catch((e) => {
+      this.distGateError = e?.message || String(e);
+    });
+
+    distributionDestinations(this.extension).then((destinations) => {
+      this.destinations = destinations;
+    }).catch((e) => {
+      this.destinationsError = e?.message || String(e);
+    });
+
+    // What this Rancher's administrator asked for. Unreadable and never-written both fall back
+    // to `DEFAULT_POLICY`, which is what the settings page draws, so nothing changes for a
+    // cluster where nobody has been near that page.
+    readStudioSettings().then(({ policy }) => {
+      this.policy = policy;
     }).catch(() => null);
 
     this.failure = readFailure(this.extension);
@@ -844,9 +1145,11 @@ export default {
 
       this.saving = false;
 
-      // In the order they are drawn, so a publish to both lands in this Rancher before it is
-      // handed to the modal that asks about the repository.
-      this.$emit('publish', TARGETS.filter((t) => t.available && this.isChosen(t.id)).map((t) => t.id));
+      // In the order they are drawn, so a publish to several lands in this Rancher first, then
+      // leaves the gate, and only then reaches the modal that asks about the repository.
+      // `this.targets` and not TARGETS: whether a gated row can be published is a reading of
+      // the gate, and a constant here would let a refused destination through.
+      this.$emit('publish', this.targets.filter((t) => t.available && this.isChosen(t.id)).map((t) => t.id));
     },
   },
 };
@@ -961,16 +1264,48 @@ export default {
             <SChip
               v-if="target.tag"
               :label="target.tag"
-              :tone="target.id === 'oci' ? 'warning' : 'default'"
+              :tone="target.gated ? 'warning' : 'default'"
+              :data-testid="`barn-publish-tag-${ target.id }`"
             />
           </span>
           <span class="publish-modal__target-note">{{ target.note }}</span>
           <span v-if="target.available" class="publish-modal__target-undo">{{ target.undo }}</span>
           <span
-            v-else
+            v-else-if="target.why"
             class="publish-modal__target-why"
             :data-testid="`barn-publish-unavailable-${ target.id }`"
           >{{ target.why }}</span>
+
+          <!--
+            The gate's own sentence, beside the destination it blocks. Both gated rows carry it,
+            including the one that could not be performed anyway: which of the two reasons
+            applies to you is exactly the thing you cannot work out from a padlock.
+          -->
+          <span
+            v-if="target.gateReason"
+            class="publish-modal__target-gate"
+            :data-testid="`barn-publish-gate-${ target.id }`"
+          >
+            {{ target.gateReason }}
+            <a
+              v-if="gatePacketPr"
+              :href="gatePacketPr.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              :data-testid="`barn-publish-gate-pr-${ target.id }`"
+            >pull request #{{ gatePacketPr.number }}</a>
+          </span>
+
+          <!--
+            What this Rancher's sign-off policy asks for at this destination, and where the
+            design overrules it. Never a control: the matrix is read here, and the only thing
+            that compares it with the review record is the gate itself.
+          -->
+          <span
+            v-if="target.policyNote"
+            class="publish-modal__target-policy"
+            :data-testid="`barn-publish-policy-${ target.id }`"
+          >{{ target.policyNote }}</span>
         </span>
 
         <SChip
@@ -1213,6 +1548,26 @@ export default {
   &__target-why {
     font:  var(--studio-caption-12);
     color: var(--studio-text-tertiary);
+  }
+
+  &__target-gate {
+    margin-top:    var(--studio-space-4);
+    padding:       var(--studio-space-4) var(--studio-space-8);
+    border-left:   2px solid var(--studio-border-strong);
+    background:    var(--studio-surface-subtle);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
+
+    a {
+      color: var(--studio-text-link);
+    }
+  }
+
+  &__target-policy {
+    margin-top: var(--studio-space-4);
+    font:       var(--studio-caption-12);
+    color:      var(--studio-text-tertiary);
+    font-style: italic;
   }
 
   &__requires {

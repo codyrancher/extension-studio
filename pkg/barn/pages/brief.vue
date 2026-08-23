@@ -17,11 +17,17 @@
 // terms in the brief's own title and problem, and reports the file and line of each hit - or
 // says plainly that there were none, which is a finding rather than an empty state.
 //
-// Gone. The masthead's "Send questions to the requester". There is no requester in this product
-// - no ticket, no reporter, no messaging - and no list of questions to send either. A button
-// that cannot name who it sends to is not a feature waiting on plumbing, it is a promise about
-// a workflow this product does not have, so it is removed rather than reinterpreted into
-// something else wearing its label.
+// Gone. The masthead's "Send questions to the requester", and the per-question "Ask the
+// requester" beside it. There is now a requester - screen 02 records whoever created the
+// extension under `## Who asked`, and this screen names them on the first card - but there is
+// still nothing to send with. Rancher has no messaging between users, this Studio has no
+// ticket system to comment on, and a button that names a person it cannot reach is worse than
+// no button, not better. So the requester is shown and the send is still absent.
+//
+// Read, not written, here. `## Who asked` and `## The challenge` are both quoted by this
+// screen and owned by something else - the first by screen 02 at creation, the second by the
+// assistant in the pod. Neither is in `ownedSections`, which is what keeps `briefDocument`
+// copying them through untouched on every autosave.
 //
 // Here instead. The open questions the design draws as cards (34:1090 and the two under it) are
 // a real list, kept in BRIEF.md under `## Open questions`, marked Blocking or Worth asking, and
@@ -30,6 +36,19 @@
 // this file, which is a thing it can actually do, unlike sending a message to a person this
 // product has never heard of. Reading them back is a button, because the pod writes the file
 // when it gets round to it rather than when this page would like it to.
+//
+// The callout the design has arguing with the request (34:1012) asks for the argument instead
+// of asserting one. Nothing in this Studio can weigh a request against a problem statement, so
+// the button hands both to the assistant in this extension's pod and asks it to write what it
+// makes of them into `## The challenge` in BRIEF.md; when that section exists, the callout is
+// what it says. That is also the one thing in the product that reads screen 02's two fields
+// against each other, which is what the second field was added for.
+//
+// The second line the design draws under every question card - the rationale, the evidence,
+// the risk - is one optional field, `why`, written under the question in BRIEF.md as an
+// indented `Why:` line. Three moods of the same sentence, so one field; optional, because its
+// only two honest writers are the person and the assistant, and an empty line under every
+// question would be the card claiming a reason nobody gave it.
 //
 // Prior art, likewise, stops at a finding and now goes one step further: a hit opens in the
 // Files screen of the extension it was found in, and "Reuse this" records the decision in the
@@ -99,13 +118,22 @@ export default {
       criteria: ['', '', ''],
       // Who it is for (34:1030). Multi-select, in BRIEF.md, read back on the way in.
       roles:    [],
-      // The open questions (34:1085). `{ severity, text, answer }`, in BRIEF.md. A question
-      // with an answer is settled and stops counting against the card's badge.
+      // The open questions (34:1085). `{ severity, text, why, answer }`, in BRIEF.md. A
+      // question with an answer is settled and stops counting against the card's badge.
+      //
+      // `why` is the second line the design draws under every question - the rationale on the
+      // blocking card, the evidence on the first "Worth asking" one, the risk on the second.
+      // One field for all three, because they are the same sentence in three moods: why this
+      // cannot just be guessed. It is optional, has the same two writers as the question text
+      // itself, and is absent rather than invented when neither of them wrote one.
       questions: [],
       // Which question has its answer box open, by index, or -1. Only one at a time: the box
       // is a text field the width of the card and two of them is a form nobody asked for.
       answeringAt: -1,
       draftAnswer: '',
+      // The same, for the `why` line. Separate index so opening one does not close the other.
+      whyAt:    -1,
+      draftWhy: '',
       newQuestion: '',
       // Prior art this brief has decided to reuse. `{ extension, where }` - the file and line
       // the search found, which is enough for a person to go and read it and enough for the
@@ -148,6 +176,17 @@ export default {
       priorArtError: '',
       // Whether BRIEF.md already carries a `## Where it appears` section. See ownedSections.
       seededPlacement: false,
+      // Who the brief records as having asked for this, read out of `## Who asked` - the
+      // section screen 02 writes at creation and `review.ts` gates the outcome sign-off on.
+      // Read, never written, here: this form does not own it and must copy it through.
+      // null is "the section is not in the file", which is a real answer and the one every
+      // extension made before that section existed gives.
+      askedBy: null,
+      // `## The challenge`, written into the brief by the assistant when somebody asks it to
+      // argue with the request. Read-only here for the same reason.
+      challenge: '',
+      arguing:   false,
+      argued:    '',
     };
   },
 
@@ -226,6 +265,38 @@ export default {
 
     reuseKeys() {
       return new Set(this.reuse.map((r) => `${ r.extension } ${ r.where }`));
+    },
+
+    /**
+     * How long ago the request was made, from the date in `## Who asked`.
+     *
+     * The design's ticket line ends "4 days ago", and this is the one third of it that has a
+     * source. Days rather than hours because the section records a date and nothing finer, and
+     * a screen that says "6 hours ago" off a date is guessing at the clock.
+     */
+    askedAge() {
+      const on = this.askedBy?.on;
+
+      if (!on) {
+        return '';
+      }
+
+      const then = Date.parse(`${ on }T00:00:00`);
+
+      if (Number.isNaN(then)) {
+        return '';
+      }
+
+      const today = new Date();
+      const days = Math.round((Date.parse(
+        `${ today.toISOString().slice(0, 10) }T00:00:00`
+      ) - then) / 86400000);
+
+      if (days <= 0) {
+        return 'today';
+      }
+
+      return days === 1 ? 'yesterday' : `${ days } days ago`;
     },
 
     canAgree() {
@@ -402,6 +473,12 @@ export default {
         this.exists = true;
         this.agreedOn = sections.agreedOn || '';
         this.seededPlacement = /^##\s+Where it appears\s*$/mi.test(text);
+        // Read out of the file rather than through `parseBrief`, deliberately. `parseBrief` is
+        // the list of what this form owns and `briefDocument` writes back everything on it, so
+        // adding either of these there would make the form the author of a section it only
+        // quotes - and the next save would flatten what the assistant or screen 02 wrote.
+        this.askedBy = this.parseAsked(this.readSection(text, 'Who asked'));
+        this.challenge = this.readSection(text, 'The challenge');
       }
 
       this.loading = false;
@@ -523,8 +600,22 @@ export default {
             out.questions.push({
               severity: /^blocking$/i.test(q[1]) ? BLOCKING : WORTH_ASKING,
               text:     q[2],
+              why:      '',
               answer:   '',
             });
+            continue;
+          }
+
+          // `  Why: ` and `  Answer: `, both indented under the question they belong to. Two
+          // continuation lines rather than one longer question line, because the question is
+          // what gets asked and the why is what gets weighed, and a reader of the file should
+          // be able to skim the questions without reading the reasoning under each one.
+          const w = line.match(/^\s{2,}Why:\s*(.*\S)\s*$/);
+
+          if (w && out.questions.length) {
+            const last = out.questions[out.questions.length - 1];
+
+            last.why = last.why ? `${ last.why } ${ w[1] }` : w[1];
             continue;
           }
 
@@ -554,6 +645,53 @@ export default {
       flush();
 
       return out;
+    },
+
+    /**
+     * The body of one `##` section, verbatim, for the sections this form quotes but does not own.
+     *
+     * Walked to the next heading rather than matched with a regex that has to express "up to
+     * the next ## or the end of the file", which is the same loop `review.ts`'s `whoAsked`
+     * uses on this same file for this same reason.
+     */
+    readSection(text, title) {
+      const lines = (text || '').split('\n');
+      const head = new RegExp(`^##\\s+${ title }\\s*$`, 'i');
+      const start = lines.findIndex((line) => head.test(line.trim()));
+
+      if (start < 0) {
+        return '';
+      }
+
+      const body = [];
+
+      for (let i = start + 1; i < lines.length && !/^##\s/.test(lines[i]); i++) {
+        body.push(lines[i]);
+      }
+
+      return body.join('\n').trim();
+    },
+
+    /**
+     * `## Who asked` as the card needs it: a principal, a name and a date.
+     *
+     * The principal is found the same way `review.ts` finds it - the first `scheme://...` run
+     * of non-space characters - so this screen can never name somebody the sign-off gate would
+     * not accept. The name and the date are the rest of the line screen 02 writes and are
+     * allowed to be missing: a brief is a file a person can edit, and a hand-written principal
+     * on its own is still a recorded requester.
+     */
+    parseAsked(body) {
+      const principal = (/([a-z][\w-]*:\/\/\S+)/.exec(body || '')?.[1] || '').trim();
+
+      if (!principal) {
+        return null;
+      }
+
+      const line = (body.split('\n').find((l) => l.includes(principal)) || '').trim();
+      const rest = /^\S+\s+-\s+(?:(.*?),\s+)?on\s+(\d{4}-\d{2}-\d{2})\./.exec(line);
+
+      return { principal, name: rest?.[1] || '', on: rest?.[2] || '' };
     },
 
     addCriterion() {
@@ -628,7 +766,9 @@ export default {
       // New questions arrive as "Worth asking". Calling somebody else's question blocking on
       // their behalf is the one thing this list should not do for them, and the chip on the
       // card changes it in one click.
-      this.questions = [...this.questions, { severity: WORTH_ASKING, text, answer: '' }];
+      this.questions = [...this.questions, {
+        severity: WORTH_ASKING, text, why: '', answer: '',
+      }];
       this.newQuestion = '';
     },
 
@@ -674,6 +814,29 @@ export default {
 
     reopenQuestion(index) {
       this.questions = this.questions.map((q, i) => (i === index ? { ...q, answer: '' } : q));
+    },
+
+    startWhy(index) {
+      this.whyAt = index;
+      this.draftWhy = this.questions[index]?.why || '';
+    },
+
+    /**
+     * The second line of a question card (the design's 34:1095 and the two like it).
+     *
+     * Why the question cannot be guessed, what makes it worth asking, or what goes wrong if it
+     * is answered the wrong way. It goes into BRIEF.md under the question, so the assistant is
+     * handed the reasoning along with the question rather than the question alone - which is
+     * the difference between it answering and it guessing again.
+     *
+     * Emptying the box removes the line rather than leaving a blank one.
+     */
+    saveWhy(index) {
+      const why = this.draftWhy.trim();
+
+      this.questions = this.questions.map((q, i) => (i === index ? { ...q, why } : q));
+      this.whyAt = -1;
+      this.draftWhy = '';
     },
 
     /**
@@ -739,12 +902,22 @@ export default {
      * about a question, both to whoever reads the file and to the assistant that is handed it.
      */
     questionsBody() {
+      const oneLine = (text) => text.trim().replace(/\s+/g, ' ');
+
       const rows = this.questions
         .filter((q) => q.text.trim())
         .map((q) => {
-          const head = `- **${ q.severity }** ${ q.text.trim() }`;
+          const out = [`- **${ q.severity }** ${ q.text.trim() }`];
 
-          return q.answer.trim() ? `${ head }\n  Answer: ${ q.answer.trim().replace(/\s+/g, ' ') }` : head;
+          if (q.why?.trim()) {
+            out.push(`  Why: ${ oneLine(q.why) }`);
+          }
+
+          if (q.answer.trim()) {
+            out.push(`  Answer: ${ oneLine(q.answer) }`);
+          }
+
+          return out.join('\n');
         });
 
       return rows.length ? rows.join('\n') : '_none open_';
@@ -1024,6 +1197,9 @@ export default {
           'line per question in exactly this form, and change nothing else in the file:',
           '`- **Blocking** the question` for a question that stops you starting, or',
           '`- **Worth asking** the question` for one that does not.',
+          'Under each question add one further line, indented by two spaces, in the form',
+          '`  Why: ` followed by why it cannot be guessed - what in the brief made you ask, or',
+          'what goes wrong if it is answered the wrong way. One sentence.',
           'Do not answer them and do not write any other code yet.',
         ].join(' '));
 
@@ -1039,6 +1215,61 @@ export default {
         toastError(this.$store, e?.message || String(e), { title: 'Could not ask the assistant' });
       } finally {
         this.asking = false;
+      }
+    },
+
+    /**
+     * Ask the assistant to argue with the request (34:1012's callout).
+     *
+     * The design has this callout asserting that the ticket named a solution rather than a
+     * problem, and saying why building it as written would miss the point. Nothing in this
+     * Studio can make that judgement - it is a reading of two paragraphs against each other,
+     * which is what the thing in the pod is for - so the callout does not assert it. It asks
+     * for it, and prints what came back.
+     *
+     * Which makes it the same shape as "Ask what is unclear", on purpose: the assistant is
+     * asked to write into a named section of BRIEF.md, the file is re-read, and what it wrote
+     * is rendered here. A section rather than a reply in the terminal, because a reply in the
+     * terminal is gone the moment the pane is closed and this is a judgement about the brief
+     * that belongs with the brief. It is also the one thing in the product that reads screen
+     * 02's two fields against each other, which was the whole point of the second field.
+     */
+    async askItToArgue() {
+      if (this.arguing) {
+        return;
+      }
+
+      this.arguing = true;
+
+      try {
+        clearTimeout(this.saveTimer);
+        await this.saveDraft();
+
+        const how = await askAssistant(this.extension, [
+          `Read BRIEF.md in this package. It is the brief for the ${ this.extension } extension.`,
+          '`## What you were handed` is the request as it was typed and `## The problem` is what',
+          'the person said cannot be done today. Read one against the other and decide whether',
+          'the request names a solution rather than the problem behind it, and whether building',
+          'it exactly as written would miss the point. Then edit BRIEF.md: add a section headed',
+          '`## The challenge` directly under `## What you were handed`, replacing that section if',
+          'it is already there, holding at most four sentences - what you think is being asked',
+          'for, and why building it as written would or would not answer the problem. Say so',
+          'plainly if the request is already a problem statement and there is nothing to argue',
+          'with. Change nothing else in the file and write no code yet.',
+        ].join(' '));
+
+        this.argued = how;
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? 'It is reading the brief now. Press "Re-read the brief" in a moment to see what it says.'
+            : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.',
+          { title: 'Asked it to argue' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not ask the assistant' });
+      } finally {
+        this.arguing = false;
       }
     },
 
@@ -1065,15 +1296,25 @@ export default {
         }
 
         const before = this.questions.length;
+        const hadChallenge = !!this.challenge;
 
         this.ready = false;
         this.loading = true;
         await this.load();
 
         const found = this.questions.length - before;
+        const news = [];
 
-        toastSuccess(this.$store, found > 0
-          ? `${ found } new question${ found === 1 ? '' : 's' } in the brief.`
+        if (found > 0) {
+          news.push(`${ found } new question${ found === 1 ? '' : 's' }`);
+        }
+
+        if (!hadChallenge && this.challenge) {
+          news.push('the assistant\'s argument with the request, in the first card');
+        }
+
+        toastSuccess(this.$store, news.length
+          ? `${ news.join(', and ') } in the brief.`
           : 'Nothing new in the brief yet.');
       } catch (e) {
         toastError(this.$store, e?.message || String(e), { title: 'Could not re-read the brief' });
@@ -1223,18 +1464,46 @@ export default {
                 What you were handed
               </h2>
               <!--
-                The design frames this card as a ticket, with an id, whoever raised it and how
-                long ago. There is no ticket system behind this Studio and no reporter to name,
-                so rather than dressing the one thing it does know in three it does not, the
-                card says where the words came from and stops there.
+                The design frames this card as a ticket: an id, whoever raised it, and how long
+                ago. Two of those three now have a source. The extension records whoever created
+                it under `## Who asked` in the brief, with the date, so the raiser and the age
+                are read rather than invented - and they are the same principal `review.ts`
+                gates the outcome sign-off on, so what this line says is what that rule
+                enforces. The id has no source and is not shown: there is no ticket system
+                behind this Studio to have issued one.
               -->
               <p class="brief__card-note">
                 The request as it was typed in the description step, kept with the brief. There
-                is no ticket system behind this Studio, so there is no id, no reporter and no
-                age to show you.
+                is no ticket system behind this Studio, so there is no id - but the brief
+                records who asked and when.
               </p>
             </header>
             <div class="brief__card-body">
+              <!--
+                Raised by, and how long ago (34:999). Read out of `## Who asked`; absent from
+                every brief written before that section existed, and it says which rather than
+                naming whoever has the page open.
+              -->
+              <div class="brief__raised" data-testid="brief-raised">
+                <SIcon :name="askedBy ? 'user' : 'info'" :size="14" />
+                <template v-if="askedBy">
+                  <span>Asked for by <strong>{{ askedBy.name || askedBy.principal }}</strong></span>
+                  <span v-if="askedAge" class="brief__raised-age">· {{ askedAge }}</span>
+                  <span
+                    class="brief__raised-id"
+                    title="The Rancher principal recorded in the brief. The outcome sign-off is theirs to give."
+                  >
+                    {{ askedBy.principal }}
+                  </span>
+                </template>
+                <span v-else>
+                  Nobody is recorded as having asked for this. The brief has no
+                  <code>## Who asked</code> section, which is how every extension made before the
+                  Studio recorded it reads - so the outcome sign-off will accept whoever gives it
+                  and say that the requester was never recorded.
+                </span>
+              </div>
+
               <div class="brief__ticket" data-testid="brief-request">
                 <SIcon name="book" :size="15" />
                 <p class="brief__ticket-text">
@@ -1254,21 +1523,46 @@ export default {
 
               <!--
                 34:1013's accented callout, which the design has arguing that the request names a
-                solution rather than a problem. Nothing in this product reads the request: the
-                callout used to print the person's own words back at them under a sparkle, which
-                dressed an echo as an observation. So the claim goes and the offer stays - the
-                assistant will argue with the brief, in the terminal, if you ask it to.
+                solution rather than a problem. Nothing in this Studio can make that judgement -
+                it is a reading of the request against the problem statement - so the callout
+                does not assert it, it asks for it. The button puts both to the assistant in
+                this extension's pod and asks it to write its verdict into `## The challenge` in
+                BRIEF.md; when that section is there, this is what it says. Until then the
+                callout says nobody has argued, which is the truth rather than an empty state.
               -->
               <div class="brief__insight" data-testid="brief-insight">
-                <SIcon name="info" :size="15" />
+                <SIcon :name="challenge ? 'sparkle' : 'info'" :size="15" />
                 <div class="brief__quote">
-                  <span class="brief__insight-lead">Nobody has argued with this yet</span>
-                  <p class="brief__insight-text">
-                    A request often names a solution rather than the problem behind it, and this
-                    Studio cannot tell you which this one is: nothing here has read it. Ask what
-                    is unclear, on the right, puts the brief to the assistant working on
-                    {{ extension }} and it answers in that extension's terminal.
+                  <span class="brief__insight-lead">
+                    {{ challenge ? 'The assistant argued with this' : 'Nobody has argued with this yet' }}
+                  </span>
+                  <p v-if="challenge" class="brief__insight-text" data-testid="brief-challenge">
+                    {{ challenge }}
                   </p>
+                  <p v-else class="brief__insight-text">
+                    A request often names a solution rather than the problem behind it, and this
+                    Studio cannot tell you which this one is: nothing here has read it. Asking
+                    puts the request and the problem statement to the assistant working on
+                    {{ extension }} and asks it to write what it makes of them into this brief.
+                  </p>
+                  <p v-if="argued" class="brief__insight-note">
+                    {{ argued === 'sent'
+                      ? 'Asked. It edits the brief when it gets there, so re-read it in a moment.'
+                      : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.' }}
+                  </p>
+                  <div class="brief__card-actions">
+                    <SButton
+                      variant="ghost"
+                      size="sm"
+                      icon="sparkle"
+                      data-testid="brief-ask-challenge"
+                      :loading="arguing"
+                      :disabled="!problem.trim() && !request.trim()"
+                      @click="askItToArgue"
+                    >
+                      {{ challenge ? 'Ask it again' : 'Ask it to argue with this' }}
+                    </SButton>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1411,6 +1705,19 @@ export default {
                 question here lives in <code>BRIEF.md</code>, so it survives this page and is
                 read by whatever reads the brief next.
               </p>
+              <!--
+                The design's "Send 3 questions to the requester" (34:980) and the per-question
+                "Ask the requester" (34:1100) are both still absent, and this is why. There is
+                now a requester - the brief records one - but nothing to send with: Rancher has
+                no messaging between its users and this Studio has no ticket to comment on. A
+                button that names a person it cannot reach is worse than no button.
+              -->
+              <p v-if="askedBy" class="brief__card-note" data-testid="brief-questions-for">
+                These are for <strong>{{ askedBy.name || askedBy.principal }}</strong>, who asked
+                for this. Nothing here can send them: Rancher has no messaging between users and
+                this Studio has no ticket to comment on, so the brief is where they wait and the
+                answers go back into the same file.
+              </p>
             </header>
             <div class="brief__card-body">
               <SBanner v-if="!questions.length" type="info">
@@ -1454,7 +1761,44 @@ export default {
                   {{ q.text }}
                 </p>
 
-                <div v-if="answeringAt === q.index" class="brief__answer">
+                <!--
+                  The second line the design draws under every question (34:1095 and the two
+                  like it): the rationale on the blocking card, the evidence on the first
+                  "Worth asking" one, the risk on the second. It is one field, because those
+                  are one sentence in three moods, and it is only here when somebody or the
+                  assistant wrote one - an empty line under every question would be the card
+                  claiming a reason it does not have.
+                -->
+                <p v-if="q.why" class="brief__question-why" data-testid="brief-question-why">
+                  {{ q.why }}
+                </p>
+
+                <div v-if="whyAt === q.index" class="brief__answer">
+                  <SField
+                    v-model="draftWhy"
+                    label="Why it cannot be guessed"
+                    placeholder="What made you ask, or what goes wrong if this is answered the wrong way."
+                    multiline
+                    :rows="2"
+                    autofocus
+                  />
+                  <div class="brief__card-actions">
+                    <SButton variant="ghost" size="sm" @click="whyAt = -1">
+                      Cancel
+                    </SButton>
+                    <SButton
+                      variant="secondary"
+                      size="sm"
+                      icon="check"
+                      :data-testid="`brief-save-why-${ q.index }`"
+                      @click="saveWhy(q.index)"
+                    >
+                      Save
+                    </SButton>
+                  </div>
+                </div>
+
+                <div v-else-if="answeringAt === q.index" class="brief__answer">
                   <SField
                     v-model="draftAnswer"
                     label="Your answer"
@@ -1491,6 +1835,15 @@ export default {
                   >
                     Answer it myself
                   </SButton>
+                  <SButton
+                    variant="ghost"
+                    size="sm"
+                    icon="info"
+                    :data-testid="`brief-why-${ q.index }`"
+                    @click="startWhy(q.index)"
+                  >
+                    {{ q.why ? 'Edit why it matters' : 'Say why it matters' }}
+                  </SButton>
                 </div>
               </div>
 
@@ -1512,6 +1865,9 @@ export default {
                 </div>
                 <p class="brief__question-text">
                   {{ q.text }}
+                </p>
+                <p v-if="q.why" class="brief__question-why">
+                  {{ q.why }}
                 </p>
                 <p class="brief__question-answer">
                   {{ q.answer }}
@@ -1837,6 +2193,37 @@ export default {
     color: var(--studio-text);
   }
 
+  &__insight-note {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
+  }
+
+  // Who raised it and how long ago (34:999), on one line above the quoted request. A row
+  // rather than a card, because it qualifies the request rather than being a second one.
+  &__raised {
+    display:     flex;
+    align-items: center;
+    flex-wrap:   wrap;
+    gap:         var(--studio-space-6);
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-secondary);
+
+    code { font: var(--studio-caption-12); }
+  }
+
+  &__raised-age,
+  &__raised-id {
+    color: var(--studio-text-tertiary);
+  }
+
+  &__raised-id {
+    font:          var(--studio-mono-12);
+    padding:       1px 6px;
+    border:        1px solid var(--studio-border-subtle);
+    border-radius: var(--studio-radius-control);
+  }
+
   // The autosave readout, next to the chip it qualifies: the chip says what the brief is, this
   // says whether what is on the screen has reached the file yet.
   &__saved {
@@ -1959,6 +2346,14 @@ export default {
     border-left: 2px solid var(--studio-border);
     font:        var(--studio-caption-12);
     color:       var(--studio-text-secondary);
+  }
+
+  // The design's second line under a question, set quieter than the question itself: it is the
+  // reasoning, and the question is the thing being skimmed for.
+  &__question-why {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-tertiary);
   }
 
   &__answer {
