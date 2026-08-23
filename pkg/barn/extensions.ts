@@ -560,6 +560,163 @@ async function anyRunningPod(): Promise<string | null> {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// The GitHub credential, read where it is used.
+//
+// The token is write-only: it goes into the `barn-settings` Secret and never comes back into
+// the browser. See SETTINGS_SECRET for what that costs and why. What makes it possible is that
+// the thing which needs the token is a pod, and the pod has a service account of its own -
+// `EXT_ACCOUNT`, bound to cluster-admin - so it can read the Secret itself. Everything below is
+// how it does that, and it is the only reader of `gh_token` anywhere in this product.
+//
+// Two forms, because there are two kinds of caller:
+//
+//   podTokenReader()  prints the token on stdout, for the two callers that hand it to git.
+//   githubScript()    reads it and makes the API call in one process, so it is never even a
+//                     shell variable.
+//
+// Neither ever puts the token in a command's arguments. `podTokenReader` is captured into a
+// shell variable and passed on through the environment (`git --config-env`), and the scripts
+// are single-quoted source that contains the *name* of a secret, not its value. A `ps` inside
+// the pod finds nothing, which the previous shape - the token interpolated into the command
+// string from the browser - could not say.
+// ---------------------------------------------------------------------------
+
+/**
+ * Node, in the pod, printing the configured GitHub token and nothing else.
+ *
+ * Double quotes throughout: this is single-quoted by the time it reaches `sh -c`, and one
+ * single quote inside it would end the word. `https.request` rather than `fetch`, because the
+ * apiserver is behind the cluster CA and handing a CA to `fetch` means constructing an undici
+ * agent to do what one option does here.
+ *
+ * The exit codes are the answer when there is no token: 3 the pod may not read the Secret, 4
+ * there is no token in it, 5 the apiserver did not answer. The caller turns them into a
+ * sentence rather than into an empty string, which is the distinction this whole change is
+ * about.
+ */
+function podTokenReader(): string {
+  return [
+    'const fs=require("fs"),https=require("https");',
+    'const D="/var/run/secrets/kubernetes.io/serviceaccount";',
+    'https.request({host:process.env.KUBERNETES_SERVICE_HOST,port:process.env.KUBERNETES_SERVICE_PORT,',
+    `path:"/api/v1/namespaces/${ EXT_NS }/secrets/${ SETTINGS_SECRET }",ca:fs.readFileSync(D+"/ca.crt"),`,
+    'headers:{Authorization:"Bearer "+fs.readFileSync(D+"/token","utf8").trim()}},(r)=>{let t="";',
+    'r.on("data",(c)=>{t+=c;});r.on("end",()=>{if(r.statusCode!==200){process.exit(3);}',
+    `const d=(JSON.parse(t).data||{})["${ TOKEN_KEY }"];if(!d){process.exit(4);}`,
+    'process.stdout.write(Buffer.from(d,"base64").toString("utf8").trim());});})',
+    '.on("error",()=>process.exit(5)).end();',
+  ].join('');
+}
+
+/**
+ * Shell that leaves the token in `$BARN_GH_TOKEN`, or says why it could not.
+ *
+ * `|| { echo ... ; exit 0 ; }` rather than a bare failure, so the caller reads a marker it can
+ * turn into "no GitHub token is configured" instead of a non-zero exit that says only that
+ * something in a long script went wrong.
+ */
+function readTokenSh(): string {
+  return `BARN_GH_TOKEN=$(node -e ${ shellQuote(podTokenReader()) }) || { echo "BARN-NO-TOKEN:$?" ; exit 0 ; }`;
+}
+
+/** What `BARN-NO-TOKEN:<code>` means, as a sentence somebody can act on. */
+function noTokenReason(code: string): string {
+  if (code === '4') {
+    return 'no GitHub token is configured';
+  }
+
+  if (code === '3') {
+    return `the extension pod may not read the ${ SETTINGS_SECRET } Secret, so it cannot get at the GitHub token`;
+  }
+
+  return 'the extension pod could not reach the Kubernetes API to read the GitHub token';
+}
+
+/**
+ * A token-shaped string, blanked.
+ *
+ * The logs these functions return are shown in the UI, and until this they were scrubbed by
+ * splitting on the token's own text - which only worked because the browser had a copy of it.
+ * It does not any more, so the scrub is by shape instead: GitHub's own prefixes, and the
+ * 40-hex classic form. It is belt and braces rather than the guard - nothing puts the token in
+ * a command's text now, and git does not echo the header it was given - but a log that is shown
+ * to a person is the wrong place to find out that assumption was wrong.
+ */
+function scrubTokens(text: string): string {
+  return text
+    .replace(/\bgh[pousr]_[A-Za-z0-9]{16,}/g, '***')
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}/g, '***')
+    .replace(/\b[0-9a-f]{40}\b(?=[^0-9a-f]|$)/g, (m) => (/^[0-9a-f]{40}$/.test(m) ? '***' : m));
+}
+
+/**
+ * One GitHub API call, made from inside a pod, with the token the pod reads for itself.
+ *
+ * argv is `method path body`. The answer is one marker line carrying the body and the two
+ * response headers that are not in it - the scopes a token carries and when it expires, both
+ * of which the settings card states and neither of which is anywhere in a response body.
+ *
+ * The escapes in the final regex are doubled on purpose. This string is the *source* of a
+ * script that runs in the pod, so a single-escaped \r\n here becomes a real carriage return
+ * and newline inside the emitted regex literal, and node dies with "Invalid regular
+ * expression: missing /" before it ever reaches the request. That is what it did: githubIdentity
+ * and listGithubRepos have never once succeeded, and because a SyntaxError is not a 401 the
+ * settings card could not even report the token as rejected.
+ */
+function githubScript(): string {
+  return [
+    'const fs=require("fs"),https=require("https");',
+    'const D="/var/run/secrets/kubernetes.io/serviceaccount";',
+    'const req=(o,b)=>new Promise((res,rej)=>{const r=https.request(o,(x)=>{let t="";',
+    'x.on("data",(c)=>{t+=c;});x.on("end",()=>res({status:x.statusCode,text:t,headers:x.headers}));});',
+    'r.on("error",rej);if(b){r.write(b);}r.end();});',
+    'const main=async()=>{',
+    'const s=await req({host:process.env.KUBERNETES_SERVICE_HOST,port:process.env.KUBERNETES_SERVICE_PORT,',
+    `path:"/api/v1/namespaces/${ EXT_NS }/secrets/${ SETTINGS_SECRET }",ca:fs.readFileSync(D+"/ca.crt"),`,
+    'headers:{Authorization:"Bearer "+fs.readFileSync(D+"/token","utf8").trim()}});',
+    `if(s.status!==200){throw new Error("this pod may not read the ${ SETTINGS_SECRET } secret: "+s.status);}`,
+    `const raw=(JSON.parse(s.text).data||{})["${ TOKEN_KEY }"];`,
+    'if(!raw){throw new Error("no GitHub token is configured");}',
+    'const token=Buffer.from(raw,"base64").toString("utf8").trim();',
+    'const [method,path,body]=process.argv.slice(1);',
+    'const g=await req({host:"api.github.com",path,method,headers:{Authorization:"Bearer "+token,',
+    'Accept:"application/vnd.github+json","Content-Type":"application/json",',
+    '"User-Agent":"rancher-extension-studio","Content-Length":Buffer.byteLength(body||"")}},body||undefined);',
+    'if(g.status<200||g.status>=300){throw new Error(g.status+" "+g.text.slice(0,200));}',
+    'console.log("BARN-GH:"+JSON.stringify({body:JSON.parse(g.text||"null"),',
+    'scopes:g.headers["x-oauth-scopes"]||"",expires:g.headers["github-authentication-token-expiration"]||""}));};',
+    'main().catch((e)=>console.log("BARN-GH-ERR:"+String(e.message).replace(/[\\r\\n]+/g," ")));',
+  ].join('');
+}
+
+/** What the pod said, as the answer or as a thrown error. Shared by the two callers below. */
+function readGithubAnswer(out: string, where: string): any {
+  const noToken = /BARN-NO-TOKEN:(\d+)/.exec(out);
+
+  if (noToken) {
+    throw new Error(noTokenReason(noToken[1]));
+  }
+
+  const failed = /BARN-GH-ERR:(.*)/.exec(out);
+
+  if (failed) {
+    throw new Error(failed[1].trim() || 'GitHub did not answer');
+  }
+
+  const found = /BARN-GH:(.*)/.exec(out);
+
+  if (!found) {
+    throw new Error(`could not reach GitHub from ${ where }: ${ scrubTokens(out.trim()).slice(0, 200) || 'no output' }`);
+  }
+
+  try {
+    return JSON.parse(found[1].trim());
+  } catch {
+    throw new Error('GitHub answered with something unreadable');
+  }
+}
+
 /**
  * The files of a repository, cloned in a pod and read back.
  *
@@ -575,20 +732,28 @@ async function githubFiles(repo: string, ref: string, fallbackName: string): Pro
     throw new Error('importing needs one extension already running, because the clone happens in its pod');
   }
 
-  const token = await readToken();
-  // Public repositories need no token. A private one without a token fails in `git clone` with
-  // GitHub's own message, which says more than a check here would.
-  const auth = token ? btoa(`x-access-token:${ token }`) : '';
-  const scrub = (text: string) => (token ? text.split(token).join('***').split(auth).join('***') : text);
-  const authArg = auth ? `-c http.extraheader=${ shellQuote(`AUTHORIZATION: basic ${ auth }`) }` : '';
   const branchArg = ref ? `--branch ${ shellQuote(ref) }` : '';
 
-  const clone = await podExecOnce(pod, asPodUser(
-    `rm -rf /tmp/barn-import && git ${ authArg } clone --depth 1 ${ branchArg } ${ shellQuote(`https://github.com/${ repo }.git`) } /tmp/barn-import 2>&1 && echo BARN-CLONE-OK`
-  ));
+  // Public repositories need no token, and a token that cannot be had must not stop one being
+  // imported: `BARN_GH_TOKEN=` empty simply means no authorization header. A private repository
+  // without one fails in `git clone` with GitHub's own message, which says more than a check
+  // here would.
+  //
+  // The header reaches git through `--config-env`, so the credential is in the environment and
+  // not in any command's arguments - neither in the browser's, which no longer has it, nor in
+  // the pod's process list.
+  const clone = await podExecOnce(pod, asPodUser([
+    `BARN_GH_TOKEN=$(node -e ${ shellQuote(podTokenReader()) } || true)`,
+    'BARN_GH_HEADER=""',
+    '[ -n "$BARN_GH_TOKEN" ] && BARN_GH_HEADER="AUTHORIZATION: basic $(printf %s "x-access-token:$BARN_GH_TOKEN" | base64 -w0)"',
+    'export BARN_GH_HEADER',
+    'rm -rf /tmp/barn-import',
+    `git $([ -n "$BARN_GH_HEADER" ] && echo --config-env=http.extraheader=BARN_GH_HEADER) clone --depth 1 ${ branchArg } ${ shellQuote(`https://github.com/${ repo }.git`) } /tmp/barn-import 2>&1 || exit 1`,
+    'echo BARN-CLONE-OK',
+  ].join(' ; ')));
 
   if (!clone.includes('BARN-CLONE-OK')) {
-    throw new Error(scrub(`could not clone ${ repo }: ${ clone.slice(0, 400) || 'no output' }`));
+    throw new Error(scrubTokens(`could not clone ${ repo }: ${ clone.slice(0, 400) || 'no output' }`));
   }
 
   const encoded = btoa(IMPORT_SCRIPT);
@@ -1406,38 +1571,206 @@ function execUrl(pod: string, command: string[], interactive: boolean): string {
 }
 
 /**
- * Run one command in an extension's pod and return what it wrote to stdout.
+ * Everything one exec produced: its output, its error output, and whether it worked.
  *
- * The same exec subresource the terminal uses, without the tty: a socket that opens, streams
- * frames and closes. It resolves rather than rejects on failure, with whatever it managed to
- * read, because every caller here is reading a file that may simply not exist and an empty
- * string is the right answer to that.
+ * This exists because for most of this product's life it did not, and the cost was two silent
+ * data losses. `podExecOnce` read channel 1 and dropped channels 2 and 3 on the floor, so a
+ * command that failed came back as the empty string and was indistinguishable from one that
+ * succeeded and printed nothing. A `package.json` owned by root in a pod whose execs run as
+ * uid 1000 made the publish dialog's version write do nothing, say nothing, and ship the old
+ * version; a root-owned `.git/objects` made every `createSnapshot` fail the same way, which
+ * quietly removed the safety snapshot taken before a rollback and before apply-fix overwrites
+ * a file. Both failures were reported by the apiserver on channel 3 and nothing was listening.
  */
-export function podExecOnce(pod: string, command: string[]): Promise<string> {
+export interface PodExecResult {
+  /** Channel 1. */
+  stdout: string;
+  /** Channel 2. Empty for a command that redirected it, which several here still do. */
+  stderr: string;
+  /**
+   * The command's exit status: 0 when it succeeded, its own code when it failed, and -1 when
+   * it never ran at all (the socket was refused, the container does not exist, the connection
+   * dropped before the apiserver could say how it went).
+   */
+  code:   number;
+  /** The apiserver's own status line, verbatim. '' when the command succeeded. */
+  status: string;
+  /** True when the failure is the connection rather than the command. */
+  transport: boolean;
+}
+
+/**
+ * What the apiserver said on channel 3, as an exit code.
+ *
+ * Two wire formats, and which one arrives depends on the subprotocol that was negotiated.
+ * Rancher's proxy accepts `base64.channel.k8s.io` and refuses `base64.v4.channel.k8s.io`
+ * outright - the socket does not open - so what actually arrives here today is v1's prose:
+ *
+ *   command terminated with non-zero exit code: error executing command [...], exit code 3
+ *
+ * The v4 form is a `metav1.Status` as JSON, and is read too, so this keeps working if the
+ * proxy ever negotiates it. Nothing at all on channel 3 means the command succeeded: v1 sends
+ * the frame only when something went wrong.
+ */
+function statusExitCode(status: string): number {
+  const text = status.trim();
+
+  if (!text) {
+    return 0;
+  }
+
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+
+      if (parsed?.status === 'Success') {
+        return 0;
+      }
+
+      const cause = (parsed?.details?.causes || []).find((c: any) => c?.reason === 'ExitCode');
+      const code = parseInt(cause?.message, 10);
+
+      return Number.isFinite(code) ? code : -1;
+    } catch { /* not the JSON form after all, so read it as prose below */ }
+  }
+
+  const m = /exit code (\d+)/.exec(text);
+
+  return m ? parseInt(m[1], 10) : -1;
+}
+
+/**
+ * Run one command in an extension's pod and report everything about how it went.
+ *
+ * Resolves rather than rejects for a non-zero exit, because a non-zero exit is a fact rather
+ * than an error here: several callers run commands that are *expected* to fail (`git rev-parse
+ * --verify -q` on a ref that does not exist, a grep that matches nothing). The caller decides
+ * whether the code matters. `podExecStrict` is the form that decides it is fatal.
+ */
+export function podExecResult(pod: string, command: string[]): Promise<PodExecResult> {
   return new Promise((resolve) => {
-    let out = '';
+    let stdout = '';
+    let stderr = '';
+    let status = '';
+    let settled = false;
+
+    // The socket can report twice - an error is usually followed by a close - and the first
+    // report is the one that knows what happened.
+    const settle = (closeCode: number) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+
+      // A clean 1000 with no status frame is the only shape that means success. Anything else
+      // with nothing on channel 3 is the connection failing rather than the command, which is
+      // a different sentence for a screen to say and must not be reported as exit 0.
+      const broke = !status && closeCode !== 1000;
+
+      resolve({
+        stdout,
+        stderr,
+        status: status || (broke ? `the exec connection closed without running the command (${ closeCode })` : ''),
+        code:   broke ? -1 : statusExitCode(status),
+        transport: broke,
+      });
+    };
 
     try {
       const socket = new WebSocket(execUrl(pod, command, false), 'base64.channel.k8s.io');
 
-      // Every frame is a channel digit then base64. 1 is stdout, which is the only one a
-      // caller has asked about so far; 2 is stderr and 3 is the apiserver's own status.
+      // Every frame is a channel digit then base64. 1 is stdout, 2 is stderr, 3 is the
+      // apiserver's own status - which is where the exit code lives and is the whole reason
+      // this function replaced the one that read only channel 1.
       socket.onmessage = (event) => {
         const frame = String(event.data || '');
+        let decoded = '';
+
+        try {
+          decoded = atob(frame.slice(1));
+        } catch {
+          return; // a frame that is not base64 is not output
+        }
 
         if (frame.startsWith('1')) {
-          try {
-            out += atob(frame.slice(1));
-          } catch { /* a frame that is not base64 is not output */ }
+          stdout += decoded;
+        } else if (frame.startsWith('2')) {
+          stderr += decoded;
+        } else if (frame.startsWith('3')) {
+          status += decoded;
         }
       };
 
-      socket.onclose = () => resolve(out);
-      socket.onerror = () => resolve(out);
+      socket.onclose = (event) => settle(event.code);
+      // No close event to read a code off: a pod or container that does not exist fails the
+      // upgrade and only ever fires this.
+      socket.onerror = () => settle(0);
     } catch {
-      resolve(out);
+      settle(0);
     }
   });
+}
+
+/**
+ * Run one command in an extension's pod and return what it wrote to stdout.
+ *
+ * UNCHANGED BEHAVIOUR, DELIBERATELY. Dozens of callers here read a file that may simply not
+ * exist, or grep for something that may not be there, and for them an empty string is the
+ * right answer and a throw would be a page that fails instead of a rail that is empty. This
+ * still resolves with whatever stdout it managed to read, whatever happened.
+ *
+ * Anything that WRITES must not use this. Use `podExecStrict` / `inPackageStrict`, which turn
+ * the exit code this now reads into a refusal, so a write that did not happen says so.
+ */
+export async function podExecOnce(pod: string, command: string[]): Promise<string> {
+  return (await podExecResult(pod, command)).stdout;
+}
+
+/**
+ * A command in a pod that did not do what it was asked.
+ *
+ * Carries the exit code and both streams, because the message a screen shows has to name what
+ * git or the shell actually said - "could not write package.json" with nothing after it is the
+ * silence this whole change is about, one level up.
+ */
+export class PodExecError extends Error {
+  /** The exit status, or -1 when the command never ran. */
+  readonly code: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly status: string;
+
+  constructor(what: string, result: PodExecResult) {
+    // stderr first: it is where a shell and git say why. Then stdout, which is where a script
+    // that redirected `2>&1` says it. Then the apiserver's line, which at least names the code.
+    const said = result.stderr.trim() || result.stdout.trim().split('\n').slice(-3).join(' ').trim() || result.status.trim();
+    const how = result.transport ? 'could not be run in the pod' : `failed in the pod (exit ${ result.code })`;
+
+    super(`${ what } ${ how }: ${ said.slice(0, 400) || 'it said nothing at all' }`);
+
+    this.name = 'PodExecError';
+    this.code = result.code;
+    this.stdout = result.stdout;
+    this.stderr = result.stderr;
+    this.status = result.status;
+  }
+}
+
+/**
+ * The same exec, for something that has to have happened.
+ *
+ * Resolves with stdout when the command exited 0 and throws a `PodExecError` otherwise. This
+ * is the form every write uses.
+ */
+export async function podExecStrict(pod: string, command: string[], what = 'the command'): Promise<string> {
+  const result = await podExecResult(pod, command);
+
+  if (result.code !== 0) {
+    throw new PodExecError(what, result);
+  }
+
+  return result.stdout;
 }
 
 /**
@@ -1482,6 +1815,27 @@ async function inPackage(name: string, script: string): Promise<string> {
   // a ; b` only guards `a`: a failed cd would run the rest of the list wherever the shell
   // happened to be, which for `git init` means initialising a repository in /.
   return podExecOnce(pod, asPodUser(`cd ${ PACKAGE_DIR } && { ${ script } ; }`));
+}
+
+/**
+ * The same, for something that has to have happened.
+ *
+ * `inPackage` resolves with whatever stdout it got, which is right for reading and wrong for
+ * writing: a `git tag` refused by a root-owned `.git/refs`, or a `>` refused by a root-owned
+ * file, comes back as the empty string and reads exactly like a command that succeeded and
+ * printed nothing. Every write below goes through this instead, so the exit code and git's own
+ * stderr reach the screen that asked.
+ *
+ * `what` is a phrase, not a sentence: it becomes "<what> failed in the pod (exit 1): ...".
+ */
+async function inPackageStrict(name: string, script: string, what: string): Promise<string> {
+  const pod = await extensionPod(name);
+
+  if (!pod) {
+    throw new Error(`${ what } could not be done: ${ name } has no running pod`);
+  }
+
+  return podExecStrict(pod, asPodUser(`cd ${ PACKAGE_DIR } && { ${ script } ; }`), what);
 }
 
 /**
@@ -1541,6 +1895,16 @@ export async function ensureExtensionRepo(name: string): Promise<void> {
  */
 export function runInPackage(name: string, script: string): Promise<string> {
   return inPackage(name, script);
+}
+
+/**
+ * The same, refusing rather than resolving when the script did not work.
+ *
+ * For a screen whose script writes something. `runInPackage` cannot tell "it printed nothing"
+ * from "it never ran", and a screen that writes needs to know which.
+ */
+export function runInPackageStrict(name: string, script: string, what = 'the command'): Promise<string> {
+  return inPackageStrict(name, script, what);
 }
 
 /** Every file in the package, as paths relative to it. Excludes node_modules by construction. */
@@ -1706,7 +2070,6 @@ export async function showCommit(name: string, sha: string): Promise<string> {
   return inPackage(name, `git show --patch --no-color ${ shellQuote(sha) } 2>&1`);
 }
 
-/** Commit whatever is currently different, which is how an edit here becomes history. */
 /**
  * Write a text file into an extension's package directory.
  *
@@ -1728,15 +2091,63 @@ export async function writeExtensionFile(name: string, path: string, contents: s
   const encoded = btoa(binary);
   const quoted = shellQuote(path);
 
-  await inPackage(name, `mkdir -p "$(dirname ${ quoted })" && printf %s ${ shellQuote(encoded) } | base64 -d > ${ quoted }`);
+  // Strict, and then the size is read back, because this is where the silence cost the most.
+  // The publish dialog's version bump writes package.json through here, the file was owned by
+  // root in a pod whose execs run as uid 1000, the redirection was refused, and the publish
+  // shipped the old version having said nothing. Two independent checks now: the shell's exit
+  // code, which catches the refusal, and the byte count, which catches a write that was
+  // truncated after it started.
+  const out = await inPackageStrict(
+    name,
+    [
+      `mkdir -p "$(dirname ${ quoted })"`,
+      `printf %s ${ shellQuote(encoded) } | base64 -d > ${ quoted }`,
+      `echo "BARN-WROTE:$(wc -c < ${ quoted })"`,
+    ].join(' && '),
+    `writing ${ path }`
+  );
+  const wrote = parseInt(/BARN-WROTE:\s*(\d+)/.exec(out)?.[1] || '', 10);
+
+  if (!Number.isFinite(wrote)) {
+    throw new Error(`${ path } was written but the pod would not say how much of it landed: ${ out.trim().slice(0, 200) || 'no output' }`);
+  }
+
+  if (wrote !== bytes.length) {
+    throw new Error(`${ path } came out ${ wrote } bytes instead of ${ bytes.length }, so only part of it was written`);
+  }
 }
 
+/**
+ * Commit whatever is currently different.
+ *
+ * Returns the new commit's short sha and nothing else. It used to return the whole of git's
+ * output and the empty string on every kind of failure, which put both callers in the business
+ * of guessing from prose whether a commit had happened - screen 12's approve() reads the sha
+ * off the last line and refuses to sign without one, precisely because it was once handed ''
+ * and signed against it. There is nothing left to guess: this throws when no commit was made,
+ * and the two ways that can happen say which one it was.
+ */
 export async function commitExtension(name: string, message: string): Promise<string> {
-  return inPackage(name, [
-    'git add -A',
-    `git -c user.email=barn@rancher.local -c user.name=barn commit -q -m ${ shellQuote(message) } 2>&1`,
-    'git log -1 --format=%h',
-  ].join(' && '));
+  const out = await inPackageStrict(name, [
+    'git add -A || exit 1',
+    'if git diff --cached --quiet ; then echo BARN-COMMIT-NOTHING ; exit 0 ; fi',
+    `git -c user.email=barn@rancher.local -c user.name=barn commit -q -m ${ shellQuote(message) } || exit 1`,
+    'echo "BARN-COMMIT:$(git log -1 --format=%h)"',
+  ].join(' ; '), 'the commit');
+
+  // No `2>&1` anywhere above, on purpose: now that channel 2 is read, git's own reason for
+  // refusing arrives in the error rather than being folded into the output somebody parses.
+  if (out.includes('BARN-COMMIT-NOTHING')) {
+    throw new Error(`nothing in ${ name } is uncommitted, so there was nothing to commit`);
+  }
+
+  const sha = /BARN-COMMIT:([0-9a-f]{7,40})/.exec(out)?.[1] || '';
+
+  if (!sha) {
+    throw new Error(`the commit did not happen in ${ name }: ${ out.trim().slice(0, 200) || 'git said nothing at all' }`);
+  }
+
+  return sha;
 }
 
 // ---------------------------------------------------------------------------
@@ -1763,6 +2174,27 @@ export const BASELINE_OCI_REF = 'refs/barn/published/oci';
 
 /** The last version this Rancher loads. Written by `publishExtension`. */
 export const BASELINE_LOCAL_REF = 'refs/barn/published/local';
+
+/**
+ * The last tree that built and installed without failing. Written by `publishExtension`.
+ *
+ * Cross-screen rule 4, "a guaranteed way back from any build failure". The guarantee needs a
+ * point that is a *working* build, and the product had one only in `sessionStorage`
+ * (`recordWorkingBuild` in publish-failure.ts), so a fresh browser, a second person, or a
+ * different tab had no way back at all and the failure screen fell through to whichever
+ * hand-made snapshot happened to be nearest. A ref in the pod is the same fact where the tree
+ * it describes lives: it survives the tab, the browser and the person.
+ *
+ * Separate from `BASELINE_LOCAL_REF` even though the two move together today, because they
+ * answer different questions and will not always agree. The baseline is "the last version other
+ * people could get", which a distribution moves without anything having been built here; this
+ * is "the last state of this tree that compiled", which is what a rollback wants.
+ *
+ * A build does not change the source, so the point worth going back to is never the tree that
+ * failed - it is the last one that did not. That is why this is written after a success rather
+ * than before an attempt.
+ */
+export const WORKING_BUILD_REF = 'refs/barn/working-build';
 
 /**
  * Shell that leaves the baseline revision in `$BARN_BASE`.
@@ -1863,21 +2295,47 @@ export async function baselineRef(name: string): Promise<Baseline> {
  *
  * Best effort on purpose. A publish that worked is not undone by a ref that could not be
  * written; the cost is one screen saying it measured from the last commit instead.
+ *
+ * Best effort is not the same as silent, and it used to be both. `.catch(() => '')` around an
+ * `inPackage` that read only stdout meant a `git update-ref` refused by a root-owned `.git` was
+ * indistinguishable from one that worked, and the only symptom was every diff screen quietly
+ * measuring from the wrong point for the rest of the extension's life. So the reason comes back
+ * with the answer, and `publishExtension` puts it in the log the publish dialog shows.
  */
-async function recordBaseline(name: string, ref: string, subject: string): Promise<string> {
-  const out = await inPackage(name, [
-    'test -d .git || exit 0',
-    'export GIT_INDEX_FILE=/tmp/barn-baseline-index.$$',
-    'rm -f "$GIT_INDEX_FILE"',
-    'git read-tree HEAD 2>/dev/null',
-    'git add -A',
-    'tree=$(git write-tree)',
-    'unset GIT_INDEX_FILE',
-    `commit=$(git -c user.email=barn@rancher.local -c user.name=barn commit-tree "$tree" -p HEAD -m ${ shellQuote(subject) })`,
-    `test -n "$commit" && git update-ref ${ ref } "$commit" && echo "BARN-BASELINE:$commit"`,
-  ].join(' ; ')).catch(() => '');
+interface BaselineWrite {
+  /** The commit the ref was moved to. '' when it was not written. */
+  sha:   string;
+  /** Why not, as a sentence. '' when it was written. */
+  error: string;
+}
 
-  return (/BARN-BASELINE:(\S+)/.exec(out)?.[1] || '').trim();
+async function recordBaseline(name: string, ref: string, subject: string): Promise<BaselineWrite> {
+  try {
+    const out = await inPackageStrict(name, [
+      'test -d .git || { echo BARN-BASELINE-NOGIT ; exit 0 ; }',
+      'export GIT_INDEX_FILE=/tmp/barn-baseline-index.$$',
+      'rm -f "$GIT_INDEX_FILE"',
+      'git read-tree HEAD 2>/dev/null',
+      'git add -A || exit 1',
+      'tree=$(git write-tree)',
+      'unset GIT_INDEX_FILE',
+      '[ -n "$tree" ] || exit 1',
+      `commit=$(git -c user.email=barn@rancher.local -c user.name=barn commit-tree "$tree" -p HEAD -m ${ shellQuote(subject) })`,
+      '[ -n "$commit" ] || exit 1',
+      `git update-ref ${ ref } "$commit" || exit 1`,
+      'echo "BARN-BASELINE:$commit"',
+    ].join(' ; '), `recording the baseline ${ ref }`);
+
+    if (out.includes('BARN-BASELINE-NOGIT')) {
+      return { sha: '', error: `${ name } has no git repository in its pod, so there is no baseline to record` };
+    }
+
+    const sha = (/BARN-BASELINE:(\S+)/.exec(out)?.[1] || '').trim();
+
+    return sha ? { sha, error: '' } : { sha: '', error: `git wrote no commit for ${ ref }` };
+  } catch (e: any) {
+    return { sha: '', error: e?.message || String(e) };
+  }
 }
 
 /** How many files differ from the baseline, so the UI can offer to hand them over. */
@@ -1925,6 +2383,16 @@ export async function changedFiles(name: string): Promise<ChangedFile[]> {
     ].join(' ; ')
   ).catch(() => '');
 
+  return parseChangedFiles(out);
+}
+
+/**
+ * The two halves of the reading above, turned into rows.
+ *
+ * Split out so `changedFilesSince` parses the same output the same way rather than growing a
+ * second copy that drifts. Nothing about it is specific to which commit the diff was against.
+ */
+function parseChangedFiles(out: string): ChangedFile[] {
   const [statusOut, numstatOut = ''] = out.split('--numstat--');
   const stats: Record<string, { added: number; removed: number }> = {};
   // Quotes come off the same way on both readings: git quotes a path with anything awkward in
@@ -1981,6 +2449,96 @@ export async function fileDiff(name: string, path: string): Promise<string> {
   ].join(' ; '));
 }
 
+// ---------------------------------------------------------------------------
+// The same two readings, against an arbitrary commit.
+//
+// Cross-screen rule 9, "re-review is incremental across visits". The per-reviewer half of it
+// already works - `markLook` in review.ts records the packet and the commit a reviewer last
+// read, and `sinceLastLook` says how many landed since - but the diff half could not, because
+// every diff in this file was pinned to `$BARN_BASE`. Screen 12's banner said so in as many
+// words: "narrowing it needs a diff taken against the commit you last read, and nothing in the
+// Studio takes one against an arbitrary commit yet". These are that.
+//
+// Separate functions rather than an optional argument on `changedFiles` and `fileDiff`. Those
+// two are called from six screens and their whole contract is "measured from the baseline, and
+// the screen says which baseline"; a second meaning smuggled in behind a default parameter is
+// the kind of change that makes one caller's diff quietly mean something else.
+//
+// Both REFUSE rather than fall back when the commit is not in the pod. A reviewer's last look
+// can name a commit that a `git reset` has since taken out of the branch, and answering that
+// with the whole change - or with nothing - is answering a different question from the one the
+// filter asked. The screen has to be able to say "the commit you last read is no longer in
+// this branch", which it can only do if this says so.
+// ---------------------------------------------------------------------------
+
+/** A sha this product will put into a shell. Nothing else is allowed near one. */
+function requireCommitish(sha: string): string {
+  const trimmed = (sha || '').trim();
+
+  if (!/^[0-9a-f]{4,40}$/.test(trimmed)) {
+    throw new Error(`"${ trimmed }" is not a commit`);
+  }
+
+  return trimmed;
+}
+
+/**
+ * Shell that resolves `$BARN_SINCE` or prints `BARN-NO-COMMIT` and stops.
+ *
+ * `^{commit}` so a tag or a ref that happens to share the prefix cannot resolve to something
+ * that is not a commit, which `git diff` would then report on as a tree.
+ */
+function sinceSh(sha: string): string {
+  return [
+    `BARN_SINCE=$(git rev-parse --verify -q ${ requireCommitish(sha) }^{commit})`,
+    '|| { echo BARN-NO-COMMIT ; exit 0 ; }',
+  ].join(' ');
+}
+
+/**
+ * The files that changed since one particular commit, in the same shape `changedFiles` returns.
+ *
+ * What screen 12's "since your last look" filter lists. The commit is the one the reviewer's
+ * own record says they last read, so this is "what has landed while I was away" and not "what
+ * this change is", which is the question `changedFiles` already answers beside it.
+ */
+export async function changedFilesSince(name: string, sha: string): Promise<ChangedFile[]> {
+  const out = await inPackage(name, [
+    sinceSh(sha),
+    INTENT_SH,
+    'git diff --name-status --no-renames "$BARN_SINCE" 2>/dev/null',
+    'echo "--numstat--"',
+    'git diff --numstat --no-renames "$BARN_SINCE" 2>/dev/null',
+  ].join(' ; '));
+
+  if (out.includes('BARN-NO-COMMIT')) {
+    throw new Error(`${ sha } is not a commit in ${ name } any more, so there is nothing to measure from`);
+  }
+
+  return parseChangedFiles(out);
+}
+
+/**
+ * One file's diff since one particular commit.
+ *
+ * The pair of `fileDiff`, measured from the same point `changedFilesSince` measured from, so a
+ * row's counts and the patch under it are two readings of one thing.
+ */
+export async function fileDiffSince(name: string, sha: string, path: string): Promise<string> {
+  const quoted = `'${ path.replace(/'/g, `'\\''`) }'`;
+  const out = await inPackage(name, [
+    sinceSh(sha),
+    INTENT_SH,
+    `git diff --no-renames "$BARN_SINCE" -- ${ quoted } 2>/dev/null`,
+  ].join(' ; '));
+
+  if (out.includes('BARN-NO-COMMIT')) {
+    throw new Error(`${ sha } is not a commit in ${ name } any more, so there is nothing to measure from`);
+  }
+
+  return out;
+}
+
 /**
  * Throw the working tree away.
  *
@@ -2004,24 +2562,38 @@ export async function discardChanges(name: string, paths: string[] = []): Promis
   // came back from "Discard all 5" still listing files, still marked Unsaved, and the assistant's
   // work was gone rather than reverted. Resetting the pathspec out of the index first puts the
   // files back to plain untracked, where clean removes them and checkout leaves them alone.
-  if (!paths.length) {
-    await inPackage(
-      name,
-      'git reset -q -- . 2>/dev/null ; git checkout -- . 2>/dev/null ; git clean -fd -e node_modules 2>/dev/null'
-    );
-
-    return;
-  }
-
-  // Named files rather than the whole tree, for the review screen's per-file selection. All three
-  // take the same pathspecs, so an untracked file in the list is removed and a tracked one is
-  // restored, and nothing outside the list is touched.
-  const quoted = paths.map((p) => `'${ p.replace(/'/g, `'\\''`) }'`).join(' ');
-
-  await inPackage(
+  // One pathspec for all four readings. Named files for the review screen's per-file selection,
+  // `.` for the whole tree: all of them take the same one, so an untracked file in the list is
+  // removed and a tracked one is restored, and nothing outside the list is touched.
+  const spec = paths.length ? paths.map((p) => `'${ p.replace(/'/g, `'\\''`) }'`).join(' ') : '.';
+  // `checkout` legitimately fails on a path git has never seen and `clean` legitimately fails
+  // on a path that is not there any more, so the exit code of the three commands is not the
+  // question. The question is whether anything survived them, which is what the last line
+  // reads back: the union of "still differs from HEAD" and "git still does not know about it",
+  // over the same pathspec, which after a discard has to be empty.
+  //
+  // Until this, all three were `2>/dev/null` and `;`-joined and the function returned void, so
+  // a discard refused by a permission - or by an `index.lock` a concurrent count had taken -
+  // came back looking exactly like one that worked, and the screen cleared its selection and
+  // said "discarded".
+  const out = await inPackageStrict(
     name,
-    `git reset -q -- ${ quoted } 2>/dev/null ; git checkout -- ${ quoted } 2>/dev/null ; git clean -fd -e node_modules -- ${ quoted } 2>/dev/null`
+    [
+      `git reset -q -- ${ spec } 2>/dev/null || true`,
+      `git checkout -- ${ spec } 2>/dev/null || true`,
+      `git clean -fd -e node_modules -- ${ spec } 2>/dev/null || true`,
+      `echo "BARN-DISCARD-LEFT:$({ git diff --name-only --no-renames HEAD -- ${ spec } 2>/dev/null ; git ls-files -o --exclude-standard -- ${ spec } 2>/dev/null ; } | sort -u | tr '\\n' ' ')"`,
+    ].join(' ; '),
+    paths.length ? `discarding ${ paths.length } file${ paths.length === 1 ? '' : 's' }` : 'discarding the working tree'
   );
+
+  const left = (/BARN-DISCARD-LEFT:(.*)/.exec(out)?.[1] || '').trim();
+
+  if (left) {
+    throw new Error(
+      `the discard did not take: ${ left.split(/\s+/).slice(0, 6).join(', ') } ${ left.split(/\s+/).length === 1 ? 'is' : 'are' } still changed in ${ name }`
+    );
+  }
 }
 
 /**
@@ -2221,20 +2793,36 @@ const SNAP_PREFIX = 'barn-snap';
 export async function createSnapshot(name: string, label: string): Promise<string> {
   const stamp = String(Date.now());
   const safe = label.replace(/[^\w .-]/g, '').slice(0, 60) || 'snapshot';
-  const out = await inPackage(name, [
+  const tag = `${ SNAP_PREFIX }/${ stamp }`;
+
+  // Every step reports, and the tag is verified after it is written.
+  //
+  // This is the function the exec fix was written for. It used to send every git call to
+  // /dev/null and answer with `SNAP:<sha>` as soon as commit-tree produced one, so a `git tag`
+  // that git refused - which is what a root-owned `.git/refs` does - left a commit nothing
+  // pointed at, a sha returned to a caller that believed it, and no snapshot in the list. The
+  // rollback screen and the "before overwriting this file" safety step both took snapshots
+  // that were not there when they were needed. So: strict, so a refusal arrives with git's own
+  // stderr, and `rev-parse` on the tag afterwards, because the only proof a ref was written is
+  // reading it back.
+  const out = await inPackageStrict(name, [
+    'test -d .git || { echo BARN-SNAP-NOGIT ; exit 1 ; }',
     'idx=$(mktemp)',
     'cp .git/index "$idx" 2>/dev/null || true',
-    'export GIT_INDEX_FILE="$idx"',
-    'git add -A >/dev/null 2>&1',
-    'tree=$(git write-tree 2>/dev/null)',
-    'unset GIT_INDEX_FILE',
+    'GIT_INDEX_FILE="$idx" git add -A || { rm -f "$idx" ; exit 1 ; }',
+    'tree=$(GIT_INDEX_FILE="$idx" git write-tree)',
     'rm -f "$idx"',
-    '[ -z "$tree" ] && { echo "SNAPFAIL"; exit 0; }',
-    `sha=$(git -c user.email=barn@rancher.local -c user.name=barn commit-tree "$tree" -p HEAD -m ${ shellQuote(safe) } 2>/dev/null)`,
-    '[ -z "$sha" ] && { echo "SNAPFAIL"; exit 0; }',
-    `git tag -f ${ SNAP_PREFIX }/${ stamp } "$sha" >/dev/null 2>&1`,
+    '[ -n "$tree" ] || { echo BARN-SNAP-NOTREE ; exit 1 ; }',
+    // A pod whose repository has no commit yet has no HEAD to parent to, and a snapshot of the
+    // very first state is exactly the one worth having. `-p HEAD` only when there is a HEAD.
+    'parent=""',
+    'git rev-parse --verify -q HEAD >/dev/null && parent="-p HEAD"',
+    `sha=$(git -c user.email=barn@rancher.local -c user.name=barn commit-tree $parent "$tree" -m ${ shellQuote(safe) })`,
+    '[ -n "$sha" ] || { echo BARN-SNAP-NOCOMMIT ; exit 1 ; }',
+    `git tag -f ${ tag } "$sha" || exit 1`,
+    `git rev-parse --verify -q ${ tag } >/dev/null || { echo BARN-SNAP-NOTAG ; exit 1 ; }`,
     'echo "SNAP:$sha"',
-  ].join(' ; '));
+  ].join(' ; '), `the snapshot of ${ name }`);
 
   const m = /SNAP:([0-9a-f]{7,40})/.exec(out);
 
@@ -2243,6 +2831,35 @@ export async function createSnapshot(name: string, label: string): Promise<strin
   }
 
   return m[1];
+}
+
+/**
+ * The last build of this extension that worked, as a point to go back to.
+ *
+ * Read out of the pod rather than out of the browser, which is what makes it a guarantee rather
+ * than a convenience: it is there for somebody who has never published this extension
+ * themselves, in a browser that has never seen it, on a tab opened a week later. Null means no
+ * build of this extension has ever succeeded here, which is a real state on a pod that was
+ * seeded an hour ago and is the one the failure screen has to say out loud instead of offering
+ * the nearest hand-made snapshot as though it were a working build.
+ */
+export interface WorkingBuildPoint {
+  /** The commit the ref is at. */
+  sha:     string;
+  /** Its subject, which `recordBaseline` wrote as "Working build <plugin> <version>". */
+  subject: string;
+  /** git's own relative wording, for a screen to render. */
+  when:    string;
+}
+
+export async function lastWorkingBuild(name: string): Promise<WorkingBuildPoint | null> {
+  const out = await inPackage(
+    name,
+    `git log -1 --format='%H%x1f%s%x1f%cr' ${ WORKING_BUILD_REF } 2>/dev/null`
+  ).catch(() => '');
+  const [sha = '', subject = '', when = ''] = out.trim().split('\x1f');
+
+  return sha ? { sha: sha.trim(), subject: subject.trim(), when: when.trim() } : null;
 }
 
 /** The snapshots, newest first. The label is the commit's own subject. */
@@ -2331,10 +2948,15 @@ export async function restoreSnapshot(name: string, ref: string): Promise<void> 
   //
   // The ref is verified first rather than trusted to the checkout's exit code, so a ref that is
   // gone is reported as gone rather than as whatever git says about a pathspec it cannot resolve.
-  const out = await inPackage(
+  //
+  // Strict, and without the `2>&1` it used to carry: a checkout git refuses now arrives with
+  // its own stderr and its exit code instead of as an empty string that failed the guard below
+  // with nothing after the colon. "Could not restore: " told the person nothing.
+  const out = await inPackageStrict(
     name,
     `git rev-parse --verify -q ${ shellQuote(ref) }^{commit} >/dev/null 2>&1 || { echo "NOREF"; exit 0; } ; ` +
-    `git checkout ${ shellQuote(ref) } -- . 2>&1 && echo "RESTORED"`
+    `git checkout ${ shellQuote(ref) } -- . || exit 1 ; echo "RESTORED"`,
+    `restoring ${ ref }`
   );
 
   if (out.includes('NOREF')) {
@@ -2342,7 +2964,7 @@ export async function restoreSnapshot(name: string, ref: string): Promise<void> 
   }
 
   if (!out.includes('RESTORED')) {
-    throw new Error(`could not restore ${ ref }: ${ out.trim().slice(0, 200) }`);
+    throw new Error(`could not restore ${ ref }: ${ out.trim().slice(0, 200) || 'git said nothing at all' }`);
   }
 }
 
@@ -2772,49 +3394,16 @@ export async function findOpenPullRequest(name: string, repo: string, branch: st
     throw new Error('the extension is not on a branch');
   }
 
-  const token = await readToken();
+  // One call through the shared script rather than a fetch of its own. The list of open pull
+  // requests is not a credential, so the matching is done here where it can be read, and the
+  // pod is left doing the one thing only it can do: getting at the token.
+  const answer = await githubApi(name, 'GET', `/repos/${ repo }/pulls?state=open&per_page=100`);
+  const list: any[] = Array.isArray(answer) ? answer : [];
+  const pr = list.find((p) => p?.head?.ref === branch);
 
-  if (!token) {
-    throw new Error('no GitHub token is configured');
-  }
-
-  // Double quotes throughout: the whole script is one single-quoted shell word by the time it
-  // reaches the pod, and a single quote inside it would end that word.
-  const script = [
-    'const [repo, branch] = process.argv.slice(1);',
-    'fetch("https://api.github.com/repos/" + repo + "/pulls?state=open&per_page=100", { headers: {',
-    'Authorization: "Bearer " + process.env.BARN_GH_TOKEN,',
-    'Accept: "application/vnd.github+json", "User-Agent": "rancher-extension-studio" } })',
-    '.then((r) => r.ok ? r.json() : r.text().then((t) => { throw new Error(r.status + " " + t.slice(0, 120)); }))',
-    '.then((list) => { const pr = list.find((p) => p.head && p.head.ref === branch);',
-    'console.log("BARN-PR:" + JSON.stringify(pr ? { number: pr.number, title: pr.title, url: pr.html_url, head: pr.head.ref } : null)); })',
-    '.catch((e) => console.log("BARN-PR-ERR:" + e.message));',
-  ].join(' ');
-
-  // The token goes in the environment rather than in argv, so it is not in the pod's process
-  // list for the length of the call.
-  const out = await inPackage(
-    name,
-    `BARN_GH_TOKEN=${ shellQuote(token) } node -e ${ shellQuote(script) } ${ shellQuote(repo) } ${ shellQuote(branch) } 2>&1`
-  );
-
-  const failed = /BARN-PR-ERR:(.*)/.exec(out);
-
-  if (failed) {
-    throw new Error(failed[1].trim() || 'GitHub did not answer');
-  }
-
-  const found = /BARN-PR:(.*)/.exec(out);
-
-  if (!found) {
-    throw new Error(`could not ask GitHub about ${ repo }: ${ out.trim().slice(0, 200) || 'no output' }`);
-  }
-
-  try {
-    return JSON.parse(found[1].trim()) as PullRequest | null;
-  } catch {
-    throw new Error(`GitHub answered with something unreadable for ${ repo }`);
-  }
+  return pr ? {
+    number: pr.number, title: pr.title, url: pr.html_url, head: pr.head.ref,
+  } : null;
 }
 
 /**
@@ -2831,36 +3420,10 @@ export async function findOpenPullRequest(name: string, repo: string, branch: st
 async function githubApi(
   name: string, method: string, apiPath: string, body?: unknown
 ): Promise<any> {
-  const token = await readToken();
-
-  if (!token) {
-    throw new Error('no GitHub token is configured');
-  }
-
-  // Double quotes throughout: the whole script is one single-quoted shell word by the time it
-  // reaches the pod, and a single quote inside it would end that word.
-  const script = [
-    'const [method, path, body] = process.argv.slice(1);',
-    'fetch("https://api.github.com" + path, { method, headers: {',
-    'Authorization: "Bearer " + process.env.BARN_GH_TOKEN,',
-    'Accept: "application/vnd.github+json", "Content-Type": "application/json",',
-    '"User-Agent": "rancher-extension-studio" }, body: body || undefined })',
-    '.then((r) => r.text().then((t) => ({ ok: r.ok, status: r.status, text: t })))',
-    '.then((r) => { if (!r.ok) { throw new Error(r.status + " " + r.text.slice(0, 200)); }',
-    'console.log("BARN-GH:" + (r.text || "null")); })',
-    // The escapes are doubled on purpose. This string is the *source* of a script that runs in the
-    // pod, so a single-escaped \r\n here becomes a real carriage return and newline inside the
-    // emitted regex literal, and node dies with "Invalid regular expression: missing /" before it
-    // ever reaches the fetch. That is what it did: githubIdentity and listGithubRepos have never
-    // once succeeded, and because a SyntaxError is not a 401 the settings card could not even
-    // report the token as rejected.
-    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\\r\\n]+/g, " ")));',
-  ].join(' ');
-
   const out = await runInPackage(
     name,
     [
-      `BARN_GH_TOKEN=${ shellQuote(token) } node -e ${ shellQuote(script) }`,
+      `node -e ${ shellQuote(githubScript()) }`,
       shellQuote(method),
       shellQuote(apiPath),
       shellQuote(body === undefined ? '' : JSON.stringify(body)),
@@ -2868,84 +3431,34 @@ async function githubApi(
     ].join(' ')
   );
 
-  const failed = /BARN-GH-ERR:(.*)/.exec(out);
-
-  if (failed) {
-    throw new Error(failed[1].trim() || 'GitHub did not answer');
-  }
-
-  const found = /BARN-GH:(.*)/.exec(out);
-
-  if (!found) {
-    throw new Error(`could not reach GitHub from ${ name }'s pod: ${ out.trim().slice(0, 200) || 'no output' }`);
-  }
-
-  try {
-    return JSON.parse(found[1].trim());
-  } catch {
-    throw new Error('GitHub answered with something unreadable');
-  }
+  // The body alone. The two headers the shared script also carries are only wanted by the
+  // settings card, which asks through `githubApiAnywhere` below.
+  return readGithubAnswer(out, `${ name }'s pod`).body;
 }
 
 /**
- * The same call, from whatever pod happens to be running.
+ * The same call, from whatever pod happens to be running, with the response headers.
  *
  * For the questions that come before an extension exists. Import is asked on a screen where
  * there is no pod of this extension's own to run in, because the extension is what the answer
  * is going to create - so it borrows one, the way `githubFiles` already does.
+ *
+ * The scopes a token carries and when it expires are in response headers and nowhere in any
+ * body, and the settings card states both, so this form hands back what the script saw rather
+ * than only the JSON.
  */
 async function githubApiAnywhere(method: string, apiPath: string): Promise<any> {
-  const [token, pod] = await Promise.all([readToken(), anyRunningPod()]);
-
-  if (!token) {
-    throw new Error('no GitHub token is configured');
-  }
+  const pod = await anyRunningPod();
 
   if (!pod) {
     throw new Error('no extension pod is running to ask GitHub from');
   }
 
-  const script = [
-    'const [method, path] = process.argv.slice(1);',
-    'fetch("https://api.github.com" + path, { method, headers: {',
-    'Authorization: "Bearer " + process.env.BARN_GH_TOKEN,',
-    'Accept: "application/vnd.github+json", "User-Agent": "rancher-extension-studio" } })',
-    // The scopes a token carries are in a response header and nowhere in the body, so the
-    // answer this returns is the headers as well as the JSON.
-    '.then((r) => r.text().then((t) => ({ ok: r.ok, status: r.status, text: t,',
-    'scopes: r.headers.get("x-oauth-scopes") || "", expires: r.headers.get("github-authentication-token-expiration") || "" })))',
-    '.then((r) => { if (!r.ok) { throw new Error(r.status + " " + r.text.slice(0, 200)); }',
-    'console.log("BARN-GH:" + JSON.stringify({ body: JSON.parse(r.text || "null"), scopes: r.scopes, expires: r.expires })); })',
-    // The escapes are doubled on purpose. This string is the *source* of a script that runs in the
-    // pod, so a single-escaped \r\n here becomes a real carriage return and newline inside the
-    // emitted regex literal, and node dies with "Invalid regular expression: missing /" before it
-    // ever reaches the fetch. That is what it did: githubIdentity and listGithubRepos have never
-    // once succeeded, and because a SyntaxError is not a 401 the settings card could not even
-    // report the token as rejected.
-    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\\r\\n]+/g, " ")));',
-  ].join(' ');
-
   const out = await podExecOnce(pod, asPodUser(
-    `BARN_GH_TOKEN=${ shellQuote(token) } node -e ${ shellQuote(script) } ${ shellQuote(method) } ${ shellQuote(apiPath) } 2>&1`
+    `node -e ${ shellQuote(githubScript()) } ${ shellQuote(method) } ${ shellQuote(apiPath) } '' 2>&1`
   ));
 
-  const failed = /BARN-GH-ERR:(.*)/.exec(out);
-
-  if (failed) {
-    throw new Error(failed[1].trim() || 'GitHub did not answer');
-  }
-
-  const found = /BARN-GH:(.*)/.exec(out);
-
-  if (!found) {
-    throw new Error(`could not reach GitHub: ${ out.trim().slice(0, 200) || 'no output' }`);
-  }
-
-  try {
-    return JSON.parse(found[1].trim());
-  } catch {
-    throw new Error('GitHub answered with something unreadable');
-  }
+  return readGithubAnswer(out, 'a running extension pod');
 }
 
 /** Who the configured token belongs to, and what it is allowed to do. */
@@ -2964,9 +3477,9 @@ export interface GithubIdentity {
  * and the two must not be shown as the same sentence. A bad token throws.
  */
 export async function githubIdentity(): Promise<GithubIdentity | null> {
-  const token = await readToken();
-
-  if (!token) {
+  // Whether there is one, from the annotation. Not the token itself, which this page may not
+  // have and does not need: the pod reads it when the question is put.
+  if (!(await readSettings('')).hasToken) {
     return null;
   }
 
@@ -3222,11 +3735,42 @@ export interface PublishResult {
  * A Secret rather than localStorage, and not because a token is dramatic. It is that the
  * thing which eventually uses it is a pod: publishing runs in the extension's own container,
  * so a credential kept in one person's browser is a credential the build cannot reach.
+ *
+ * THE TOKEN IS WRITE-ONLY, AND IT IS THE PAGE THAT MAKES IT SO. Four surfaces say the token
+ * never comes back into the browser, and until this it was not true: `readSettings` and the
+ * old `readToken` both did a plain GET of this Secret, so the credential arrived in a response
+ * body in the page - three times in one page load, by one verifier's count - on its way into a
+ * pod command. Two changes make the claim true, and both have to hold for either to be worth
+ * anything:
+ *
+ *   - Nothing in this file ever GETs the Secret's `data` again. Reads ask the apiserver for
+ *     `PartialObjectMetadata`, which answers with metadata and no data at all, and writes are
+ *     merge patches, which send a value without needing the object back first.
+ *   - The pod reads the token itself, with its own service account, which is what the design
+ *     intended and what the settings page already tells people is happening ("The question is
+ *     put from an extension pod, which is what can read the Secret"). `EXT_ACCOUNT` is bound to
+ *     cluster-admin, so it can, and `GITHUB_SCRIPT` below is the only thing that does.
+ *
+ * Which moves two facts out of `data`, where they can no longer be read from here, and into
+ * annotations, where they can:
+ *
+ *   - whether a token is stored at all, which a settings form needs and which is not itself a
+ *     credential;
+ *   - the repository, which was never a secret and only lived in here because the token did.
  */
 export const SETTINGS_SECRET = 'barn-settings';
 
 /** The key names are the Secret's, so `kubectl get secret barn-settings -o yaml` reads plainly. */
 export const TOKEN_KEY = 'gh_token';
+
+/**
+ * Set to `set` when a token is stored, removed when it is cleared.
+ *
+ * An annotation rather than a probe of `data`, because the whole point is that nothing here
+ * fetches `data`. It says only that there is one, which is all a form needs to decide between
+ * "Connect" and "Replace".
+ */
+const TOKEN_ANNOTATION = 'barn.rancher.io/gh-token';
 
 /**
  * The repository is per extension; the token is not.
@@ -3237,9 +3781,24 @@ export const TOKEN_KEY = 'gh_token';
  * publishing one of them over the other. Which has to be a setting rather than a convention
  * because the name in the pod and the name of a repository agree only by luck.
  *
- * A Secret key may hold `[-._a-zA-Z0-9]`, and an extension's name is normalised into that same
- * alphabet before it ever names an object (see normalizeExtensionName), so this cannot produce
- * a key Kubernetes will reject.
+ * An annotation name may hold `[-._a-zA-Z0-9]` and may not end in one of the punctuation
+ * characters, and an extension's name is normalised into that same alphabet before it ever
+ * names an object (see normalizeExtensionName), so this cannot produce a name Kubernetes will
+ * reject. The empty extension - which is how a caller asks the token-only question - gets no
+ * annotation at all, because `barn.rancher.io/repo.` is exactly the name that would be
+ * rejected.
+ */
+export function repoAnnotation(extension: string): string {
+  return extension ? `barn.rancher.io/repo.${ extension }` : '';
+}
+
+/**
+ * Where the repository used to live: a key in the Secret's `data`.
+ *
+ * Still exported because it still names a real thing - a Secret written before the token became
+ * write-only has its repositories in here - and because `kubectl get secret barn-settings` is
+ * how somebody would find them. Nothing reads it any more: reading it would mean fetching
+ * `data`, which is the thing that was leaking the token.
  */
 export function repoKey(extension: string): string {
   return `gh_repo.${ extension }`;
@@ -3256,6 +3815,16 @@ export interface EditorSettings {
   hasToken: boolean;
   /** `owner/name`. Not a secret, so it comes back as typed and the field can show it. */
   repo: string;
+  /**
+   * True when this extension's repository is still in the old storage and cannot be read back.
+   *
+   * The repository used to be a key in the Secret's `data`, and `data` is the thing nothing
+   * fetches any more. Rather than guess, or fetch it and undo the point of the change, the
+   * fact is reported: a form seeing this says the repository has to be entered once more, and
+   * saving it writes it to the annotation where it is readable from now on. Absent, rather
+   * than false, on the overwhelmingly common path where there is nothing old to find.
+   */
+  legacyRepo?: boolean;
 }
 
 /** UTF-8 safe, because btoa alone throws on anything outside latin-1 and a repo name can be. */
@@ -3263,8 +3832,53 @@ function encodeSecret(value: string): string {
   return btoa(String.fromCharCode(...new TextEncoder().encode(value)));
 }
 
-function decodeSecret(value: string): string {
-  return new TextDecoder().decode(Uint8Array.from(atob(value), (c) => c.charCodeAt(0)));
+/** The Secret on the raw Kubernetes API rather than on Steve, which is where the two verbs below need it. */
+const SETTINGS_PATH = `${ EXT_BASE }/api/v1/namespaces/${ EXT_NS }/secrets/${ SETTINGS_SECRET }`;
+
+/**
+ * Ask for metadata and nothing else.
+ *
+ * `PartialObjectMetadata` is a content negotiation the apiserver does on any object: ask for it
+ * and the response carries `metadata` with no `data` and no `stringData`, which is the only way
+ * to read anything about a Secret from a browser without the browser receiving the Secret.
+ *
+ * On the writes as much as on the read, and that is not belt and braces. A `PATCH` answers with
+ * the whole updated object by default, so a save that only sent a token got the token back in
+ * the response - which is the same leak in the other direction, and the first version of this
+ * change had it. It has to go to `/api/v1/...` rather than to Steve's `/v1/secrets/...`,
+ * because Steve answers in its own shape and ignores this header: it was asked, and it returned
+ * the whole object.
+ */
+const METADATA_ONLY = { Accept: 'application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1' };
+
+/** The Secret's metadata, or null when it is not there yet - which is "nothing is configured". */
+async function settingsMetadata(): Promise<any> {
+  const answer = await rancherFetch(SETTINGS_PATH, { headers: METADATA_ONLY }).catch(() => null);
+
+  return answer?.metadata || null;
+}
+
+/**
+ * Which keys the Secret's `data` holds, without reading any of their values.
+ *
+ * From `managedFields`, which every object carries and which records the shape of what each
+ * writer set - `f:data: { f:gh_token: {} }` for a token written by anybody. It is used for one
+ * thing only: recognising a Secret written before the annotations existed, so a token stored by
+ * the previous version still reports as stored and an old repository is reported as needing to
+ * be re-entered rather than silently disappearing.
+ */
+function managedDataKeys(metadata: any): string[] {
+  const keys = new Set<string>();
+
+  (metadata?.managedFields || []).forEach((entry: any) => {
+    Object.keys(entry?.fieldsV1?.['f:data'] || {}).forEach((field) => {
+      if (field.startsWith('f:')) {
+        keys.add(field.slice(2));
+      }
+    });
+  });
+
+  return [...keys];
 }
 
 /**
@@ -3274,13 +3888,16 @@ function decodeSecret(value: string): string {
  * that extension's own.
  */
 export async function readSettings(extension: string): Promise<EditorSettings> {
-  const secret = await extGet('secrets', SETTINGS_SECRET);
-  const data = secret?.data || {};
-  const repo = data[repoKey(extension)];
+  const metadata = await settingsMetadata();
+  const annotations = metadata?.annotations || {};
+  const legacyKeys = managedDataKeys(metadata);
+  const annotation = repoAnnotation(extension);
+  const repo = annotation ? annotations[annotation] || '' : '';
 
   return {
-    hasToken: !!data[TOKEN_KEY],
-    repo:     repo ? decodeSecret(repo) : '',
+    hasToken: annotations[TOKEN_ANNOTATION] === 'set' || legacyKeys.includes(TOKEN_KEY),
+    repo,
+    legacyRepo: !repo && !!extension && legacyKeys.includes(repoKey(extension)),
   };
 }
 
@@ -3290,50 +3907,71 @@ export async function readSettings(extension: string): Promise<EditorSettings> {
  * A field the form left `undefined` is not in `changes` and is not written, which is what stops
  * opening settings and saving from blanking a token nobody could see. `''` is a deliberate
  * clear, and is the only way to remove one.
+ *
+ * A merge patch rather than the read-modify-PUT this used to do. The read half of that cycle
+ * fetched the whole Secret in order to preserve the keys it was not touching, which meant every
+ * save also pulled the token into the page - so the write was leaking the credential just as
+ * surely as the read was. A patch says what changed and nothing else, `null` deletes a key, and
+ * neither needs the object back first.
  */
 export async function saveSettings(extension: string, changes: { token?: string; repo?: string }): Promise<void> {
-  const existing = await extGet('secrets', SETTINGS_SECRET);
-  const data: Record<string, string> = { ...(existing?.data || {}) };
-  const apply = (key: string, value: string | undefined) => {
-    if (value === undefined) {
-      return;
-    }
-    if (value === '') {
-      delete data[key];
-    } else {
-      data[key] = encodeSecret(value);
-    }
-  };
+  const data: Record<string, string | null> = {};
+  const annotations: Record<string, string | null> = {};
 
-  apply(TOKEN_KEY, changes.token);
-  apply(repoKey(extension), changes.repo);
+  if (changes.token !== undefined) {
+    data[TOKEN_KEY] = changes.token === '' ? null : encodeSecret(changes.token);
+    annotations[TOKEN_ANNOTATION] = changes.token === '' ? null : 'set';
+  }
+
+  const annotation = repoAnnotation(extension);
+
+  if (changes.repo !== undefined && annotation) {
+    annotations[annotation] = changes.repo === '' ? null : changes.repo;
+    // The old home for the same fact, cleared as it is superseded. Blind, because reading it is
+    // what this change exists to stop; deleting a key that was never there is a no-op.
+    data[repoKey(extension)] = null;
+  }
+
+  if (!Object.keys(data).length && !Object.keys(annotations).length) {
+    return;
+  }
 
   await ensureShared();
 
-  if (existing) {
-    await rancherFetch(`${ EXT_BASE }/v1/secrets/${ EXT_NS }/${ SETTINGS_SECRET }`, {
-      method: 'PUT',
-      body:   JSON.stringify({ ...existing, data }),
-    });
-  } else {
-    await rancherFetch(`${ EXT_BASE }/v1/secrets`, {
-      method: 'POST',
-      body:   JSON.stringify({
+  const patch = () => rancherFetch(SETTINGS_PATH, {
+    method:  'PATCH',
+    headers: { 'Content-Type': 'application/merge-patch+json', ...METADATA_ONLY },
+    body:    JSON.stringify({ metadata: { annotations }, data }),
+  });
+
+  try {
+    await patch();
+  } catch (e: any) {
+    // A patch cannot create, so the first save on a fresh cluster lands here. Create the empty
+    // Secret and patch it, rather than POSTing the values, so there is exactly one code path
+    // that writes them.
+    if (!/404|not ?found/i.test(e?.message || '')) {
+      throw e;
+    }
+
+    await rancherFetch(`${ EXT_BASE }/api/v1/namespaces/${ EXT_NS }/secrets`, {
+      method:  'POST',
+      headers: METADATA_ONLY,
+      body:    JSON.stringify({
         apiVersion: 'v1',
         kind:       'Secret',
         type:       'Opaque',
         metadata:   { namespace: EXT_NS, name: SETTINGS_SECRET },
-        data,
       }),
+    }).catch((created: any) => {
+      // Two tabs saving at once: the other one made it, which is the outcome both wanted.
+      if (!/409|already exists|alreadyexists/i.test(created?.message || '')) {
+        throw created;
+      }
     });
+
+    await patch();
   }
-}
-
-/** The token itself, for the one caller that has to send it somewhere. Never for a page. */
-async function readToken(): Promise<string> {
-  const secret = await extGet('secrets', SETTINGS_SECRET);
-
-  return secret?.data?.[TOKEN_KEY] ? decodeSecret(secret.data[TOKEN_KEY]) : '';
 }
 
 export const PUBLISH_STAGES = [
@@ -3438,10 +4076,26 @@ export async function publishExtension(name: string, onProgress?: PublishProgres
   // What it records is the source tree that was built, which is not the bundle. The bundle is
   // in /app/public and dies with the node, so what this offers a screen is a rebuild from a
   // recorded tree, and no screen may call it a rollback to the running artifact.
-  await recordBaseline(name, BASELINE_LOCAL_REF, `Published ${ plugin } ${ version } into this Rancher`);
+  const baseline = await recordBaseline(name, BASELINE_LOCAL_REF, `Published ${ plugin } ${ version } into this Rancher`);
+  // The way back, recorded at the only moment anything can know this tree works: it has just
+  // been built and installed. See WORKING_BUILD_REF.
+  const working = await recordBaseline(name, WORKING_BUILD_REF, `Working build ${ plugin } ${ version }`);
+
+  // Said rather than swallowed. The publish stands - the bundle is installed and this Rancher
+  // is loading it - but a baseline that was not written means every diff screen goes on
+  // measuring from the previous point, and the person who just published is the only one in a
+  // position to notice.
+  const note = [
+    baseline.error
+      ? `\n[barn] the publish worked, but the baseline ref could not be written, so the review screens will still measure from the previous point: ${ baseline.error }`
+      : '',
+    working.error
+      ? `\n[barn] the publish worked, but the working-build ref could not be written, so a later failure will not have this build to roll back to: ${ working.error }`
+      : '',
+  ].join('');
 
   return {
-    plugin, version, url, log
+    plugin, version, url, log: `${ log }${ note }`
   };
 }
 
@@ -3483,9 +4137,11 @@ export const GITHUB_PUBLISH_STAGES = [
  * have to be the same commit, and pushing HEAD would push whatever the tip happens to be by
  * the time the button was pressed.
  *
- * The token never reaches this page and never reaches the returned log: it is read straight
- * out of the Secret into the command, and scrubbed out of the output before it comes back. See
- * scrub below, which is not decoration - the log is shown in the UI when a publish fails.
+ * The token never reaches this page at all: the pod reads it out of the Secret with its own
+ * service account, and hands it to git through the environment. The log is scrubbed of
+ * anything token-shaped on the way back, which is belt and braces rather than the guard - the
+ * log is shown in the UI when a publish fails, which is the wrong place to discover that
+ * nothing puts the credential in a command's text after all.
  *
  * The repository is asked for at the point of publishing rather than configured beforehand,
  * because it is a decision about this push and not a property of the extension. It is
@@ -3500,13 +4156,14 @@ export async function publishExtensionToGithub(
 
   report(1);
 
-  const token = await readToken();
-
   if (!repo) {
     throw new PublishError('No repository was given.', GITHUB_PUBLISH_STAGES[0], '');
   }
 
-  if (!token) {
+  // Whether one is stored, not what it is. The push below reads the credential in the pod; this
+  // is here so a publish with nothing configured is refused before it writes a commit, and says
+  // the one thing the person can act on.
+  if (!(await readSettings('')).hasToken) {
     throw new PublishError('No GitHub token is configured. Add one in the editor settings.', GITHUB_PUBLISH_STAGES[0], '');
   }
 
@@ -3540,11 +4197,7 @@ export async function publishExtensionToGithub(
 
   const { name: plugin, version } = await packageIdentity(name);
 
-  // The same basic auth GitHub Actions uses for a token: the header rather than the URL, so it
-  // is not written into .git/config where the next person to open a terminal would find it.
-  const auth = btoa(`x-access-token:${ token }`);
   const remote = `https://github.com/${ repo }.git`;
-  const scrub = (text: string) => text.split(token).join('***').split(auth).join('***');
 
   // A repository to push, which for a pod that has never had one is one `git init`.
   await ensureExtensionRepo(name);
@@ -3565,23 +4218,41 @@ export async function publishExtensionToGithub(
     ].join(' ; '));
 
     if (!commitLog.includes('BARN-COMMIT-OK')) {
-      throw new PublishError('the package could not be committed', GITHUB_PUBLISH_STAGES[2], scrub(commitLog));
+      throw new PublishError('the package could not be committed', GITHUB_PUBLISH_STAGES[2], scrubTokens(commitLog));
     }
   }
 
   report(4);
 
+  // The same basic auth GitHub Actions uses for a token: the header rather than the URL, so it
+  // is not written into .git/config where the next person to open a terminal would find it.
+  //
+  // Read in the pod and passed to git through the environment. Two things follow. The browser
+  // never holds the credential, which is what makes the "write-only" the settings page states
+  // true; and it is not in any command's arguments either, so a `ps` in the pod during a push
+  // finds the remote and nothing else.
   const pushLog = await inPackage(name, [
-    `git -c http.extraheader=${ shellQuote(`AUTHORIZATION: basic ${ auth }`) } push ${ shellQuote(remote) } ${ shellQuote(source) }:refs/heads/${ branch } 2>&1`,
+    readTokenSh(),
+    'BARN_GH_HEADER="AUTHORIZATION: basic $(printf %s "x-access-token:$BARN_GH_TOKEN" | base64 -w0)"',
+    'export BARN_GH_HEADER',
+    `git --config-env=http.extraheader=BARN_GH_HEADER push ${ shellQuote(remote) } ${ shellQuote(source) }:refs/heads/${ branch } 2>&1 || exit 1`,
     'echo BARN-PUSH-OK',
-  ].join(' && '));
+  ].join(' ; '));
+
+  const noToken = /BARN-NO-TOKEN:(\d+)/.exec(pushLog);
+
+  if (noToken) {
+    throw new PublishError(
+      `The push did not happen: ${ noTokenReason(noToken[1]) }.`, GITHUB_PUBLISH_STAGES[3], ''
+    );
+  }
 
   if (!pushLog.includes('BARN-PUSH-OK')) {
-    throw new PublishError(`could not push to ${ repo }`, GITHUB_PUBLISH_STAGES[3], scrub(pushLog));
+    throw new PublishError(`could not push to ${ repo }`, GITHUB_PUBLISH_STAGES[3], scrubTokens(pushLog));
   }
 
   return {
-    plugin, version, repo, branch, url: `https://github.com/${ repo }/tree/${ branch }`, log: scrub(pushLog),
+    plugin, version, repo, branch, url: `https://github.com/${ repo }/tree/${ branch }`, log: scrubTokens(pushLog),
   };
 }
 
@@ -3678,4 +4349,183 @@ export async function publishedVersion(name: string): Promise<string> {
   ).catch(() => null);
 
   return existing?.spec?.plugin?.version || '';
+}
+
+/**
+ * The dev server's own output, straight out of the pod's log.
+ *
+ * This is what "raw output" means in the workspace. The design's strip under the steps is
+ * labelled "Show raw output · vue-cli-service serve" (32:893), and that command is literally
+ * what the pod runs (pod/boot.sh ends `exec ./node_modules/.bin/vue-cli-service serve`), so
+ * its compile output is a real thing to expand rather than a stand-in for the terminal.
+ *
+ * A plain `fetch` and not `rancherFetch`: a container log is text/plain, and the JSON parse
+ * every other call in this file wants would throw on it. Same origin and the same session, so
+ * there is still nothing to configure.
+ *
+ * Empty string when the extension has no running pod - there is no log of a server that is not
+ * running, and that is a different thing from a log that could not be read, which throws.
+ */
+export async function devServerLog(name: string, lines = 400): Promise<string> {
+  const pod = await extensionPod(name);
+
+  if (!pod) {
+    return '';
+  }
+
+  const resp = await fetch(
+    `${ EXT_BASE }/api/v1/namespaces/${ EXT_NS }/pods/${ pod }/log?tailLines=${ lines }`,
+    { headers: { Accept: 'text/plain' } },
+  );
+
+  if (!resp.ok) {
+    throw new Error(`the dev server's log could not be read: HTTP ${ resp.status }`);
+  }
+
+  return resp.text();
+}
+
+/**
+ * What the claude in this pod may do without asking, read rather than asserted.
+ *
+ * The design draws a permission-mode picker on the composer's status strip (11:226, 16:557) and
+ * this product has nothing to point it at: the mode is fixed by the arguments claude is started
+ * with, in `pod/claude-session.sh`, which is seeded from the bundle and re-written on every page
+ * load (`ensureDefaultExtension`). So the chip states the mode instead of setting it - and it
+ * states the one the pod is actually running, not the one this file happens to remember.
+ *
+ * The running process first, because that is the fact; the session script second, for a pod
+ * where no session has been opened yet and there is therefore no process to read. `read` says
+ * whether the pod answered at all, which is a different thing from a pod with no claude in it.
+ */
+export interface AssistantPermissions {
+  /** Whether the pod could be asked. Nothing else here means anything when false. */
+  read:    boolean;
+  /** Whether a claude process was found. False means the mode comes from the session script. */
+  running: boolean;
+  /** 'bypass' | 'accept-edits' | 'plan' | 'default' | '' when nothing could be read. */
+  mode:    string;
+  /** The command line it was read off, for the tooltip: a claim with its evidence attached. */
+  argv:    string;
+  /** 'process' | 'script' | '' */
+  source:  string;
+}
+
+const PERM_MARKER = 'BARN-PERM';
+
+/** The mode a claude command line asks for. Its own default when it asks for nothing. */
+function permissionModeOf(argv: string): string {
+  if (/--dangerously-skip-permissions\b/.test(argv)) {
+    return 'bypass';
+  }
+
+  const named = /--permission-mode[\s=]+(\S+)/.exec(argv)?.[1] || '';
+
+  if (/^acceptEdits$/i.test(named)) {
+    return 'accept-edits';
+  }
+
+  if (/^plan$/i.test(named)) {
+    return 'plan';
+  }
+
+  if (/^bypassPermissions$/i.test(named)) {
+    return 'bypass';
+  }
+
+  return 'default';
+}
+
+export async function assistantPermissions(name: string): Promise<AssistantPermissions> {
+  const none = {
+    read: false, running: false, mode: '', argv: '', source: '',
+  };
+  const out = await inPackage(name, [
+    `echo ${ PERM_MARKER }`,
+    "ps -eo args= 2>/dev/null | grep -m1 '^claude'",
+    'echo "--script--"',
+    "sed -n 's/^ *\\(claude .*\\)$/\\1/p' /seed/claude-session.sh 2>/dev/null | head -1",
+  ].join(' ; ')).catch(() => '');
+
+  if (!out.includes(PERM_MARKER)) {
+    return none;
+  }
+
+  const [head = '', tail = ''] = out.split('--script--');
+  const running = head.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('claude'))[0] || '';
+  // The script writes the same command twice with different arguments; either says the mode.
+  // `|| true` and a shell variable at the end of the line are the script's, not the command's.
+  const scripted = (tail.split('\n').map((l) => l.trim()).filter(Boolean)[0] || '')
+    .replace(/\s*\|\|.*$/, '')
+    .trim();
+  const argv = running || scripted;
+
+  if (!argv) {
+    return { ...none, read: true };
+  }
+
+  return {
+    read:    true,
+    running: !!running,
+    mode:    permissionModeOf(argv),
+    argv,
+    source:  running ? 'process' : 'script',
+  };
+}
+
+/**
+ * The cluster every extension pod runs in, and every cluster this Rancher has.
+ *
+ * The masthead's "Preview on: local" (16:511) is drawn as a target you could change, and it is
+ * not one: `EXT_CLUSTER` above is a module literal, so a pod is created in this cluster or
+ * nowhere. Rather than assert that in a tooltip, the chip reads what is there - if this Rancher
+ * ever had a second cluster the reading would say so, and the sentence about why the preview is
+ * not a picker would still be true and would be measurably about something.
+ */
+export interface PreviewTarget {
+  /** The cluster extension pods are created in. */
+  cluster:  string;
+  /** Every cluster this Rancher manages, when it could be read. */
+  clusters: string[];
+  read:     boolean;
+}
+
+export async function previewTarget(): Promise<PreviewTarget> {
+  const list = await rancherFetch('/v1/management.cattle.io.clusters').catch(() => null);
+  const names = (list?.data || [])
+    .map((c: any) => c?.spec?.displayName || c?.metadata?.name || c?.id)
+    .filter(Boolean);
+
+  return { cluster: EXT_CLUSTER, clusters: names, read: !!list };
+}
+
+/**
+ * Interrupt whatever the assistant is doing, the way a person at the keyboard would.
+ *
+ * The design puts a Stop beside Send (11:347, 19:807) and the product had nothing behind it.
+ * What there is, is the same wire `askAssistant` types down: claude is a TUI in a tmux pane,
+ * and Escape is its interrupt. `tmux send-keys Escape` presses it from here.
+ *
+ * What this cannot do is tell you whether anything was running. Nothing in the pod records a
+ * turn starting or ending in real time (the Stop hook is the only end there is, and it fires
+ * after the fact), so the caller must not claim the run was halted - only that the interrupt
+ * was delivered. 'none' means there is no session to interrupt, which is a different answer
+ * from a failure and is worth saying out loud.
+ */
+export async function interruptAssistant(name: string): Promise<'sent' | 'none'> {
+  const out = await inPackage(name, [
+    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    `tmux send-keys -t ${ ASSISTANT_SESSION } Escape && echo BARN-STOP-SENT ;`,
+    'else echo BARN-STOP-NONE ; fi',
+  ].join(' '));
+
+  if (out.includes('BARN-STOP-SENT')) {
+    return 'sent';
+  }
+
+  if (out.includes('BARN-STOP-NONE')) {
+    return 'none';
+  }
+
+  throw new Error(`the interrupt did not reach ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
 }

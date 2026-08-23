@@ -122,7 +122,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "1370x338",
+      "size": "1370x275",
       "dir": "row",
       "align": "normal"
     },
@@ -136,7 +136,7 @@
       "radius": 4,
       "border": "1 1 1 1",
       "bcol": "rgb(220, 222, 231)",
-      "size": "1322x314",
+      "size": "1322x251",
       "dir": "row",
       "align": "normal"
     },
@@ -1028,7 +1028,7 @@
     },
     ".preview-panel__canvas": {
       "pad": "16 16 16 16",
-      "gap": null,
+      "gap": "12/12",
       "font": "14/400",
       "lh": 16.1,
       "color": "rgb(20, 20, 25)",
@@ -1037,7 +1037,7 @@
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
       "size": "842x677",
-      "dir": "row",
+      "dir": "column",
       "align": "normal"
     },
     ".preview-panel__frame": {
@@ -1050,7 +1050,7 @@
       "radius": 4,
       "border": "1 1 1 1",
       "bcol": "rgb(220, 222, 231)",
-      "size": "810x645",
+      "size": "810x581",
       "dir": "row",
       "align": "normal"
     }
@@ -1716,7 +1716,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "1240x1344",
+      "size": "1240x1509",
       "dir": "row",
       "align": "flex-start"
     },
@@ -1730,7 +1730,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "796x1344",
+      "size": "796x1509",
       "dir": "column",
       "align": "normal"
     },
@@ -1758,7 +1758,7 @@
       "radius": 4,
       "border": "1 1 1 1",
       "bcol": "rgb(220, 222, 231)",
-      "size": "796x388",
+      "size": "796x553",
       "dir": "row",
       "align": "normal"
     },
@@ -1814,7 +1814,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "794x302",
+      "size": "794x467",
       "dir": "column",
       "align": "normal"
     },
@@ -1828,7 +1828,7 @@
       "radius": 4,
       "border": "1 1 1 1",
       "bcol": "rgb(220, 222, 231)",
-      "size": "758x44",
+      "size": "758x90",
       "dir": "row",
       "align": "flex-start"
     },
@@ -1912,7 +1912,7 @@
       "radius": 4,
       "border": "0 0 0 3",
       "bcol": "rgb(61, 152, 211)",
-      "size": "758x144",
+      "size": "758x220",
       "dir": "row",
       "align": "flex-start"
     }
@@ -2168,7 +2168,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "453x24",
+      "size": "464x24",
       "dir": "row",
       "align": "normal"
     },
@@ -2182,7 +2182,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "color(srgb 0.582118 0.582118 0.663373)",
-      "size": "453x14",
+      "size": "464x14",
       "dir": "row",
       "align": "normal"
     },
@@ -2247,11 +2247,11 @@
       "gap": "2/2",
       "font": "14/400",
       "lh": 40,
-      "color": "rgb(111, 111, 139)",
-      "bg": "rgba(0, 0, 0, 0)",
+      "color": "rgb(20, 20, 25)",
+      "bg": "rgb(234, 244, 251)",
       "radius": 3,
       "border": "1 1 1 1",
-      "bcol": "rgba(0, 0, 0, 0)",
+      "bcol": "rgb(61, 152, 211)",
       "size": "282x52",
       "dir": "column",
       "align": "stretch"
@@ -2378,7 +2378,7 @@
       "radius": 0,
       "border": "0 0 0 0",
       "bcol": "rgb(20, 20, 25)",
-      "size": "467x18",
+      "size": "446x18",
       "dir": "row",
       "align": "normal"
     }

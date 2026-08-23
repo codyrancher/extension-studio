@@ -20,6 +20,24 @@
 //
 // The verdict itself is still a person's. Nothing here marks a criterion met on the assistant's
 // say-so: it is asked, a person reads the answer, and a person presses the button.
+//
+// The scope card's two answers (39:1348, 39:1350) are real and they go to different places,
+// because that is what the two of them mean. Accepting rewrites the brief - the line that ruled
+// the behaviour out moves into what the change does, stamped with the day and the person - so
+// the warning stops being true rather than being dismissed. Rejecting leaves the brief alone
+// and asks the assistant to take the behaviour back out, because in that case the author's list
+// was right and it is the code that has to move.
+//
+// Gone, and the reason matters. The design's "Capture this as evidence" (39:1385), its
+// screenshot upload (39:1306) and the sentence explaining that captured evidence travels with
+// the verdict (39:1384) are all one feature, and this product has nowhere to put an artefact:
+// a verdict lives in BRIEF.md, which is markdown in the extension's own git repository, and in
+// a ConfigMap. Writing PNGs into the source tree being reviewed is not an evidence store, it is
+// pollution of the thing under review. What the screen does capture is what it can honestly
+// capture - the clock, the person, and the route the preview was on - which is on every
+// criterion's provenance line. The cluster picker (39:1364) is out for the same reason it is
+// out on screen 02: the preview is this extension's own dev server inside its own pod, and
+// there is no other cluster for it to run in.
 import {
   SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SBadge
 } from '../components/ui';
@@ -232,6 +250,13 @@ export default {
       showing:    -1,
       // The criterion a "Send this back" is in flight for, by index.
       sending:    -1,
+      // The drift term an accept or a reject is in flight for, by term. Two of them, because
+      // the two do different things to different places and one spinner over both would put
+      // the wrong one on the wrong button.
+      accepting:  '',
+      rejecting:  '',
+      // A "Send the whole list back" is in flight.
+      handing:    false,
       VERDICTS,
     };
   },
@@ -1017,6 +1042,10 @@ export default {
      * The boxes go back into the same `- [ ]` lines they came out of, and a Verification section
      * is written underneath. That means the record of whether this thing did its job lives in
      * the repository, in the file that said what the job was.
+     *
+     * Returns whether the write landed, so a caller that does something after it - handing the
+     * list back to the assistant - does not claim the verdicts are in the file when they are
+     * not. The button callers ignore it, which is the same behaviour as before.
      */
     async save(message = 'Verification recorded') {
       this.saving = true;
@@ -1033,8 +1062,12 @@ export default {
         await writeExtensionFile(this.extension, 'BRIEF.md', this.record(this.brief));
         toastSuccess(this.$store, message, 'Written into BRIEF.md.');
         await this.load();
+
+        return true;
       } catch (e) {
         toastError(this.$store, 'Could not record the verification', e?.message || String(e));
+
+        return false;
       } finally {
         this.saving = false;
       }
@@ -1126,6 +1159,231 @@ export default {
         toastError(this.$store, e?.message || String(e), { title: 'Could not send it back' });
       } finally {
         this.sending = -1;
+      }
+    },
+
+    /**
+     * The brief with one ruled-out line moved into what this change does (39:1348).
+     *
+     * Accepting drift is not "dismiss the warning". The warning is true - the change does
+     * something the brief said it would not - and the only honest way to make it stop being
+     * true is to change the brief, which is what this does: the line comes out of
+     * `## What we are deliberately not doing` and goes into `## What changes for them`, stamped
+     * with the day and the person, so the document now declares the behaviour and the next
+     * reader can see it was agreed here rather than always having been in scope.
+     *
+     * Nothing else in the file is touched. The section this screen normally writes is
+     * `## Verification` and this write leaves it exactly as it found it, because an unsaved
+     * verdict on the page is not a verdict anybody recorded and accepting a drift is not the
+     * moment to write one.
+     *
+     * Pure, and separate from the write, so it can be run against a real brief without a
+     * cluster.
+     */
+    withDriftAccepted(brief, term, stamp) {
+      const lines = brief.split('\n');
+      const ruled = this.sectionRange(lines, 'What we are deliberately not doing');
+
+      if (!ruled) {
+        throw new Error('This brief has no "What we are deliberately not doing" section, so there is nothing to move out of it.');
+      }
+
+      const needle = String(term).toLowerCase();
+      const moved = [];
+      const kept = [];
+
+      for (let i = ruled.at; i < ruled.end; i++) {
+        const line = lines[i];
+
+        if (line.trim() && line.toLowerCase().includes(needle)) {
+          // The list marker and any checkbox go: this is becoming a statement of what the
+          // change does, and a stray `- [ ]` in that section is a box somebody will tick.
+          const prose = line.replace(/^\s*[-*+]\s*(\[[ xX]\]\s*)?/, '').trim();
+
+          if (prose) {
+            moved.push(prose);
+          }
+        } else {
+          kept.push(line);
+        }
+      }
+
+      if (!moved.length) {
+        throw new Error(`"${ term }" is not on a line of its own in what the brief ruled out, so there is no line to move.`);
+      }
+
+      // `_not stated_` rather than nothing, because that is the word screen 10 writes for an
+      // empty section and the word its parser reads back as empty.
+      const body = kept.join('\n').trim() ? kept : ['_not stated_', ''];
+
+      lines.splice(ruled.at, ruled.end - ruled.at, ...body);
+
+      const items = moved.map((text) => `- ${ text } (${ stamp })`);
+      // Recomputed after the splice: the ranges above are indices into the array as it was.
+      const changes = this.sectionRange(lines, 'What changes for them');
+
+      if (changes) {
+        let end = changes.end;
+
+        while (end > changes.at && !lines[end - 1].trim()) {
+          end--;
+        }
+
+        lines.splice(end, 0, '', ...items);
+      } else {
+        // No such section - a brief written by hand, or by something older than the form. It
+        // goes immediately above the section the line came out of, which is the order screen
+        // 10 writes the two in.
+        const head = this.sectionRange(lines, 'What we are deliberately not doing').head;
+
+        lines.splice(head, 0, '## What changes for them', '', ...items, '');
+      }
+
+      return `${ lines.join('\n').replace(/\n+$/, '') }\n`;
+    },
+
+    /**
+     * Accept one drifted behaviour into the brief (39:1348).
+     *
+     * `this.brief` is reassigned from the text that was written rather than reloaded, so the
+     * verdicts and notes on the page survive: `load()` re-reads the criteria and would throw
+     * away anything unsaved. The scope card is computed off `this.brief`, so the row this
+     * button was on goes as soon as the write lands.
+     */
+    async acceptDrift(hit) {
+      if (this.accepting || this.rejecting) {
+        return;
+      }
+
+      this.accepting = hit.term;
+
+      try {
+        const who = this.signedInAs;
+        const stamp = `accepted during verification on ${ today() }${ who ? ` by ${ who }` : '' }`;
+        const next = this.withDriftAccepted(this.brief, hit.term, stamp);
+
+        await writeExtensionFile(this.extension, 'BRIEF.md', next);
+        this.brief = next;
+
+        toastSuccess(
+          this.$store,
+          `"${ hit.term }" is now part of what the brief says this change does, so it is no longer drift.`,
+          { title: 'Added to the brief' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not add it to the brief' });
+      } finally {
+        this.accepting = '';
+      }
+    },
+
+    /**
+     * Reject one drifted behaviour (39:1350).
+     *
+     * The brief is not touched: the author's list of what this was not doing was right, and the
+     * thing that has to change is the code. So this goes the same way a failed criterion goes -
+     * to the claude working on this extension, with the term and the files the match was found
+     * in - and it answers in that extension's terminal. The screen does not tick anything and
+     * does not pretend the behaviour is gone; a person reads the reply and looks again.
+     *
+     * It also says the one thing a word match cannot: that the hit may be a coincidence, and
+     * that finding nothing is an acceptable answer. Without that, an assistant told to remove
+     * a behaviour that was never there removes something else.
+     */
+    async removeDrift(hit) {
+      if (this.accepting || this.rejecting) {
+        return;
+      }
+
+      this.rejecting = hit.term;
+
+      try {
+        const how = await askAssistant(this.extension, [
+          `The brief for the ${ this.extension } extension lists this under what it is`,
+          `deliberately not doing: "${ this.nonGoals.replace(/\s+/g, ' ').trim() }".`,
+          `Verification found the word "${ hit.term }" in lines this change adds, in:`,
+          `${ hit.files.join(', ') }.`,
+          'Read those lines. If the change really does the thing the brief ruled out, take that',
+          'behaviour back out and leave the rest of the change alone. If the match is a',
+          'coincidence and nothing there does it, change nothing and say so - a word match is',
+          'not proof. Do not edit BRIEF.md: the brief is the reviewer\'s to change.',
+        ].join(' '));
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? `Asked the assistant to take "${ hit.term }" back out. It replies in the workspace terminal, and this card will still warn until the lines are gone.`
+            : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.',
+          { title: 'Asked for it to come out' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not ask for it to come out' });
+      } finally {
+        this.rejecting = '';
+      }
+    },
+
+    /**
+     * Hand the whole pass back to whoever is building this (39:1405).
+     *
+     * Two things, in this order, because either alone is half an action: the pass is recorded
+     * into BRIEF.md - every verdict, every route, every note - and then the same list goes to
+     * the claude working on this extension so it does not have to be told to go and read it.
+     * The brief is the durable half and the message is the prompt; the design draws one button
+     * and this is the honest version of it.
+     *
+     * What it does not do is move the change out of anybody's queue. There is no per-change
+     * queue state in this product for it to move into - the review queue is derived from the
+     * extensions that exist and their review records - so the toast says where it went rather
+     * than implying the row has left a list. The per-criterion "Send this back" is still the
+     * narrower action: one criterion, one reason.
+     */
+    async sendListBack() {
+      if (this.handing || !this.criteria.length) {
+        return;
+      }
+
+      this.handing = true;
+
+      try {
+        const wrote = await this.save('The whole pass is in BRIEF.md');
+
+        if (!wrote) {
+          return;
+        }
+
+        const list = this.criteria
+          .map((c, i) => [
+            `(${ i + 1 })`,
+            `[${ VERDICT_WORDS[c.verdict] ?? VERDICT_WORDS[''] }]`,
+            c.text,
+            c.route ? `[checked at ${ c.route }]` : '',
+            c.note?.trim() ? `- the reviewer wrote: "${ c.note.replace(/\s+/g, ' ').trim() }"` : '',
+          ].filter(Boolean).join(' '))
+          .join('; ');
+
+        const how = await askAssistant(this.extension, [
+          `A reviewer has been through every acceptance criterion for the ${ this.extension }`,
+          'extension and is handing the whole list back. The verdicts and their notes are',
+          'recorded in BRIEF.md under `## Verification`, and here they are:',
+          `${ list }.`,
+          this.notes.trim() ? `Notes on the whole pass: "${ this.notes.replace(/\s+/g, ' ').trim() }".` : '',
+          'Work through the ones that are not met, and for anything answered "Could not tell"',
+          'say what would make it decidable. Do not edit BRIEF.md - the verdicts are the',
+          'reviewer\'s.',
+        ].filter(Boolean).join(' '));
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? `All ${ this.criteria.length } verdicts are in BRIEF.md and the list has gone to the assistant working on this extension. It replies in the workspace terminal; nothing has left the review queue.`
+            : `All ${ this.criteria.length } verdicts are in BRIEF.md. No workspace session is open yet, so the list is the first thing that conversation will be asked.`,
+          { title: 'Sent the whole list back' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not send the list back' });
+      } finally {
+        this.handing = false;
       }
     },
 
@@ -1542,12 +1800,17 @@ export default {
                   screen, in the file, and editable.
                 -->
                 <div v-if="c.verdict === 'fail' || c.note" class="verify__failed">
-                  <p v-if="c.verdict === 'fail'" class="verify__failed-rule">
+                  <p
+                    v-if="c.verdict === 'fail'"
+                    class="verify__failed-rule"
+                    data-testid="verify-blocked-note"
+                  >
                     A No holds the outcome sign-off open until it is answered Yes; a "Can't
-                    tell" does not. The sign-off is one of the two answers the distribution gate
-                    needs, so a No holds that shut as well. It does not stop loading this into
-                    this Rancher or pushing the source to GitHub - those are deliberately
-                    ungated.
+                    tell" does not. That sign-off is one of the two answers the distribution
+                    gate needs, so a No holds <strong>distributing this to other Ranchers</strong>
+                    shut as well. It holds neither of the other two ways out: loading this
+                    extension into this Rancher, and pushing the source to GitHub for review,
+                    are both deliberately ungated and stay open while this says No.
                   </p>
 
                   <div class="verify__note">
@@ -1618,8 +1881,48 @@ export default {
                   <div v-for="hit in scopeDrift" :key="hit.term" class="verify__drift-row">
                     <code class="verify__term">{{ hit.term }}</code>
                     <span class="verify__drift-files">{{ hit.files.join(', ') }}</span>
+
+                    <!--
+                      39:1348 and 39:1350, per hit rather than per card: the card can be
+                      warning about three different words found in three different files, and
+                      one button for all of them would accept or reject work nobody looked at.
+                    -->
+                    <div class="verify__drift-actions">
+                      <SButton
+                        variant="neutral"
+                        size="sm"
+                        :data-testid="`verify-accept-drift-${ hit.term }`"
+                        :loading="accepting === hit.term"
+                        :disabled="!!accepting || !!rejecting"
+                        title="Moves the line that ruled this out into what the brief says this change does, so the brief covers it and this warning has nothing left to warn about."
+                        @click="acceptDrift(hit)"
+                      >
+                        That is fine - add it to the brief
+                      </SButton>
+                      <SButton
+                        variant="ghost"
+                        size="sm"
+                        icon="undo"
+                        :data-testid="`verify-remove-drift-${ hit.term }`"
+                        :loading="rejecting === hit.term"
+                        :disabled="!!accepting || !!rejecting"
+                        title="Asks the assistant working on this extension to take the behaviour back out. It answers in the workspace terminal."
+                        @click="removeDrift(hit)"
+                      >
+                        Remove it
+                      </SButton>
+                    </div>
                   </div>
                 </div>
+
+                <p class="verify__drift-note">
+                  Accepting rewrites <strong>BRIEF.md</strong>: the line that ruled this out
+                  moves into <em>What changes for them</em>, stamped with today's date, so the
+                  brief now covers the behaviour and the warning goes. Removing it does not
+                  touch the brief - it puts the behaviour to the assistant in this extension's
+                  pod and asks for it back out, and that answer arrives in the workspace
+                  terminal.
+                </p>
               </template>
             </div>
 
@@ -1755,6 +2058,22 @@ export default {
         @click="save()"
       >
         Record the result
+      </SButton>
+      <!--
+        39:1405. Records the pass and then puts the whole list to the assistant in one press,
+        which is the difference between this and the per-criterion "Send this back": that one
+        is one criterion and one reason, this one is the review.
+      -->
+      <SButton
+        variant="neutral"
+        icon="undo"
+        data-testid="verify-send-list-back"
+        :loading="handing"
+        :disabled="!criteria.length || saving"
+        title="Writes every verdict, route and note into BRIEF.md, then puts the whole list to the assistant working on this extension. Nothing leaves the review queue - this product has no per-change queue state to move."
+        @click="sendListBack"
+      >
+        Send the whole list back
       </SButton>
       <!--
         39:1391's primary action, which is a judgement rather than a save: every criterion the
@@ -2167,6 +2486,7 @@ $verdicts-edge:   1px;
   &__drift-row {
     display:     flex;
     align-items: baseline;
+    flex-wrap:   wrap;
     gap:         var(--studio-space-8);
     min-width:   0;
   }
@@ -2177,6 +2497,21 @@ $verdicts-edge:   1px;
     font:      var(--studio-body-13);
     color:     var(--studio-text-secondary);
     word-break: break-word;
+  }
+
+  // The two answers to one drifted term. Wrapped onto their own line on a narrow column, so
+  // the file list keeps the width it needs to be readable.
+  &__drift-actions {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+    flex:        0 0 auto;
+  }
+
+  &__drift-note {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-tertiary);
   }
 
   &__notes {

@@ -24,6 +24,7 @@ import { rancherFetch } from './api';
 import {
   EXT_NS, runInPackage, readExtensionFile, readSettings, publishExtensionToGithub,
   createPullRequest, commentOnPullRequest, githubDefaultBranch, provenanceFor,
+  findOpenPullRequest, extensionSource, parseGithubSource,
   BASELINE_OCI_REF, BASELINE_LOCAL_REF, PublishError,
   type PublishProgress, type GithubPublishResult,
 } from './extensions';
@@ -895,6 +896,167 @@ export async function handOverForReview(
   }));
 
   return { ...record, log: push.log };
+}
+
+/**
+ * The pull request that is the record of this hand-over.
+ *
+ * Cross-screen rule 5: "the hand-off to review is a PR, and the PR is the record". The record
+ * half was already true - `handOverForReview` writes the PR into the packet - and the reading
+ * half was not, because the only surface that asked looked for the wrong thing. Screen 12's
+ * `checkPullRequest` searched GitHub for an open PR whose head is `listBranches().current`,
+ * and a packet's branch is created with `git branch -f` and never checked out, so the branch it
+ * searched for was never the packet's. It could not have found the PR the hand-over makes.
+ *
+ * So this answers from the record first and GitHub second, which is also the right order for
+ * what the rule claims. The packet is the hand-off; the PR the hand-off opened is written into
+ * it at the moment it is opened; reading it back needs nothing from GitHub and works with no
+ * token, offline, and after the PR is merged and no longer open. GitHub is asked only when the
+ * record has no PR in it - a hand-over whose PR failed, or a packet pushed before this was
+ * recorded - and it is asked about the *packet's* branch.
+ */
+export interface PacketPullRequest {
+  /**
+   * Which of them this is about, and how sure it is.
+   *
+   * `recorded`    the packet carries the PR the hand-over opened. The record, read back.
+   * `found`       the record had none and GitHub has an open one on the packet's branch.
+   * `failed`      the hand-over tried to open one and GitHub refused. `error` says why.
+   * `none`        the packet was handed over and there is no PR for it.
+   * `unasked`     there is a packet with no PR recorded and nothing could ask GitHub.
+   * `no-packet`   nothing has been handed over, so there is no hand-off to have a record of.
+   */
+  state:   'recorded' | 'found' | 'failed' | 'none' | 'unasked' | 'no-packet';
+  /** The packet number, 0 when there is none. */
+  packet:  number;
+  /** The branch the packet was pushed on. '' with no packet. */
+  branch:  string;
+  /** The commit the packet is at. */
+  sha:     string;
+  /** `owner/name`, from the packet or from where the extension came from. */
+  repo:    string;
+  pr:      { number: number; url: string } | null;
+  /** Why there is no PR, when the reason is known. '' otherwise. */
+  error:   string;
+  /** A whole sentence a chip can render. A state with no reason is not acceptable. */
+  sentence: string;
+}
+
+export async function packetPullRequest(extension: string): Promise<PacketPullRequest> {
+  const record = await readReview(extension);
+  const numbers = Object.keys(record.packets).map(Number).filter((n) => n > 0);
+
+  if (!numbers.length) {
+    return {
+      state:    'no-packet',
+      packet:   0,
+      branch:   '',
+      sha:      '',
+      repo:     '',
+      pr:       null,
+      error:    '',
+      sentence: 'This has never been handed over, so there is no pull request to be its record yet.',
+    };
+  }
+
+  const n = Math.max(...numbers);
+  const packet = record.packets[String(n)];
+  const branch = packet.branch || packetBranch(extension, n);
+  const base = {
+    packet: n, branch, sha: packet.sha || '', repo: packet.repo || '',
+  };
+
+  if (packet.pr) {
+    return {
+      ...base,
+      state:    'recorded' as const,
+      pr:       packet.pr,
+      error:    '',
+      sentence: `Packet ${ n } was handed over as pull request #${ packet.pr.number }.`,
+    };
+  }
+
+  if (packet.prError) {
+    return {
+      ...base,
+      state:    'failed' as const,
+      pr:       null,
+      error:    packet.prError,
+      sentence: `Packet ${ n } is pushed to ${ branch }, but the pull request could not be opened: ${ packet.prError }`,
+    };
+  }
+
+  // Nothing recorded. Ask GitHub about the packet's own branch - which is the branch the
+  // hand-over pushed, and never the one the pod happens to have checked out.
+  const settings = await readSettings(extension).catch(() => ({ hasToken: false, repo: '' }));
+  const source = await extensionSource(extension).catch(() => '');
+  const repo = packet.repo || settings.repo || parseGithubSource(source)?.repo || '';
+
+  if (!settings.hasToken || !repo) {
+    return {
+      ...base,
+      repo,
+      state:    'unasked' as const,
+      pr:       null,
+      error:    '',
+      sentence: settings.hasToken
+        ? `Packet ${ n } records no pull request, and no repository is remembered for ${ extension }, so nothing can be asked about it.`
+        : `Packet ${ n } records no pull request, and there is no GitHub token configured, so nothing can be asked about it.`,
+    };
+  }
+
+  try {
+    const found = await findOpenPullRequest(extension, repo, branch);
+
+    return found ? {
+      ...base,
+      repo,
+      state:    'found' as const,
+      pr:       { number: found.number, url: found.url },
+      error:    '',
+      sentence: `Pull request #${ found.number } is open on ${ branch }, the branch packet ${ n } was pushed to.`,
+    } : {
+      ...base,
+      repo,
+      state:    'none' as const,
+      pr:       null,
+      error:    '',
+      sentence: `Packet ${ n } is pushed to ${ branch } and there is no open pull request on it.`,
+    };
+  } catch (e: any) {
+    return {
+      ...base,
+      repo,
+      state:    'unasked' as const,
+      pr:       null,
+      error:    e?.message || String(e),
+      sentence: `Packet ${ n } records no pull request, and GitHub could not be asked about ${ branch }: ${ e?.message || String(e) }`,
+    };
+  }
+}
+
+/**
+ * Which of these extensions have actually been handed over.
+ *
+ * Cross-screen rule 6: the packet accumulates in the background and is assembled at the push,
+ * so a queue is a list of hand-overs and not a list of people with dirty working trees. The
+ * review queue enumerates every extension in the namespace and enriches each one, which puts
+ * somebody who has never asked for a review into somebody else's queue - a row that explains
+ * itself in words is still a row.
+ *
+ * One ConfigMap read per extension, in parallel, and no exec into any pod: this is on the
+ * queue's first paint. An extension whose record cannot be read is treated as not handed over,
+ * which is the same answer as an extension with no record at all.
+ */
+export async function handedOverExtensions(names: string[]): Promise<string[]> {
+  const answers = await Promise.all(names.map(async(name) => {
+    const record = await readReview(name).catch(() => null);
+    const handed = !!record && Object.keys(record.packets || {}).some((n) => Number(n) > 0);
+
+    return handed ? name : '';
+  }));
+
+  return answers.filter(Boolean);
 }
 
 // ---------------------------------------------------------------------------

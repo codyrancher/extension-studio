@@ -124,26 +124,41 @@ browser and you cannot get it to respond, that is very likely why: record `block
 this pod, and move on. Do not record `fail` for it - a broken probe in the environment is not a
 defect in the Studio, and mixing the two makes the todo list lie.
 
-## Never start a dev server
+## Use the dev server to iterate, the build to integrate
 
-Do not run `yarn dev`, `yarn serve`, `vue-cli-service serve` or `serve-pkgs`. Not to verify, not to
-check that something renders, not for anything.
+There are two loops and using the wrong one wastes most of your time.
 
-Each one is a webpack dev build that grows to about **3GB of resident memory** and never shrinks.
-This container has 64GB shared by every agent, the Rancher sidecar, the browser sidecar and the
-extension pods. Three left running took it to 700MB free with swap exhausted, and three more were
-started within a minute of that being cleared.
-
-They are also the wrong thing to look at. Verification drives the bundle **installed in Rancher** and
-served from `https://172.19.0.5:8446`, which is what a user loads. A dev server serves a different
-build, on a different port, that nothing points at.
-
-To check the bundle you are driving is current, read the install timestamp off the UIPlugin:
+**The fast loop, for changing something and looking at it.** One dev server runs for the whole
+session at `http://localhost:8005`, serving a dashboard that proxies to the real Rancher. It
+compiles incrementally and hot reloads, so an edit to a template or a computed shows up in seconds.
 
 ```bash
-kubectl get uiplugins.catalog.cattle.io -n cattle-ui-plugin-system barn \
-  -o jsonpath='{.spec.plugin.endpoint}'
+scripts/design-check/dev-server.sh status   # is it up, and how much memory
+scripts/design-check/dev-server.sh start    # idempotent; refuses to start a second one
+scripts/design-check/dev-server.sh log      # last 40 lines, including compile errors
 ```
 
-The orchestrator builds and installs. If you believe the bundle is stale, say so and stop, rather
-than building your own.
+Use it for everything iterative: does this render, does this handler fire, is the wiring right,
+does my selector match. A compile error appears in the log within seconds, which is far faster
+than finding it in a `build-pkg` five minutes later.
+
+**The slow loop, for integration.** `build-pkg` plus `install-barn.mjs` produces the bundle a user
+actually loads, and only that path exercises UIPlugin loading, the cache-buster and the
+`direct: true` endpoint. Some defects only exist there - a `data-testid` that falls through to a
+wrapper, a chunk id reused across builds, a route whose meta is stamped after the product
+registers. **The orchestrator runs this**, once per wave, and verification happens against it.
+
+So: iterate on `:8005`, and do not claim a feature works until it has been driven against the
+installed bundle. Both statements matter. A change that works in the dev server and not in the
+bundle is a real defect, and it has happened in this project more than once.
+
+## Do not start your own dev server
+
+**Run `dev-server.sh start`, never `yarn dev` directly.** The script exists because three raw dev
+servers ran at once earlier in this project and took the container to 700MB free of 64GB, with swap
+exhausted. Two of them were kept alive by `while true; do yarn dev; done` scripts, so killing the
+server just spawned another - four rounds of that before the keeper itself was found.
+
+The script starts exactly one, refuses if another is already running, caps the heap at 3GB, and has
+no restart loop: if it dies it stays dead and you read the log. If you find a `vue-cli-service` it
+does not own, say so rather than adding another.

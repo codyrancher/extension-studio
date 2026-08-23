@@ -2,9 +2,16 @@
 // The masthead from the Extension Studio design (Figma frame 03, node 9:177).
 //
 // Everything on this bar is a reading of something or an action on it: the extension's name,
-// the branch it is on, the cluster the preview runs in, whether the working tree has
-// uncommitted changes, what phase the extension is in, the snapshots of its tree, the undo of
-// the last edit, Publish, and the overflow list of the other screens about this extension.
+// the branch it is on, the cluster the preview runs in, whether the last publish failed or the
+// working tree has uncommitted changes, what phase the extension is in, the snapshots of its
+// tree, the undo of the last edit, Publish, and the overflow list of the other screens about
+// this extension.
+//
+// Two of those are newer than the rest. The badge reads the recorded publish failure, because
+// screen 08 is this screen in its failed state and the build state belongs beside the name
+// (19:956). And the clock line's first half is true now: while this workspace is open the tree
+// is watched and a snapshot is taken when it moves (see AUTO_MIN_MS), so "the workspace
+// autosaves" is a description rather than a claim.
 //
 // The three controls that used to live on a bar of their own under it - the publish status
 // strip, the extension picker and the settings cog - come in through slots rather than this
@@ -16,11 +23,12 @@ import PublishSplit from './PublishSplit.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
   listBranches, countChanges, createSnapshot, listSnapshots, restoreSnapshot, undoLastChange,
-  checkoutBranch, publishedVersion, EXT_NS
+  checkoutBranch, publishedVersion, previewTarget, workingDiff, EXT_NS
 } from '../extensions';
 import {
   FILES_ROUTE, REVIEW_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
 } from '../editor-product';
+import { readFailure, failureStage, FAILURE_EVENT } from '../publish-failure';
 
 /** Which screen each line of the overflow menu goes to. */
 const OVERFLOW_ROUTES = {
@@ -35,6 +43,33 @@ function snapshotTakenAt(snapshot) {
   const stamp = parseInt(String(snapshot?.ref || '').split('/').pop(), 10);
 
   return Number.isFinite(stamp) && stamp > 0 ? stamp : 0;
+}
+
+/**
+ * The autosave, which is what makes the clock line's first half true (9:202).
+ *
+ * The design's line says the workspace autosaves and when the last snapshot was. The second
+ * half was always a real reading; this is the first: while the workspace is open, the tree is
+ * watched, and a snapshot is taken when it has moved. Not on a clock - a timer that snapshots
+ * a tree nobody touched fills the menu with identical points - and never oftener than
+ * AUTO_MIN_MS, counted from the newest snapshot in the pod rather than from this tab's own
+ * last one, so two open tabs do not each take one of the same tree.
+ *
+ * Snapshots are cheap and non-destructive: a commit object built from a scratch index and a
+ * tag pointing at it (see createSnapshot). Nothing about the working tree, the index or the
+ * branch changes, which is what makes taking one in the background acceptable at all.
+ */
+const AUTO_MIN_MS = 3 * 60 * 1000;
+
+/** A stable, cheap fingerprint of the working diff. Only equality is ever asked of it. */
+function fingerprint(text) {
+  let hash = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+  }
+
+  return `${ hash }:${ text.length }`;
 }
 
 /** A default name for a snapshot: the time it was taken, which is the one fact about it. */
@@ -104,6 +139,22 @@ export default {
       // for the second before the count came back, on a tree that is not.
       read:      false,
       pollTimer: null,
+      // The working tree as the autosave last saw it, and whether it has been seen at all.
+      // Null until the first read: the first look establishes what "unchanged" means, and a
+      // snapshot taken on it would be a snapshot of something nobody did while watching.
+      autoPrint: null,
+      autoTaking: false,
+      // Why the last automatic snapshot did not happen, when one did not. Said out loud rather
+      // than swallowed: the line beside it claims the workspace autosaves, and a pod whose
+      // repository git will not write to is exactly where that claim would quietly stop being
+      // true - which is the failure `createSnapshot` was just made strict to expose.
+      autoError: '',
+      // Where the preview runs and what else there is, read rather than asserted.
+      target:    null,
+      // The recorded publish failure for this extension, when there is one. The badge is the
+      // design's Failed state (19:956) and the record is where that fact lives, so the bar
+      // reads it rather than being told about it by whoever ran the publish.
+      failure:   null,
       // The snapshots of this extension's tree, newest first, and whether they have been read
       // even once - "no snapshots yet" and "not asked yet" are different things to say.
       snapshots:      [],
@@ -119,24 +170,69 @@ export default {
   },
 
   computed: {
-    // The design shows "Preview on: local". It is `local` for the same reason EXT_CLUSTER is:
-    // the pod runs in the cluster this extension is installed into.
+    // The design shows "Preview on: local" (16:511). It is `local` because that is the cluster
+    // extension pods are created in, which this reads rather than repeats.
     previewOn() {
-      return 'local';
+      return this.target?.cluster || 'local';
     },
 
+    /**
+     * Why this is a readout and not a picker, in terms of what is actually there.
+     *
+     * A disabled dropdown would say the choice exists somewhere else, and it does not: the
+     * cluster is a module literal in extensions.ts, so a pod is created in it or nowhere. What
+     * is read is how many clusters this Rancher has, so the sentence is about this Rancher
+     * rather than about the source code.
+     */
     previewOnTitle() {
-      return 'Every extension pod is created in this cluster (see EXT_CLUSTER in extensions.ts), so the preview is served from it. There is nowhere else to run one, which is why this is not a picker.';
+      const where = `Every extension pod is created in ${ this.previewOn } (EXT_CLUSTER in extensions.ts), so the preview is served from there.`;
+
+      if (!this.target?.read) {
+        return `${ where } This Rancher's cluster list could not be read, so that is the whole of what is known.`;
+      }
+
+      const others = this.target.clusters.filter((name) => name !== this.previewOn);
+
+      if (!others.length) {
+        return `${ where } This Rancher has one cluster, ${ this.previewOn }, so there is nothing to choose between and this is a reading rather than a picker.`;
+      }
+
+      return `${ where } This Rancher also has ${ others.join(', ') }, and no extension pod is ever created there - so this is a reading rather than a picker.`;
     },
 
     namespace() {
       return EXT_NS;
     },
 
-    // Real, now that the working tree is counted: the design's badge says Unsaved when there
-    // is something uncommitted and Live when there is not.
+    /**
+     * Real, now that the working tree is counted and the failure is read.
+     *
+     * Failed first (19:956). Screen 08 is this screen in its failed state, so the badge beside
+     * the extension's name is where the build state is supposed to be visible without reading
+     * the panel - and "Unsaved" over a failed build is true about the tree and useless about
+     * the build. Otherwise the design's own two: Unsaved when something is uncommitted, Live
+     * when nothing is.
+     */
     state() {
+      if (this.failure) {
+        return 'failed';
+      }
+
       return this.changes > 0 ? 'unsaved' : 'live';
+    },
+
+    /** What the badge is saying, in one sentence, for anyone hovering it. */
+    stateTitle() {
+      if (this.failure) {
+        const stage = this.failure.stage || failureStage(this.failure.message || '');
+        const when = new Date(this.failure.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        return `The publish at ${ when } failed. ${ stage || this.failure.message }`;
+      }
+
+      return this.changes > 0
+        ? 'The working tree in the pod has changes that are not committed.'
+        : 'Nothing in the pod\'s working tree differs from its last commit.';
     },
 
     /**
@@ -220,9 +316,16 @@ export default {
       const at = snapshotTakenAt(this.snapshots[0]);
 
       if (!at) {
+        if (this.autoError) {
+          return {
+            label: 'Autosave failed · no snapshot yet',
+            title: `The tree has changed and it could not be snapshotted, so there is still nothing to go back to: ${ this.autoError }`,
+          };
+        }
+
         return {
           label: 'No snapshot yet',
-          title: 'Nothing in the Studio autosaves. Take a snapshot from this menu and the tree as it is now is kept in the pod\'s git repository.',
+          title: 'Nothing has been snapshotted in this pod yet. While this workspace is open the tree is watched and one is taken automatically when it changes; you can also take one from this menu at any time.',
         };
       }
 
@@ -235,9 +338,16 @@ export default {
         when = `${ Math.round(secs / 60) }m ago`;
       }
 
+      if (this.autoError) {
+        return {
+          label: `Autosave failed · last snapshot ${ when }`,
+          title: `The tree has changed and it could not be snapshotted, so nothing since "${ this.snapshots[0].label }" is kept: ${ this.autoError }`,
+        };
+      }
+
       return {
         label: `Snapshot saved ${ when }`,
-        title: `"${ this.snapshots[0].label }" - taken by hand from this menu. Nothing here autosaves.`,
+        title: `"${ this.snapshots[0].label }" - the newest snapshot in this pod. While this workspace is open the tree is watched and one is taken automatically when it changes, at most every ${ Math.round(AUTO_MIN_MS / 60000) } minutes; the Studio also takes one before anything that could lose work, and this menu takes one on demand.`,
       };
     },
 
@@ -312,6 +422,8 @@ export default {
   watch: {
     extension() {
       // A different pod: what is on screen is the last one's until this one has been read.
+      this.failure = readFailure(this.extension);
+      this.autoPrint = null;
       this.read = false;
       this.branches = [];
       this.version = '';
@@ -322,6 +434,11 @@ export default {
   },
 
   async mounted() {
+    this.failure = readFailure(this.extension);
+    // A publish fails under a masthead that is already on screen, and sessionStorage has no
+    // change event within the tab that wrote it, so the record announces itself.
+    window.addEventListener(FAILURE_EVENT, this.onFailureChanged);
+
     await this.refresh();
     this.pollTimer = setInterval(() => this.refresh(), 60000);
     this.nowTimer = setInterval(() => {
@@ -332,6 +449,7 @@ export default {
   beforeUnmount() {
     clearInterval(this.pollTimer);
     clearInterval(this.nowTimer);
+    window.removeEventListener(FAILURE_EVENT, this.onFailureChanged);
   },
 
   methods: {
@@ -343,10 +461,72 @@ export default {
       this.branches = branches?.branches || [];
       this.changes = await countChanges(this.extension).catch(() => 0);
       this.version = await publishedVersion(this.extension).catch(() => '');
+      // Per Rancher rather than per extension, so it is read once and kept.
+      if (!this.target) {
+        this.target = await previewTarget().catch(() => null);
+      }
+
       this.read = true;
       // The bar carries "Snapshot saved Ns ago", so the snapshots are no longer only the
       // menu's business - they have to be read before anybody opens it.
       await this.loadSnapshots();
+      await this.autoSnapshot();
+    },
+
+    /**
+     * Snapshot the tree if it has moved since the last look. See AUTO_MIN_MS.
+     *
+     * The whole working diff is read and fingerprinted rather than the change count compared:
+     * a count does not move when a line is edited in place, which is most of what editing is,
+     * and an autosave that missed those would be worse than none.
+     */
+    async autoSnapshot() {
+      if (this.autoTaking || this.busy) {
+        return;
+      }
+
+      const asked = this.extension;
+      const diff = await workingDiff(asked).catch(() => null);
+
+      if (diff === null || asked !== this.extension) {
+        return;
+      }
+
+      const print = fingerprint(diff);
+
+      // The first read is the reference point, not a change.
+      if (this.autoPrint === null) {
+        this.autoPrint = print;
+
+        return;
+      }
+
+      if (print === this.autoPrint) {
+        return;
+      }
+
+      // Counted from the newest snapshot in the pod, whoever took it: a second tab, or a
+      // snapshot taken by hand a moment ago, is already a point to come back to.
+      if (Date.now() - snapshotTakenAt(this.snapshots[0]) < AUTO_MIN_MS) {
+        return;
+      }
+
+      this.autoTaking = true;
+
+      try {
+        await createSnapshot(asked, `autosave ${ defaultSnapshotLabel() }`);
+        this.autoPrint = print;
+        this.autoError = '';
+        await this.loadSnapshots();
+      } catch (e) {
+        // Not a toast - nothing here was asked for by a person, and a toast every minute on a
+        // pod whose git is unwritable would be worse than the fault. It goes on the readout
+        // instead, which is the thing that would otherwise be claiming an autosave happened.
+        // `autoPrint` is deliberately not advanced, so the next poll tries the same tree again.
+        this.autoError = e?.message || String(e);
+      } finally {
+        this.autoTaking = false;
+      }
     },
 
     /**
@@ -503,6 +683,11 @@ export default {
       }
     },
 
+    /** The failure was recorded, dismissed or rolled back somewhere else on the page. */
+    onFailureChanged() {
+      this.failure = readFailure(this.extension);
+    },
+
     onOverflow(id) {
       const route = OVERFLOW_ROUTES[id];
 
@@ -550,8 +735,12 @@ export default {
       </div>
     </div>
 
-    <!-- Real: whether the pod's working tree has anything uncommitted in it. -->
-    <SBadge :status="state" />
+    <!-- Real: the recorded build failure, or whether the working tree has anything uncommitted. -->
+    <SBadge
+      :status="state"
+      :title="stateTitle"
+      data-testid="barn-state-badge"
+    />
 
     <!--
       Real: the branch the pod's package repository is on, and the list it can be switched to.
@@ -577,11 +766,12 @@ export default {
       </template>
     </SMenu>
 
-    <!-- Real: the cluster the preview is served from. -->
+    <!-- Real: the cluster the preview is served from, and why it is the only one. -->
     <SChip
       :label="`Preview on: ${ previewOn }`"
       icon="server"
       :title="previewOnTitle"
+      data-testid="barn-preview-target"
     />
 
     <!--

@@ -126,6 +126,54 @@ export async function writeStudioSettings(
   return next;
 }
 
+/**
+ * Git's own words, and the pod's, arrive lowercase and unpunctuated. A card is prose.
+ *
+ * The same helper `ImportExtensionModal` uses, so a refusal reads the same wherever it is
+ * shown. It lives here rather than in either surface because this module is already the one
+ * place the GitHub connection is handled from.
+ */
+export function asSentence(text: string): string {
+  return text ? `${ text[0].toUpperCase() }${ text.slice(1) }`.replace(/\.?$/, '.') : '';
+}
+
+/**
+ * A refusal from GitHub, said in words.
+ *
+ * `githubApiAnywhere` throws the status followed by the first 200 characters of GitHub's body,
+ * which is the right thing to carry back from the pod and the wrong thing to put in front of a
+ * reader: a rejected token arrives as `401 { "message": "Bad credentials", "documentation_url":
+ * ... }` flattened onto one line. So the status and GitHub's own `message` are pulled out and
+ * the rest is dropped. The body is truncated, so it is read with a pattern rather than parsed -
+ * a cut-off JSON object does not parse, and a token being rejected is exactly the sentence
+ * worth keeping.
+ *
+ * Anything that is not a status is left alone. "No GitHub token is configured" and "no extension
+ * pod is running to ask GitHub from" are this product's own words and already read as prose.
+ */
+export function githubErrorText(message: string): string {
+  const text = String(message || '').trim();
+  const status = /^(\d{3})\b/.exec(text);
+
+  if (!status) {
+    return text;
+  }
+
+  const said = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
+  const detail = said ? said[1] : '';
+  const because = detail ? ` (${ detail })` : '';
+
+  if (status[1] === '401') {
+    return `GitHub rejected the token${ because }.`;
+  }
+
+  if (status[1] === '403') {
+    return `GitHub refused the call${ because }.`;
+  }
+
+  return `GitHub answered ${ status[1] }${ because }.`;
+}
+
 /** Thrown when GitHub says the token is no good, which is the one case where nothing is stored. */
 export class TokenRejected extends Error {}
 

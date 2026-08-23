@@ -9,6 +9,14 @@
 // continue building (back to the workspace), Publish - which is the same publish the workspace's
 // button runs - and the rail's reading of the diff.
 //
+// Two points, and the screen used to confuse them. The list is `changedFiles`, measured from the
+// baseline - the last version handed over or published, and only HEAD when there has never been
+// one - while a discard puts the *working tree* back to HEAD. On an extension that has been
+// published, a file can differ from the baseline purely because somebody committed it, and no
+// discard can undo a commit. So the discard controls are aimed at what they can actually reach
+// (`discardable`), the rest is named as already committed, and the toast afterwards reports what
+// is still listed rather than claiming the screen is empty. See `readStates`.
+//
 // The tick box decides what survives. Unticking a file marks it for reverting, and leaving the
 // screen is what carries that out - which is what the design's caption under the list says in
 // words (14:424), and why the caption is not decoration: it is the whole warning. The intent is
@@ -29,8 +37,10 @@ import DiffView from '../components/DiffView.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
   ensureRepo,
-  changedFiles, fileDiff, discardChanges, listBranches, askAssistant, DEFAULT_EXTENSION
+  changedFiles, fileDiff, discardChanges, listBranches, askAssistant,
+  baselineRef, changeProvenance, fileProvenance, DEFAULT_EXTENSION
 } from '../extensions';
+import { sameCommit } from '../review';
 import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
@@ -129,6 +139,17 @@ export default {
       // The paths still ticked in the file list (14:395). Everything is kept until somebody
       // says otherwise, which is what makes the default row of the action bar honest.
       kept:     [],
+      // Which point the list is measured from, and where HEAD is. The two are the same thing on
+      // an extension nobody has published, and that is the case where a discard does empty the
+      // screen. See the note at the top of this file.
+      baseline: {
+        kind: '', ref: '', sha: '', label: '',
+      },
+      head:     '',
+      // path -> `fileProvenance` state, read only when the baseline and HEAD are different
+      // commits. Empty otherwise, which is the common case and means "every listed file is
+      // uncommitted", because a diff from HEAD is exactly the working tree.
+      states:   {},
       // Whether the "are you sure" in front of publishing is up. The action bar's label ends in
       // an ellipsis (14:548) and an ellipsis is a promise: this is the step it promises.
       confirmingPublish: false,
@@ -170,18 +191,84 @@ export default {
     },
 
     /**
+     * The listed files a discard can actually reach.
+     *
+     * A discard restores the working tree to HEAD, so it reaches a file only if the copy on
+     * disk differs from HEAD. `fileProvenance` reports exactly that: `committed` is a path git
+     * status has nothing to say about, which means it is in this list because of a commit and
+     * nothing this screen does can take it back out.
+     *
+     * `states` is empty whenever the baseline is HEAD, and then every listed file is reachable
+     * by construction - that is the same reading twice.
+     */
+    discardable() {
+      return this.files.map((f) => f.path).filter((p) => this.states[p] !== 'committed');
+    },
+
+    /** The other half: listed, and already committed, so a discard cannot touch it. */
+    committed() {
+      return this.files.map((f) => f.path).filter((p) => this.states[p] === 'committed');
+    },
+
+    /**
      * What Discard actually throws away.
      *
      * With boxes cleared it is those files and only those. With every box still ticked there is
      * no selection to honour, so it stays what it has always been - the whole working tree -
      * rather than becoming a button that cannot be pressed.
+     *
+     * Narrowed to what a discard can reach either way, so the button's count is the number of
+     * files that will actually change rather than the number on the list.
      */
     discardTargets() {
-      return this.unkept.length ? this.unkept : this.files.map((f) => f.path);
+      const aimed = this.unkept.length ? this.unkept : this.files.map((f) => f.path);
+
+      return aimed.filter((p) => this.discardable.includes(p));
     },
 
     discardLabel() {
-      return this.unkept.length && this.unkept.length < this.count ? `Discard ${ this.unkept.length }` : 'Discard all';
+      const n = this.discardTargets.length;
+
+      if (!n) {
+        return 'Nothing to discard';
+      }
+
+      return n === this.count ? 'Discard all' : `Discard ${ n }`;
+    },
+
+    /**
+     * Why the list will not empty, said before the button is pressed rather than after.
+     *
+     * The label alone ("Discard 1" over a list of three) raises the question without answering
+     * it. This answers it in the terms the reader can check: which point the list is measured
+     * from, and the fact that a discard aims at a different one.
+     */
+    committedNote() {
+      const n = this.committed.length;
+
+      if (!n) {
+        return '';
+      }
+
+      return `${ n } of these ${ this.count } files ${ n === 1 ? 'is' : 'are' } already committed - this list is ${
+        this.baseline.label || 'measured from the last published version' }, and discarding puts the working tree back to the last commit. A commit cannot be discarded, so ${
+        n === 1 ? 'it stays' : 'they stay' } listed.`;
+    },
+
+    /**
+     * The masthead badge.
+     *
+     * Unsaved means there is work on disk that no commit holds. A tree whose every listed file
+     * is committed is not unsaved, it is unpublished, which is what Draft says - and it is the
+     * state the screen is in the moment a discard succeeds on an extension with a baseline
+     * behind HEAD.
+     */
+    badge() {
+      if (!this.count) {
+        return 'live';
+      }
+
+      return this.discardable.length ? 'unsaved' : 'draft';
     },
 
     /**
@@ -386,19 +473,30 @@ export default {
 
       this.loading = true;
 
-      const [files, branches] = await Promise.all([
+      const [files, branches, baseline, provenance] = await Promise.all([
         changedFiles(this.extension).catch(() => []),
         listBranches(this.extension).catch(() => null),
+        // Which point the list is measured from, and where HEAD is. Both are one exec and both
+        // are needed before the screen can say what a discard would reach.
+        baselineRef(this.extension).catch(() => ({
+          kind: '', ref: '', sha: '', label: '',
+        })),
+        changeProvenance(this.extension).catch(() => ({ commit: { sha: '' } })),
       ]);
 
       this.files = files;
       this.branch = branches?.current || '';
+      this.baseline = baseline;
+      this.head = provenance.commit.sha || '';
+      this.states = await this.readStates(files);
       this.loading = false;
       // Everything is kept except what somebody unticked and has not left the screen on yet.
       // Read back rather than reset, because a reload that silently re-ticks every box throws
       // away a decision while the caption explaining that decision is still on the screen.
-      // Anything remembered that is no longer in the tree is dropped: it was acted on.
-      const remembered = this.readUnkept();
+      // Anything remembered that is no longer in the tree is dropped: it was acted on, and a
+      // path that turns out to be committed is dropped too - its box cannot be cleared, so a
+      // remembered clearance is an instruction nothing could ever carry out.
+      const remembered = this.readUnkept().filter((p) => this.states[p] !== 'committed');
 
       this.kept = files.map((f) => f.path).filter((p) => !remembered.includes(p));
       this.writeUnkept();
@@ -409,6 +507,33 @@ export default {
         this.selected = '';
         this.patch = '';
       }
+    },
+
+    /**
+     * Which listed files a discard could reach, when that is not simply all of them.
+     *
+     * Skipped entirely - and it is the reason `baselineRef` and `changeProvenance` are read at
+     * all - when the baseline and HEAD are the same commit. `git diff HEAD` is the working
+     * tree, so every file the list holds is uncommitted and one reading answers for all of
+     * them, without a shell into the pod per file on the screen's hottest path.
+     *
+     * `sameCommit` rather than `===`: `changeProvenance` reports `%h` and `baselineRef` reports
+     * what `rev-parse` printed, so the two are the same commit in different lengths.
+     */
+    async readStates(files) {
+      if (!this.baseline.sha || !this.head || sameCommit(this.baseline.sha, this.head)) {
+        return {};
+      }
+
+      const states = {};
+
+      await Promise.all(files.map(async(file) => {
+        const prov = await fileProvenance(this.extension, file.path).catch(() => ({ state: '' }));
+
+        states[file.path] = prov.state;
+      }));
+
+      return states;
     },
 
     async loadDiff() {
@@ -463,7 +588,11 @@ export default {
      * a file went and nothing said so.
      */
     async revertUnkept() {
-      const paths = this.unkept;
+      // Only what a revert can reach. A committed path cannot get here - its box is not
+      // operable - but one could still be sitting in sessionStorage from before it was
+      // committed, and running `discardChanges` on it would do nothing while the toast said it
+      // had been put back.
+      const paths = this.unkept.filter((p) => this.discardable.includes(p));
 
       if (!paths.length) {
         return;
@@ -488,13 +617,30 @@ export default {
       }
     },
 
+    /**
+     * Throw away what can be thrown away, and say what is left.
+     *
+     * Both halves of that sentence are the fix. The button used to aim at every listed file and
+     * promise the list would empty; on an extension whose baseline is behind HEAD it cannot,
+     * because most of the difference is commits. So the targets are narrowed to what a discard
+     * reaches, the confirmation names the files it will not, and the result is reported from a
+     * fresh reading rather than from what was asked for.
+     */
     async discardSelected() {
       const paths = this.discardTargets;
+
+      if (!paths.length) {
+        return;
+      }
+
       const all = paths.length === this.count;
       const what = all ? `all ${ this.count } changed files` : `${ paths.length } of the ${ this.count } changed files`;
+      const rest = this.committed.length
+        ? ` The other ${ plural(this.committed.length, 'file') } here ${ this.committed.length === 1 ? 'is' : 'are' } already committed and will still be listed afterwards.`
+        : '';
 
       // eslint-disable-next-line no-alert
-      if (!window.confirm(`Discard ${ what } in ${ this.extension }? This cannot be undone.`)) {
+      if (!window.confirm(`Discard ${ what } in ${ this.extension }? This cannot be undone.${ rest }`)) {
         return;
       }
 
@@ -507,12 +653,26 @@ export default {
         this.files = all ? [] : this.files.filter((f) => !paths.includes(f.path));
         this.kept = this.files.map((f) => f.path);
         this.writeUnkept();
+        // Re-read before saying what happened, because what is left is a fact about the tree
+        // and not a subtraction anybody can do on paper: a file can be both edited and ahead of
+        // the baseline, in which case the edit goes and the file stays on the list.
+        await this.load();
+
+        const left = this.count;
+        // Only claimed when the fresh reading supports it: every file still listed is one git
+        // status has nothing to say about. Anything else stays a plain count, because "because
+        // of commits" would then be a guess at why a discard did not take.
+        const why = left && this.committed.length === left
+          ? `: ${ left === 1 ? 'it differs' : 'they differ' } from the point this list is measured from because of commits, which a discard cannot undo`
+          : '';
+
         toastSuccess(
           this.$store,
-          all ? `${ this.extension } is back to its last commit.` : `${ plural(paths.length, 'file') } put back to the last commit.`,
+          left
+            ? `${ plural(paths.length, 'file') } put back to the last commit. ${ plural(left, 'file') } ${ left === 1 ? 'is' : 'are' } still listed${ why }.`
+            : `${ this.extension } is back to its last commit.`,
           { title: 'Changes discarded' }
         );
-        await this.load();
       } catch (e) {
         toastError(this.$store, e?.message || String(e), { title: 'Could not discard the changes' });
       } finally {
@@ -647,7 +807,13 @@ export default {
         </div>
       </div>
 
-      <SBadge :status="count ? 'unsaved' : 'live'" />
+      <SBadge
+        :status="badge"
+        data-testid="review-badge"
+        :title="badge === 'draft'
+          ? `Everything listed is already committed. It is not published, which is what Draft means here.`
+          : ''"
+      />
       <SChip v-if="branch" :label="branch" icon="branch" />
 
       <span class="review__grow" />
@@ -697,12 +863,22 @@ export default {
             class="review__file"
             :class="{ 'review__file--selected': file.path === selected }"
           >
+            <!--
+              A committed file's box is not operable, because clearing it would be an
+              instruction nothing can carry out: reverting puts the working tree back to the
+              last commit and this file is already there. The title says so rather than leaving
+              a dead control on the row.
+            -->
             <input
               type="checkbox"
               class="review__file-box"
               data-testid="review-keep-box"
               :data-path="file.path"
               :checked="kept.includes(file.path)"
+              :disabled="states[file.path] === 'committed'"
+              :title="states[file.path] === 'committed'
+                ? `${ file.path } is already committed. Unticking reverts a file to the last commit, and this file is at it - it is on this list because the commit itself has not been published.`
+                : `Untick to revert ${ file.path } when you leave this screen.`"
               :aria-label="`Keep ${ file.path }`"
               @change="toggleKeep(file)"
             >
@@ -735,6 +911,18 @@ export default {
           <span class="review__note-text">
             Everything here is in the pod's working tree. Publishing builds from it; discarding
             puts it back to the last commit.
+          </span>
+          <!--
+            Why the list will not empty, before the button is pressed rather than after it. Only
+            drawn when the two points this screen works with have come apart - see the note at
+            the top of the file.
+          -->
+          <span
+            v-if="committedNote"
+            class="review__note-text review__note-text--warn"
+            data-testid="review-committed-note"
+          >
+            {{ committedNote }}
           </span>
         </div>
       </div>
@@ -833,8 +1021,11 @@ export default {
         variant="ghost"
         icon="trash"
         data-testid="review-discard"
-        :disabled="!count"
+        :disabled="!discardTargets.length"
         :loading="discarding"
+        :title="discardTargets.length
+          ? `Puts ${ discardTargets.length === count ? 'the working tree' : discardTargets.length + ' of these files' } back to the last commit.`
+          : `Nothing here can be discarded: every file listed is already at the last commit.`"
         @click="discardSelected"
       >
         {{ discardLabel }}
@@ -1110,6 +1301,10 @@ export default {
   &__note-text {
     font:  var(--studio-caption-12);
     color: var(--studio-text-tertiary);
+
+    // The one line here that is about this extension rather than about the screen, so it is
+    // the one that has to be read.
+    &--warn { color: var(--studio-warning); }
   }
 
   &__diff {

@@ -145,6 +145,42 @@ function asSentence(text) {
   return text ? `${ text[0].toUpperCase() }${ text.slice(1) }`.replace(/\.?$/, '.') : '';
 }
 
+/**
+ * A refusal from GitHub, said in words.
+ *
+ * `githubApiAnywhere` throws the status followed by the first 200 characters of GitHub's body,
+ * which is the right thing to carry back from the pod and the wrong thing to put in a sentence:
+ * a rejected token arrives as `401 { "message": "Bad credentials", "documentation_url": ... }`
+ * flattened onto one line. So the status and GitHub's own `message` are pulled out and the rest
+ * is dropped. The body is truncated, so it is read with a pattern rather than parsed - a cut-off
+ * JSON object does not parse, and a token being rejected is exactly the sentence worth keeping.
+ *
+ * Anything that is not a status is left alone. "No GitHub token is configured" and "no extension
+ * pod is running to ask GitHub from" are this product's own words and already read as prose.
+ */
+function githubErrorText(message) {
+  const text = String(message || '').trim();
+  const status = /^(\d{3})\b/.exec(text);
+
+  if (!status) {
+    return text;
+  }
+
+  const said = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
+  const detail = said ? said[1] : '';
+  const because = detail ? ` (${ detail })` : '';
+
+  if (status[1] === '401') {
+    return `GitHub rejected the token${ because }.`;
+  }
+
+  if (status[1] === '403') {
+    return `GitHub refused the call${ because }.`;
+  }
+
+  return `GitHub answered ${ status[1] }${ because }.`;
+}
+
 export default {
   name: 'ImportExtensionModal',
 
@@ -296,6 +332,24 @@ export default {
       return parts.join(' · ');
     },
 
+    /**
+     * What the row says when there is a token but no account behind it.
+     *
+     * Two different facts, and they must not be worded as one: the pod asked and GitHub refused
+     * (a token that is wrong, expired or out of rate), or the pod asked, GitHub answered and the
+     * answer named nobody. Either way the row still says the token is stored, because that is
+     * what decides whether a private repository clones.
+     */
+    accountNote() {
+      const stored = 'A token is stored, so a private repository clones too.';
+
+      if (this.identityError) {
+        return `${ stored } Studio could not read the account from it. ${ asSentence(githubErrorText(this.identityError)) }`;
+      }
+
+      return `${ stored } GitHub did not name an account for it.`;
+    },
+
     /** Whether step 2 can have a list at all: the pod needs a token to ask GitHub with. */
     canList() {
       return this.hasToken;
@@ -326,7 +380,7 @@ export default {
       }
 
       if (this.reposError) {
-        return `${ asSentence(this.reposError) } Name the repository below or paste its URL instead.`;
+        return `${ asSentence(githubErrorText(this.reposError)) } Name the repository below or paste its URL instead.`;
       }
 
       if (this.reposLoading || !this.reposLoaded) {
@@ -868,9 +922,8 @@ export default {
             Asking GitHub whose token this is...
           </p>
 
-          <p v-else class="import-extension__account-meta">
-            A token is stored, so a private repository clones too.
-            {{ identityError ? `Studio could not read the account from it: ${ identityError }` : 'GitHub did not name an account for it.' }}
+          <p v-else class="import-extension__account-meta" data-testid="barn-import-account-note">
+            {{ accountNote }}
           </p>
 
           <span class="import-extension__grow" />

@@ -26,6 +26,13 @@
 //   Roll back restores a real git ref, after snapshotting the failed tree so the roll back is
 //   itself undoable.
 //
+//   Both of those snapshots are required rather than best effort, and that is a fix rather than
+//   a preference: `createSnapshot` used to report success for a tag git had refused to write, so
+//   the panel promised a way back that did not exist. It is strict now, and so are the two calls
+//   here - if the tree cannot be snapshotted, the file is not overwritten and the tree is not
+//   replaced, and the reason is shown instead. The one promise on this panel that has to be true
+//   is that going back is safe.
+//
 //   Not built - "Undo my request". The design deliberately scopes it to the whole turn that
 //   caused the failure, and this product has no notion of a turn: one file-scoped undo
 //   (undoLastChange) and one tree-scoped restore, with nothing recording which edits came from
@@ -35,13 +42,16 @@ import {
   SButton, SBanner, SIcon, SChip, SLabel
 } from './ui';
 import {
-  DEFAULT_EXTENSION, listExtensionFiles, readExtensionFile, writeExtensionFile,
+  DEFAULT_EXTENSION, listExtensionFiles, readExtensionFile,
   extensionPod, podExecOnce, askAssistant, assistantLogin, createSnapshot, restoreSnapshot,
   listSnapshots, baselineRef, countChanges, undoLastChange
 } from '../extensions';
 import {
   readFailure, clearFailure, readWorkingBuild, failureStage, FAILURE_EVENT
 } from '../publish-failure';
+import {
+  readProposedFix, recordProposedFix, clearProposedFix, applyProposedFix, isApplicable, FIX_EVENT
+} from '../publish-fix';
 import { toastError, toastSuccess } from '../toast';
 
 // Where the assistant is handed the log and where it writes its answer.
@@ -173,6 +183,11 @@ export default {
       explainError: '',
       explainRaw:   '',
       answer:       null,
+      // The change the assistant proposed, read from the record rather than out of `answer`.
+      // The preview offers the same fix from the same record (publish-fix.ts), so a fix that
+      // lived in this component's own state would be a fix the other surface could not see -
+      // and applying it in one place would leave the other still offering it.
+      recordedFix:  null,
       waited:       0,
       applying:     false,
       applied:      '',
@@ -295,21 +310,15 @@ export default {
       return (this.file?.text || '').split('\n');
     },
 
-    /** The assistant's proposed change, once it is one this panel could actually apply. */
+    /**
+     * The assistant's proposed change, once it is one this panel could actually apply.
+     *
+     * Off the record and not off `answer`, so the snippet survives a reload and so that the
+     * preview's copy of this button (19:1083) and this one are two views of one fix rather
+     * than two fixes that happen to agree.
+     */
     fix() {
-      const fix = this.answer?.fix;
-
-      if (!fix || typeof fix !== 'object') {
-        return null;
-      }
-
-      const { path, before, after } = fix;
-
-      if (!path || typeof before !== 'string' || typeof after !== 'string' || !before) {
-        return null;
-      }
-
-      return { path, before, after };
+      return this.recordedFix;
     },
 
     /** How the roll-back button should read, given what there actually is to go back to. */
@@ -341,11 +350,14 @@ export default {
     // whole case, the workspace watching its own build break - writes the record without this
     // component knowing. The record announces itself instead of every caller remembering to.
     window.addEventListener(FAILURE_EVENT, this.onRecordChanged);
+    // The preview offers the same fix, so applying it there has to empty this card's snippet.
+    window.addEventListener(FIX_EVENT, this.onFixChanged);
   },
 
   beforeUnmount() {
     this.stopPolling();
     window.removeEventListener(FAILURE_EVENT, this.onRecordChanged);
+    window.removeEventListener(FIX_EVENT, this.onFixChanged);
   },
 
   methods: {
@@ -358,6 +370,7 @@ export default {
       this.explainState = '';
       this.explainError = '';
       this.explainRaw = '';
+      this.recordedFix = readProposedFix(this.extension);
       this.applied = '';
       this.safety = '';
       this.target = null;
@@ -385,8 +398,8 @@ export default {
     async findWayBack() {
       this.targetting = true;
 
-      const working = readWorkingBuild(this.extension);
-      const [base, snaps, changes] = await Promise.all([
+      const [working, base, snaps, changes] = await Promise.all([
+        readWorkingBuild(this.extension).catch(() => null),
         baselineRef(this.extension).catch(() => null),
         listSnapshots(this.extension).catch(() => []),
         countChanges(this.extension).catch(() => -1),
@@ -395,12 +408,10 @@ export default {
       this.changes = changes;
 
       if (working) {
-        const when = new Date(working.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
         this.target = {
           ref:  working.ref,
           what: `the last working build${ working.version ? ` (${ working.version })` : '' }`,
-          note: `Taken automatically when that publish succeeded, at ${ when }.`,
+          note: `Recorded in the pod when that publish succeeded, ${ working.when || 'earlier' }. It is a ref in the extension's own repository, so it is the same point for everybody and it survives this tab.`,
           kind: 'build',
         };
       } else if (base && (base.kind === 'oci' || base.kind === 'local')) {
@@ -527,6 +538,10 @@ export default {
       this.answer = null;
       this.waited = 0;
       this.lastSeen = '';
+      // The old suggestion belonged to the answer being replaced. Leaving it up while a new one
+      // is being written would let the preview apply a fix nobody is looking at any more.
+      this.recordedFix = null;
+      clearProposedFix();
 
       try {
         const pod = await extensionPod(this.extension);
@@ -641,6 +656,11 @@ export default {
           this.answer = parsed;
           this.explainState = 'done';
 
+          if (isApplicable(parsed.fix)) {
+            recordProposedFix(this.extension, parsed.fix);
+            this.recordedFix = readProposedFix(this.extension);
+          }
+
           return;
         }
 
@@ -677,12 +697,10 @@ export default {
     /**
      * Apply the assistant's change, having shown it first.
      *
-     * A literal replacement of text the assistant said is in the file, checked against the file
-     * as it is now. If it is not there the change is refused with the reason: a model quoting a
-     * line approximately is the ordinary case, and a fuzzy match that edited the wrong line
-     * would be exactly the kind of silent damage this product is careful not to do.
-     *
-     * A snapshot first, so applying it is itself undoable.
+     * The applying itself is `applyProposedFix` in publish-fix.ts rather than code here: the
+     * design puts the same button over the preview as well (19:1083, "must do the same thing"),
+     * and two buttons only do the same thing if they run the same function. What is left here
+     * is the reporting, which is this surface's own.
      */
     async applyFix() {
       if (this.applying || !this.fix) {
@@ -692,23 +710,7 @@ export default {
       this.applying = true;
 
       try {
-        const path = await this.resolvePath(this.fix.path);
-
-        if (!path) {
-          throw new Error(`The fix names ${ this.fix.path }, and there is no such file in this extension.`);
-        }
-
-        const text = await readExtensionFile(this.extension, path);
-
-        if (!text.includes(this.fix.before)) {
-          throw new Error(`The line the assistant quoted is not in ${ path } as written, so this cannot be applied for you. Open the file and make the change by hand.`);
-        }
-
-        await createSnapshot(this.extension, 'before applying the suggested fix').catch(() => '');
-        // A function, not a string. `String.replace` reads `$&`, `$1` and `$\`` in a replacement
-        // string as substitutions, and the assistant's `after` is somebody's source line - a
-        // template literal or a jQuery-ish selector in it would be silently rewritten.
-        await writeExtensionFile(this.extension, path, text.replace(this.fix.before, () => this.fix.after));
+        const path = await applyProposedFix(this.extension, this.fix);
 
         this.applied = path;
         this.file = null;
@@ -776,24 +778,36 @@ export default {
       const { ref, what } = this.target;
 
       try {
-        this.safety = await createSnapshot(this.extension, 'the failed build, before rolling back').catch(() => '');
+        // First, and it decides whether the rest happens at all. Rolling back is the one
+        // action here that throws work away, and the note under this panel says nothing is
+        // lost because the failed tree is snapshotted first. If that snapshot cannot be taken
+        // - a repository git will not write to is the case this was found in - then the
+        // sentence is false, so the roll back does not happen and the reason is shown instead.
+        // A restore that silently discarded the failed tree would be the worst outcome here.
+        this.safety = await createSnapshot(this.extension, 'the failed build, before rolling back');
         await restoreSnapshot(this.extension, ref);
 
         this.settling = true;
         clearFailure();
+        clearProposedFix();
         this.settling = false;
         this.failure = null;
+        this.recordedFix = null;
         this.$emit('changed');
         this.$emit('resolved');
         toastSuccess(
           this.$store,
-          this.safety
-            ? 'The failed tree was snapshotted first, so nothing is lost. It is in the Snapshots menu.'
-            : 'The tree is back. The snapshot of the failed state could not be taken, so that state is gone.',
+          'The failed tree was snapshotted first, so nothing is lost. It is in the Snapshots menu.',
           { title: `Rolled back to ${ what }` },
         );
       } catch (e) {
-        toastError(this.$store, e?.message || String(e), { title: 'The roll back did not happen' });
+        toastError(
+          this.$store,
+          this.safety
+            ? e?.message || String(e)
+            : `Nothing has been rolled back. The failed tree could not be snapshotted first, and this panel will not replace a tree it cannot put back: ${ e?.message || e }`,
+          { title: 'The roll back did not happen' },
+        );
       } finally {
         this.rollingBack = false;
       }
@@ -841,10 +855,17 @@ export default {
       this.load();
     },
 
+    /** The fix was applied or withdrawn somewhere else - most likely from the preview's copy. */
+    onFixChanged() {
+      this.recordedFix = readProposedFix(this.extension);
+    },
+
     dismiss() {
       this.settling = true;
       clearFailure();
+      clearProposedFix();
       this.failure = null;
+      this.recordedFix = null;
       this.settling = false;
       this.$emit('resolved');
     },
@@ -1081,13 +1102,15 @@ export default {
       <SIcon name="info" :size="12" />
       <span v-if="target && target.kind === 'build'">
         Rolling back snapshots the failed tree first, so nothing you have done is lost - it stays
-        in the Snapshots menu.
+        in the Snapshots menu. If that snapshot cannot be taken, nothing is rolled back and this
+        panel says why instead.
       </span>
       <span v-else>
-        Rolling back snapshots the failed tree first, so nothing you have done is lost. What it
-        rolls back <em>to</em> is only as good as the point above: nothing takes a snapshot
-        automatically when a build succeeds yet, so this is the nearest point that exists rather
-        than a guaranteed last working build.
+        Rolling back snapshots the failed tree first, so nothing you have done is lost - and if
+        that snapshot cannot be taken, nothing is rolled back and this says why. What it rolls
+        back <em>to</em> is only as good as the point above: no build of this extension has
+        succeeded here yet, so this is the nearest point that exists rather than a build that
+        is known to have worked.
       </span>
     </p>
 

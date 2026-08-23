@@ -12,11 +12,15 @@
  * this browser: a week-old build error resurfacing in a new tab would be noise, and closing the
  * tab is a reasonable way to say you are done with it.
  *
- * The one thing that is *not* here is the working tree. Rolling back needs a point in the
- * extension's own git history, which lives in the pod and outlives every tab - see
- * `recordWorkingBuild` below and `createSnapshot` / `baselineRef` in extensions.ts.
+ * The one thing that is *not* here is the working tree, or the point to go back to. Rolling
+ * back needs a point in the extension's own git history, which lives in the pod and outlives
+ * every tab: `publishExtension` writes `refs/barn/working-build` the moment a build installs,
+ * and `lastWorkingBuild` reads it back. This file used to keep that in sessionStorage too, and
+ * that was the bug: the guarantee "there is always a way back" was only true in the tab that
+ * had done the publishing, so a second person, a new browser or a reload had no working build
+ * at all and the failure screen fell through to whichever hand-made snapshot was nearest.
  */
-import { createSnapshot } from './extensions';
+import { lastWorkingBuild } from './extensions';
 
 const KEY = 'barn.publish.failure';
 
@@ -36,9 +40,6 @@ function announce(): void {
     window.dispatchEvent(new CustomEvent(FAILURE_EVENT));
   } catch { /* no window, no listeners; nothing to tell */ }
 }
-
-/** Per extension: the snapshot taken of the tree that last published successfully. */
-const WORKING_KEY = 'barn.publish.working';
 
 export interface PublishFailure {
   extension: string;
@@ -60,11 +61,12 @@ export interface PublishFailure {
 /** The tree that last built and installed successfully, as somewhere to go back to. */
 export interface WorkingBuild {
   extension: string;
-  /** A git ref in the pod - the tag `createSnapshot` wrote. `restoreSnapshot` takes it. */
+  /** The commit `refs/barn/working-build` points at. `restoreSnapshot` takes it. */
   ref:       string;
-  /** The version that was published, for the label. */
+  /** The version that was published, off the ref's own commit subject. '' when it says none. */
   version:   string;
-  at:        number;
+  /** git's own relative wording for when that publish was, for a screen to render. */
+  when:      string;
 }
 
 /**
@@ -130,50 +132,52 @@ export function clearFailure(): void {
 }
 
 /**
- * Remember the tree that just published, as the point a failed build can be rolled back to.
+ * Check that the publish that just worked left a way back, and say so when it did not.
  *
  * The design's word is "guaranteed": "plain-language cause, one-click fix, guaranteed way back"
- * (23:914), and the preview's note spells out what would make it one - "Every build is
- * snapshotted. Nothing you have done is lost." A guarantee is a snapshot taken *before* the
- * change, so it has to be taken by whoever ran the successful publish, at the moment it
- * succeeded. Nothing else in the product can go back and take it later.
+ * (23:914). The point itself is no longer this file's to take - `publishExtension` writes
+ * `refs/barn/working-build` at the only moment anything can know a tree works, which is the
+ * moment it has just been built and installed - so what is left here is the check, at the one
+ * moment somebody is in a position to act on the answer.
  *
- * Best effort, and deliberately not awaited by its caller: a publish that worked is not undone
- * by a tag that could not be written. The cost of a failure here is that the failure screen
- * offers the next-best point it can find (see `findWayBack` in components/BuildFailure.vue)
- * and says which one it is, rather than claiming a working build it has not got.
+ * It never throws and never fails a publish: the publish already worked, and the caller does
+ * not await it. The returned sentence is for a caller that wants to say something; ignoring it
+ * costs nothing, because the failure screen reads the same ref later and states plainly which
+ * kind of point it found (see `findWayBack` in components/BuildFailure.vue).
  */
-export async function recordWorkingBuild(extension: string, version = ''): Promise<void> {
+export async function recordWorkingBuild(extension: string, version = ''): Promise<string> {
   try {
-    const label = version ? `working build ${ version }` : 'working build';
-    const ref = await createSnapshot(extension, label);
+    const point = await lastWorkingBuild(extension);
 
-    if (!ref) {
-      return;
+    if (point) {
+      return '';
     }
 
-    const all = readWorkingBuilds();
-
-    all[extension] = {
-      extension, ref, version, at: Date.now(),
-    };
-    window.sessionStorage.setItem(WORKING_KEY, JSON.stringify(all));
-  } catch { /* see the note above: this never fails a publish */ }
-}
-
-export function readWorkingBuild(extension: string): WorkingBuild | null {
-  const found = readWorkingBuilds()[extension];
-
-  return found && found.ref ? found : null;
-}
-
-function readWorkingBuilds(): Record<string, WorkingBuild> {
-  try {
-    const raw = window.sessionStorage.getItem(WORKING_KEY);
-    const all = raw ? JSON.parse(raw) as Record<string, WorkingBuild> : {};
-
-    return all && typeof all === 'object' ? all : {};
-  } catch {
-    return {};
+    return `The publish worked, but no working-build ref was written in ${ extension }'s pod${ version ? ` for ${ version }` : '' }, so a later build failure will have no proved-good build to roll back to.`;
+  } catch (e: any) {
+    return `The publish worked, and ${ extension }'s pod could not be asked whether a working-build ref was written: ${ e?.message || e }`;
   }
+}
+
+/**
+ * The last build of this extension that worked, read out of the pod.
+ *
+ * Async now, and that is the point of it: the answer is a ref in the extension's repository
+ * rather than something this browser remembers, so it is the same answer for everybody and it
+ * survives the tab that did the publishing.
+ */
+export async function readWorkingBuild(extension: string): Promise<WorkingBuild | null> {
+  const point = await lastWorkingBuild(extension).catch(() => null);
+
+  if (!point?.sha) {
+    return null;
+  }
+
+  // `recordBaseline` wrote the subject as "Working build <plugin> <version>". Read rather than
+  // assumed: a subject that does not match yields no version and the screen says less.
+  const version = /^Working build \S+ (\S+)$/.exec(point.subject)?.[1] || '';
+
+  return {
+    extension, ref: point.sha, version, when: point.when,
+  };
 }

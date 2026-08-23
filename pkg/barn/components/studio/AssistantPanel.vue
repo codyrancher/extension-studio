@@ -34,16 +34,27 @@
 //   What is still not here, and is not faked: steps. Nothing in the pod records a step, a step's
 //   status, a step's duration or live sub-progress - the hooks fire on a prompt, on a
 //   file-editing tool and at the end of a turn, and nothing between - so no step row is drawn,
-//   the stream says so under the last turn, and the strip beside it opens the terminal where the
-//   reply itself is. A turn with no end recorded is drawn as exactly that and given no duration:
-//   this pod's claude can be signed out, in which case a prompt is recorded and the Stop hook
-//   never fires for it.
+//   the stream says so under the last turn. A turn with no end recorded is drawn as exactly
+//   that and given no duration: this pod's claude can be signed out, in which case a prompt is
+//   recorded and the Stop hook never fires for it.
 //
-//   Informational. The chip on the status row. The design's version says "Ask before each file
-//   edit", and the pod runs `claude --dangerously-skip-permissions` (see pod/claude-session.sh)
-//   - so the design's chip was the opposite of the truth, and there is no switch behind it to
-//   make it true. It states what the session actually does instead, and is not clickable,
-//   because there is nothing to press it for.
+//   Real, and it is the compile rather than the conversation. The raw-output strip (32:893)
+//   expands in place, and what it expands is the dev server's own output - `vue-cli-service
+//   serve`, the command the design labels the strip with and the command the pod runs - read
+//   out of the pod's log. claude's own stream is a different thing and stays in the Terminal
+//   tab, which the strip still points at.
+//
+//   A reading, not a switch. The permission chip on the status row. The design draws a picker
+//   (11:226) and there is nothing to pick with: the mode is fixed by the arguments claude is
+//   started with, in a session script seeded from this bundle and written again on every page
+//   load. So the chip reports the mode it found in the pod - `assistantPermissions` reads the
+//   running process, or the script when no session is open - and shows the command line it
+//   read it off. If that command line ever changes, the chip changes with it.
+//
+//   Real, and it can only claim what it did. Stop (11:347) presses Escape in the pane, which is
+//   claude's own interrupt. Nothing records a turn starting, so the button cannot know whether
+//   there was something to interrupt, and the toast says the keystroke was delivered rather
+//   than that a run was halted.
 //
 //   Real, and it had to be made so. The status row's dot and name. They used to report the
 //   terminal's websocket and this Rancher's signed-in user, which is not the assistant's session
@@ -56,7 +67,8 @@ import {
 import ActivityTurn from './ActivityTurn.vue';
 import { toastSuccess, toastError } from '../../toast';
 import {
-  countChanges, publishedVersion, listExtensionFiles, writePodImage, assistantLogin, assistantTurns
+  countChanges, publishedVersion, listExtensionFiles, writePodImage, assistantLogin, assistantTurns,
+  assistantPermissions, devServerLog, interruptAssistant
 } from '../../extensions';
 
 /**
@@ -92,6 +104,34 @@ const SEND_SETTLE_MS = 4000;
 
 /** How many turns are read back. A conversation, not an archive. */
 const TURN_LIMIT = 25;
+
+/**
+ * The raw output strip (32:893), and what has to come off the log before it can be read.
+ *
+ * A container log keeps every control sequence the program wrote, and webpack's progress
+ * plugin redraws one line hundreds of times a compile. Stripped and collapsed, what is left is
+ * the compile's own output, which is what the strip's label names. The pane says it has been
+ * tidied rather than calling it verbatim.
+ */
+const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+const PROGRESS = /^\[\s*\d{1,3}%\]/;
+
+/** How much of the dev server's log to read, and how much of it to draw. */
+const LOG_TAIL = 600;
+const LOG_LINES = 200;
+
+/**
+ * What the permission chip says for each mode claude can be started in.
+ *
+ * The design's label is "Ask before each file edit" (11:226), which is claude's `default`
+ * mode - so that wording is here, on the mode it is true of, and the others say what they are.
+ */
+const PERMISSION_LABELS = {
+  bypass:          'Edits apply without asking',
+  'accept-edits':  'Edits apply without asking',
+  plan:            'Planning only, no edits',
+  default:         'Asks before each file edit',
+};
 
 export default {
   name: 'AssistantPanel',
@@ -184,6 +224,20 @@ export default {
        */
       login:      null,
       loginTimer: null,
+      /**
+       * How the pod's claude was started, which is what its permission mode is.
+       *
+       * `null` until the first read, for the reason `login` is: the chip says it is reading
+       * rather than asserting a mode nobody has looked for yet.
+       */
+      permissions: null,
+      // Set while the interrupt is on its way to the pane.
+      stopping:    false,
+      // The dev server's own output, under the strip the design draws collapsed (32:893).
+      rawOpen:     false,
+      rawText:     '',
+      rawState:    '',
+      rawError:    '',
       /**
        * The turns the pod recorded, newest first, exactly as `assistantTurns` returns them.
        *
@@ -378,6 +432,87 @@ export default {
     },
 
     /**
+     * The permission chip (11:226, 16:557), which reports a mode rather than setting one.
+     *
+     * Read from the pod: `assistantPermissions` looks at the claude process that is running in
+     * there, and at the session script when no session has been opened yet. The design draws a
+     * picker, and there is nothing here to pick with - the mode is fixed by the arguments claude
+     * is started with, in a script that is seeded from this bundle and re-written on every page
+     * load - so the chip states the mode it found and the tooltip shows the command line it
+     * read it off. A menu that relabelled a chip without changing what the assistant does would
+     * be the one thing this product does not do.
+     */
+    permissionChip() {
+      const perms = this.permissions;
+
+      if (!perms) {
+        return {
+          label: 'Reading the assistant\'s permissions',
+          icon:  'clock',
+          tone:  'default',
+          title: 'Asking the pod how its claude was started.',
+        };
+      }
+
+      if (!perms.read || !perms.mode) {
+        return {
+          label: 'Permissions not read',
+          icon:  'alert',
+          tone:  'default',
+          title: perms.read
+            ? 'The pod answered, and no claude command line was found in it - neither a running process nor the session script. Open the Terminal tab to start one.'
+            : 'This extension\'s pod could not be asked how its claude was started, so nothing here is known about what it may do.',
+        };
+      }
+
+      const where = perms.source === 'process'
+        ? 'the claude running in this pod'
+        : 'this pod\'s session script, since no session is open yet';
+
+      return {
+        label: PERMISSION_LABELS[perms.mode] || `Permission mode: ${ perms.mode }`,
+        icon:  perms.mode === 'default' ? 'lock' : 'alert',
+        tone:  perms.mode === 'default' ? 'info' : 'warning',
+        title: `Read from ${ where }: \`${ perms.argv }\`. The mode is fixed when claude starts, by pod/claude-session.sh, which is seeded from this extension bundle and written again on every page load - so there is nothing on this screen that could change it. Nothing the assistant edits reaches this Rancher until you publish.`,
+      };
+    },
+
+    /** The dev server's output, tidied enough to be readable in a pre. */
+    rawLines() {
+      if (!this.rawText) {
+        return [];
+      }
+
+      const lines = [];
+
+      this.rawText.replace(ANSI, '').split('\n').forEach((line) => {
+        const text = line.replace(/\r/g, '').trimEnd();
+
+        // The progress plugin's redraws, and the same line written twice in a row, are the
+        // whole of the noise. Everything else is what the compile said.
+        if (!text.trim() || PROGRESS.test(text.trim()) || text === lines[lines.length - 1]) {
+          return;
+        }
+
+        lines.push(text);
+      });
+
+      return lines.slice(-LOG_LINES);
+    },
+
+    rawNote() {
+      if (this.rawState === 'reading') {
+        return 'Reading the dev server\'s output.';
+      }
+
+      if (this.rawError) {
+        return this.rawError;
+      }
+
+      return 'The dev server has written nothing this side of the log it keeps.';
+    },
+
+    /**
      * What the session menu offers, which is four things that exist plus the composer's own
      * clear.
      *
@@ -436,6 +571,10 @@ export default {
     // reports does not move except when somebody edits something.
     this.countTimer = setInterval(() => this.refreshChanges(), 60000);
 
+    // Once, and again when the extension changes: the mode is fixed when claude starts, so
+    // there is nothing here for a poll to notice.
+    this.refreshPermissions();
+
     this.refreshLogin();
     // Half a minute, because this one does change while somebody is looking at it: running
     // /login in the pane below is exactly how it changes, and the strip that told you to do it
@@ -481,6 +620,11 @@ export default {
       this.changes = 0;
       this.version = '';
       this.login = null;
+      this.permissions = null;
+      this.rawOpen = false;
+      this.rawText = '';
+      this.rawError = '';
+      this.refreshPermissions();
       this.podTurns = [];
       this.podRead = false;
       this.refreshLogin();
@@ -503,6 +647,94 @@ export default {
     async refreshLogin() {
       this.login = await assistantLogin(this.extension)
         .catch(() => ({ read: false, signedIn: false, account: '' }));
+    },
+
+    async refreshPermissions() {
+      const asked = this.extension;
+      const perms = await assistantPermissions(asked).catch(() => ({
+        read: false, running: false, mode: '', argv: '', source: '',
+      }));
+
+      if (asked === this.extension) {
+        this.permissions = perms;
+      }
+    },
+
+    /**
+     * The design's collapsed raw-output strip (32:893), expanded in place.
+     *
+     * What expands is the dev server's own output - `vue-cli-service serve`, which is the
+     * command the strip is labelled with and the one the pod actually runs. It is read out of
+     * the pod's log rather than out of the terminal, because the terminal is claude's pane and
+     * the compile happens beside it, in PID 1.
+     */
+    /**
+     * The design's Stop (11:347), which presses Escape in the pane the assistant runs in.
+     *
+     * Drawn beside Send rather than replacing it, as the design draws it, and always available:
+     * nothing in this pod records a turn beginning, so the panel cannot know whether there is
+     * something to interrupt - and a button that greyed itself out on a guess would be wrong
+     * exactly when it was needed. The toast says what was delivered, never that a run stopped.
+     */
+    async stopAssistant() {
+      if (this.stopping) {
+        return;
+      }
+
+      this.stopping = true;
+
+      try {
+        const how = await interruptAssistant(this.extension);
+
+        if (how === 'none') {
+          toastSuccess(
+            this.$store,
+            'There is no session open in this pod, so there was nothing to interrupt.',
+            { title: 'Nothing running' },
+          );
+        } else {
+          toastSuccess(
+            this.$store,
+            'Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.',
+            { title: 'Interrupt sent' },
+          );
+        }
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The interrupt did not reach the pod' });
+      } finally {
+        this.stopping = false;
+      }
+    },
+
+    async toggleRaw() {
+      this.rawOpen = !this.rawOpen;
+
+      if (this.rawOpen) {
+        await this.readRaw();
+      }
+    },
+
+    async readRaw() {
+      const asked = this.extension;
+
+      this.rawState = 'reading';
+      this.rawError = '';
+
+      try {
+        const text = await devServerLog(asked, LOG_TAIL);
+
+        if (asked !== this.extension) {
+          return;
+        }
+
+        this.rawText = text;
+        this.rawError = text ? '' : `${ asked } has no running pod, so there is no dev server output to read.`;
+      } catch (e) {
+        this.rawText = '';
+        this.rawError = e?.message || String(e);
+      } finally {
+        this.rawState = '';
+      }
     },
 
     async refreshTurns() {
@@ -891,14 +1123,14 @@ export default {
       >{{ sessionState.label }}</span>
       <span class="assistant-panel__grow" />
       <!--
-        What the session does, rather than the design's "Ask before each file edit", which it
-        does not do. Informational: there is no permission mode to switch to.
+        The mode the pod's claude is actually running in, read from it. Informational, because
+        the mode is fixed when claude starts and nothing on this screen restarts it.
       -->
       <SChip
-        label="Edits apply without asking"
-        icon="alert"
-        tone="warning"
-        title="The assistant runs with --dangerously-skip-permissions in this pod, so its edits land in the working tree as it makes them. Nothing reaches this Rancher until you publish."
+        :label="permissionChip.label"
+        :icon="permissionChip.icon"
+        :tone="permissionChip.tone"
+        :title="permissionChip.title"
         data-testid="barn-permission-chip"
       />
       <SMenu
@@ -950,18 +1182,68 @@ export default {
             <span>{{ streamStalled }}</span>
           </div>
 
-          <button
-            type="button"
-            class="assistant-panel__raw"
-            data-testid="barn-open-raw-output"
-            @click="$emit('update:tab', 'terminal')"
-          >
-            <SIcon name="terminal" :size="14" />
-            <span class="assistant-panel__raw-label">Open the raw output</span>
-            <span class="assistant-panel__grow" />
-            <span class="assistant-panel__raw-note">the terminal is still here</span>
-            <SIcon name="chevronRight" :size="13" />
-          </button>
+          <!--
+            The raw output strip (32:893): collapsed, and it opens in place. What it opens is
+            the dev server's own output, which is the command the design labels the strip with.
+            The terminal is still one line away, because claude's own stream is in there and
+            this is not it.
+          -->
+          <div class="assistant-panel__raw-panel">
+            <button
+              type="button"
+              class="assistant-panel__raw"
+              :aria-expanded="rawOpen"
+              data-testid="barn-open-raw-output"
+              @click="toggleRaw"
+            >
+              <SIcon name="terminal" :size="14" />
+              <span class="assistant-panel__raw-label">
+                {{ rawOpen ? 'Hide raw output' : 'Show raw output' }}
+              </span>
+              <span class="assistant-panel__raw-cmd">vue-cli-service serve</span>
+              <span class="assistant-panel__grow" />
+              <span class="assistant-panel__raw-note">the terminal is still here</span>
+              <SIcon :name="rawOpen ? 'chevronUp' : 'chevronDown'" :size="13" />
+            </button>
+
+            <template v-if="rawOpen">
+              <pre
+                v-if="rawLines.length"
+                class="assistant-panel__raw-body"
+                data-testid="barn-raw-output"
+              >{{ rawLines.join('\n') }}</pre>
+
+              <p v-else class="assistant-panel__raw-empty">
+                {{ rawNote }}
+              </p>
+
+              <div class="assistant-panel__raw-foot">
+                <span class="assistant-panel__raw-note">
+                  The pod's own log, with the progress redraws and the terminal control codes
+                  taken out. The last {{ rawLines.length }} of them.
+                </span>
+                <span class="assistant-panel__grow" />
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  icon="refresh"
+                  :loading="rawState === 'reading'"
+                  data-testid="barn-raw-output-reread"
+                  @click="readRaw"
+                >
+                  Re-read
+                </SButton>
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  icon="terminal"
+                  @click="$emit('update:tab', 'terminal')"
+                >
+                  Open the terminal
+                </SButton>
+              </div>
+            </template>
+          </div>
         </template>
 
         <SEmpty
@@ -1066,6 +1348,21 @@ export default {
             @change="onAttach"
           >
           <span class="assistant-panel__grow" />
+          <!--
+            Stop beside Send, as the design draws it (11:347). It presses Escape in the pane,
+            which is claude's own interrupt; see interruptAssistant for what it cannot claim.
+          -->
+          <SButton
+            variant="ghost"
+            size="sm"
+            icon="stop"
+            :loading="stopping"
+            title="Presses Escape in this pod's session, which is how the assistant is interrupted. Nothing here can see whether it is working right now, so this is always available."
+            data-testid="barn-stop-assistant"
+            @click="stopAssistant"
+          >
+            Stop
+          </SButton>
           <SButton
             variant="primary"
             size="sm"
@@ -1181,22 +1478,61 @@ export default {
     }
   }
 
-  // The design's collapsed raw-output strip (32:893). It opens the terminal rather than
-  // expanding inline, because the terminal is the raw output - there is no second copy of it.
-  &__raw {
-    display:       flex;
-    align-items:   center;
-    gap:           var(--studio-space-8);
-    width:         100%;
-    padding:       9px var(--studio-space-12);
-    background:    var(--studio-surface-subtle);
-    border:        1px solid var(--studio-border);
-    border-radius: var(--studio-radius);
-    color:         var(--studio-text-secondary);
-    cursor:        pointer;
-    text-align:    left;
+  // The design's collapsed raw-output strip (32:893), and what it expands into.
+  &__raw-panel {
+    display:        flex;
+    flex-direction: column;
+    border:         1px solid var(--studio-border);
+    border-radius:  var(--studio-radius);
+    overflow:       hidden;
+  }
 
-    &:hover { border-color: var(--studio-border-strong); }
+  &__raw-body {
+    margin:     0;
+    padding:    var(--studio-space-8) var(--studio-space-12);
+    max-height: 260px;
+    overflow:   auto;
+    background: var(--studio-surface-sunken);
+    border-top: 1px solid var(--studio-border-subtle);
+    font:       var(--studio-mono-12);
+    color:      var(--studio-text-secondary);
+    white-space: pre;
+  }
+
+  &__raw-empty {
+    margin:     0;
+    padding:    var(--studio-space-8) var(--studio-space-12);
+    border-top: 1px solid var(--studio-border-subtle);
+    font:       var(--studio-caption-12);
+    color:      var(--studio-text-tertiary);
+  }
+
+  &__raw-foot {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    padding:     var(--studio-space-4) var(--studio-space-8);
+    border-top:  1px solid var(--studio-border-subtle);
+  }
+
+  &__raw-cmd {
+    font:  var(--studio-mono-12);
+    color: var(--studio-text-tertiary);
+  }
+
+  &__raw {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    width:       100%;
+    padding:     9px var(--studio-space-12);
+    background:  var(--studio-surface-subtle);
+    border:      none;
+    color:       var(--studio-text-secondary);
+    cursor:      pointer;
+    text-align:  left;
+
+    &:hover { background: var(--studio-surface); }
   }
 
   &__raw-label { font: var(--studio-caption-12-semi); }

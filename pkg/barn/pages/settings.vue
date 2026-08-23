@@ -38,7 +38,7 @@ import {
   EXT_NS, extensionObject, listExtensions, githubIdentity, SETTINGS_SECRET
 } from '../extensions';
 import {
-  LEVELS, DEFAULT_POLICY, SETTINGS_OBJECT, TokenRejected,
+  LEVELS, DEFAULT_POLICY, SETTINGS_OBJECT, TokenRejected, asSentence, githubErrorText,
   readStudioSettings, writeStudioSettings, connectGithub, disconnectGithub, githubConnected, detectPermission
 } from '../studio-settings';
 import { STUDIO_ROUTE } from '../editor-product';
@@ -55,6 +55,16 @@ const EXT_BASE = '/k8s/clusters/local';
  * not, and are drawn with their controls dead and the reason stated - an OCI push and a catalog
  * listing are not things Studio can do, so a control that configured them would be configuring
  * nothing.
+ *
+ * Three shapes of cell, and which one a column gets is a statement about what happens rather
+ * than a style:
+ *
+ *   `locked`  the whole row is a fixed reading, both columns (dev preview, catalog).
+ *   `cells`   one column is fixed and the other is not. The repository row's code review is
+ *             the only one: `distributionGate()` refuses the distribution until a code
+ *             sign-off is on the packet whatever this page holds, so a weaker value there
+ *             could only ever be recorded and ignored.
+ *   neither   settable, written on the click.
  */
 const DESTINATIONS = [
   {
@@ -73,14 +83,25 @@ const DESTINATIONS = [
     icon:     'server',
     note:     'Studio\'s "This Rancher" publish: it builds in the pod and points this Rancher at the result. Reversible with "Remove local install".',
     editable: true,
+    reason:   'Both columns here are recorded and then repeated back to you rather than obeyed. A developer load reaches only this Rancher and is ungated by design, so nothing this row is set to can make it stop and ask anybody: the publish dialog reads the value and says on the row that it is not acting on it.',
   },
   {
-    id:       'repo',
-    label:    'Push to a repository',
-    icon:     'github',
-    tag:      'The gate',
-    note:     'The moment it becomes installable by anyone who adds the repository. Studio pushes to GitHub; it cannot push an OCI artifact, so the design\'s OCI row is this one.',
-    gate:     true,
+    id:    'repo',
+    label: 'Push to a repository',
+    icon:  'github',
+    tag:   'The gate',
+    note:  'The moment it becomes installable by anyone who adds the repository. Studio pushes to GitHub; it cannot push an OCI artifact, so the design\'s OCI row is this one.',
+    gate:  true,
+    // Code review is the one cell on this page fixed at Required because Required is what
+    // happens, rather than because there is nothing behind it. It used to be settable, and
+    // that was a control with no effect: "Off" went into the ConfigMap and
+    // `distributionGate()` carried on demanding a code sign-off anyway.
+    cells: {
+      code: {
+        value:  'required',
+        reason: 'Code review is fixed at Required here, and it is the one thing on this page that is fixed because it is enforced: distributionGate() refuses the distribution until a code sign-off covering the current packet is on record, whatever this page says. Outcome sign-off is left settable the way the design draws it - the gate takes that one as required too, and the publish dialog names any stored value it is not obeying.',
+      },
+    },
     editable: true,
   },
   {
@@ -275,6 +296,21 @@ export default {
     },
 
     /**
+     * The same refusal, as a sentence.
+     *
+     * What the pod throws is the status followed by GitHub's body, truncated at 200 characters
+     * and flattened onto one line, and putting that in front of a reader is putting the API's
+     * JSON in front of a reader. `githubErrorText` is shared with the import dialog so the two
+     * surfaces word a rejected token the same way.
+     *
+     * The raw text is what stays in `identityError`, because `rejected` reads the status code
+     * out of it and the chip's three states turn on that.
+     */
+    identitySaid() {
+      return asSentence(githubErrorText(this.identityError));
+    },
+
+    /**
      * The chip beside the account.
      *
      * "Active" is a claim about the credential, so it is only made once GitHub has answered
@@ -329,7 +365,54 @@ export default {
       // The slower ones, after the page is on the screen. Each is a read of something outside
       // this browser - the pods, Rancher's role bindings, and GitHub by way of a pod - and none
       // of them is worth making the card wait.
-      await Promise.all([this.readDevServers(), this.readAccess(), this.readIdentity()]);
+      await Promise.all([this.readDevServers(), this.readAccess(), this.readIdentity(), this.reconcileFixedCells()]);
+    },
+
+    /**
+     * Put the stored record back in step with the cells this page no longer lets anybody move.
+     *
+     * The repository row's code review used to be settable and is now fixed at Required,
+     * because Required is what `distributionGate()` does. A value stored while it was settable
+     * would otherwise sit in the ConfigMap disagreeing with what this page draws, and the
+     * publish dialog reads the ConfigMap rather than the page - so the two surfaces would say
+     * different things about the same cell, which is the exact failure the "one place" rule
+     * exists to stop. Writes only when they actually differ, and never for a row the policy
+     * does not hold at all.
+     */
+    async reconcileFixedCells() {
+      const wrong = [];
+
+      DESTINATIONS.forEach((destination) => {
+        if (destination.locked || !this.policy[destination.id]) {
+          return;
+        }
+
+        Object.entries(destination.cells || {}).forEach(([column, cell]) => {
+          if (this.policy[destination.id][column] !== cell.value) {
+            wrong.push([destination.id, column, cell.value]);
+          }
+        });
+      });
+
+      if (!wrong.length) {
+        return;
+      }
+
+      wrong.forEach(([id, column, value]) => {
+        this.policy[id][column] = value;
+      });
+
+      // Housekeeping rather than something the reader did, so a failure is not worth a growl:
+      // the page still draws the fixed value, which is still what the gate enforces.
+      await writeStudioSettings((current) => {
+        const policy = { ...current.policy };
+
+        wrong.forEach(([id, column, value]) => {
+          policy[id] = { ...policy[id], [column]: value };
+        });
+
+        return { ...current, policy };
+      }).catch(() => null);
     },
 
     /**
@@ -365,8 +448,36 @@ export default {
 
     // ---------------------------------------------------------------- sign-off
 
+    /**
+     * The value a cell is fixed at, or `undefined` when it is the user's to set.
+     *
+     * Two ways a cell can be fixed and they mean the same thing to the control: the whole row
+     * is a reading (`locked`), or this one column is (`cells`).
+     */
+    fixedAt(destination, column) {
+      if (destination.locked) {
+        return destination.locked[column];
+      }
+
+      return destination.cells?.[column]?.value;
+    },
+
     valueFor(destination, column) {
-      return destination.locked ? destination.locked[column] : this.policy[destination.id]?.[column];
+      const fixed = this.fixedAt(destination, column);
+
+      return fixed === undefined ? this.policy[destination.id]?.[column] : fixed;
+    },
+
+    /**
+     * The small print under a row: why the row is a reading, plus why any one cell in it is.
+     *
+     * Joined rather than rendered per cell because the cells sit in the grid's two right-hand
+     * columns, which are 220px of segmented control with nowhere to put a sentence.
+     */
+    rowReason(destination) {
+      const cells = Object.values(destination.cells || {}).map((cell) => cell.reason);
+
+      return [destination.reason, ...cells].filter(Boolean).join(' ');
     },
 
     /**
@@ -376,7 +487,7 @@ export default {
      * visible: the value goes back to what the cluster still holds and the growl says why.
      */
     async setLevel(destination, column, value) {
-      if (destination.locked || this.valueFor(destination, column) === value) {
+      if (this.fixedAt(destination, column) !== undefined || this.valueFor(destination, column) === value) {
         return;
       }
 
@@ -613,13 +724,22 @@ export default {
           id: 'admins', label: 'Administrators', count: 'always', detail: say(admins, 'user'),
         },
         {
-          id: 'cluster-owners', label: 'Cluster Owners', count: say(owners, 'user'), detail: 'on the local cluster',
+          id:     'cluster-owners',
+          label:  'Cluster Owners',
+          count:  say(owners, 'user'),
+          detail: 'on the local cluster. Ticked because they can already open Studio, not because anything here granted it, and there is nothing here to untick it with.',
         },
         {
-          id: 'cluster-members', label: 'Cluster Members', count: say(members, 'user'), detail: 'on the local cluster',
+          id:     'cluster-members',
+          label:  'Cluster Members',
+          count:  say(members, 'user'),
+          detail: 'on the local cluster. Ticked for the same reason as the row above: it is who can already get in, not a grant this page made.',
         },
         {
-          id: 'custom-role', label: 'Custom role...', count: '', detail: 'no picker: Studio has no allow-list to add a role to',
+          id:     'custom-role',
+          label:  'Custom role...',
+          count:  '',
+          detail: 'No picker, because a role chosen here would have nowhere to go: Studio registers its pages with no permission gate, so there is no allow-list for a role to be added to.',
         },
       ];
 
@@ -688,18 +808,26 @@ export default {
             it. The gate is the moment the extension becomes installable by somebody else.
           </p>
 
-          <SBanner type="warning">
-            Studio records this policy; it does not enforce it yet. Nothing in the publish path
-            reads these values, so no publish is blocked by them today. They are written to
-            ConfigMap <code>{{ settingsObject }}</code> in namespace <code>{{ ns }}</code> so the
-            gate can read them when it lands.
+          <SBanner type="warning" data-testid="settings-signoff-enforcement">
+            The publish dialog reads these values and shows each destination what it is being
+            held to, but no value here decides whether a publish happens. Both boundaries are
+            fixed in code: a developer load reaches only this Rancher and is ungated, and the
+            push to a repository is refused until two different people have signed both
+            questions against the change being pushed. So this matrix records what you mean by
+            it, the two rows below say where that is all it does, and the publish dialog names
+            any stored value it is not obeying. Written to ConfigMap
+            <code>{{ settingsObject }}</code> in namespace <code>{{ ns }}</code>.
           </SBanner>
 
           <div class="settings__matrix">
             <div class="settings__matrix-head">
               <span class="settings__matrix-dest" />
-              <span class="settings__matrix-col">Code review</span>
-              <span class="settings__matrix-col">Outcome sign-off</span>
+              <span class="settings__matrix-col">
+                <SIcon name="code" :size="12" />Code review
+              </span>
+              <span class="settings__matrix-col">
+                <SIcon name="eye" :size="12" />Outcome sign-off
+              </span>
             </div>
 
             <div
@@ -725,8 +853,12 @@ export default {
                 <p class="settings__dest-note">
                   {{ destination.note }}
                 </p>
-                <p v-if="destination.reason" class="settings__dest-reason">
-                  {{ destination.reason }}
+                <p
+                  v-if="rowReason(destination)"
+                  class="settings__dest-reason"
+                  :data-testid="`settings-dest-${ destination.id }-reason`"
+                >
+                  {{ rowReason(destination) }}
                 </p>
               </div>
 
@@ -745,10 +877,10 @@ export default {
                   class="settings__seg-btn"
                   :class="{
                     'settings__seg-btn--on': valueFor(destination, column) === level.value,
-                    'settings__seg-btn--locked': !!destination.locked,
+                    'settings__seg-btn--locked': fixedAt(destination, column) !== undefined,
                   }"
                   :aria-checked="valueFor(destination, column) === level.value"
-                  :disabled="!!destination.locked || writing === `${ destination.id }.${ column }`"
+                  :disabled="fixedAt(destination, column) !== undefined || writing === `${ destination.id }.${ column }`"
                   :data-testid="`settings-signoff-${ destination.id }-${ column }-${ level.value }`"
                   @click="setLevel(destination, column, level.value)"
                 >{{ level.label }}</button>
@@ -808,12 +940,12 @@ export default {
                     Asking GitHub what this token is, from a pod.
                   </template>
                   <template v-else-if="identityError && rejected">
-                    GitHub says this token is no good: {{ identityError }}. Reconnect with a
-                    replacement; the one stored now will fail the next import or push.
+                    {{ identitySaid }} Reconnect with a replacement; the one stored now will
+                    fail the next import or push.
                   </template>
                   <template v-else-if="identityError">
-                    Nothing could ask GitHub about it just now: {{ identityError }}. Anything
-                    above it is what was recorded when it was stored.
+                    {{ identitySaid }} So nothing above was read from GitHub just now; it is
+                    what was recorded when the token was stored.
                   </template>
                   <template v-else-if="identity">
                     Read from GitHub a moment ago. The question is put from an extension pod,
@@ -887,10 +1019,14 @@ export default {
       <SCard title="What the assistant may do without asking" icon="sparkle" data-testid="settings-permission">
         <div class="settings__section">
           <SBanner type="warning" data-testid="settings-permission-fixed">
-            Not settable, and not per user. {{ permission.detail }} Only the pod's start-up decides
-            this, so changing it means changing that script and giving the terminal a way to show
-            claude's approval prompts. Neither exists yet, so these three are drawn as what they
-            are: a statement of the level in force, not a choice.
+            Not settable, and not per user. {{ permission.detail }} The flag is one line of
+            <code>claude-session.sh</code> in the extension's seed ConfigMap, and Studio rewrites
+            that ConfigMap from the copy compiled into this bundle every time a page loads it, so
+            a level chosen here would be undone within seconds and the pod would carry on at the
+            level the bundle ships. It is per pod rather than per user as well: everybody with a
+            terminal in that pod is at the same level, and a change would reach them when their
+            session next started rather than on their next message. So these three are drawn as
+            what they are - a reading of the level in force, not a choice.
           </SBanner>
 
           <div
@@ -946,9 +1082,11 @@ export default {
             </div>
             <SIcon name="lock" :size="13" />
           </div>
-          <p class="settings__hint">
-            Not a choice yet: Studio creates every pod in the <code>local</code> cluster, named
-            once in <code>extensions.ts</code>, so there is no second cluster for this to pick.
+          <p class="settings__hint" data-testid="settings-preview-cluster-hint">
+            Not a choice, which is why it is a lock rather than the design's chevron: Studio
+            creates every pod in the <code>local</code> cluster, named once in
+            <code>extensions.ts</code> rather than read from a setting, so a picker here would
+            have nothing to write to and choosing a different cluster would not move a preview.
           </p>
 
           <div v-if="devServers.length" class="settings__servers">
@@ -1028,12 +1166,18 @@ export default {
             class="settings__row settings__row--tight"
             :data-testid="`settings-access-${ row.id }`"
           >
+            <!--
+              Disabled on purpose, and the title says why on the control itself rather than
+              only in the banner above it: the tick is a reading of who can already open
+              Studio, and there is no allow-list for a click to write to.
+            -->
             <input
               type="checkbox"
               class="settings__checkbox"
               disabled
               :checked="row.id !== 'custom-role'"
               :aria-label="row.label"
+              title="A reading of who can already open Studio. Studio has no access list, so this cannot be ticked or unticked."
             >
 
             <div class="settings__row-text">
@@ -1224,6 +1368,9 @@ export default {
   }
 
   &__matrix-col {
+    display:        inline-flex;
+    align-items:    center;
+    gap:            var(--studio-space-4);
     font:           var(--studio-caption-11-caps);
     letter-spacing: var(--studio-tracking-caps);
     text-transform: uppercase;

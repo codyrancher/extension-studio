@@ -44,6 +44,11 @@
 // what it says. That is also the one thing in the product that reads screen 02's two fields
 // against each other, which is what the second field was added for.
 //
+// And when that assistant has no credential the callout says so, because that is the one
+// failure this screen cannot see any other way: the ask reaches the pod, the pod's claude
+// answers "Not logged in - Please run /login", nothing is written, and the callout would
+// otherwise go on saying nobody had argued as though the button had done nothing.
+//
 // The second line the design draws under every question card - the rationale, the evidence,
 // the risk - is one optional field, `why`, written under the question in BRIEF.md as an
 // indented `Why:` line. Three moods of the same sentence, so one field; optional, because its
@@ -61,7 +66,8 @@ import {
 } from '../components/ui';
 import { toastSuccess, toastError } from '../toast';
 import {
-  readExtensionFile, writeExtensionFile, askAssistant, findPriorArt, DEFAULT_EXTENSION
+  readExtensionFile, writeExtensionFile, askAssistant, assistantLogin, findPriorArt,
+  DEFAULT_EXTENSION
 } from '../extensions';
 import { EDITOR_ROUTE, STUDIO_ROUTE, FILES_ROUTE } from '../editor-product';
 import '../design/tokens';
@@ -187,6 +193,13 @@ export default {
       challenge: '',
       arguing:   false,
       argued:    '',
+      // Whether the claude in this extension's pod has a credential, as `assistantLogin`
+      // reports it. null is "nobody has asked yet". The callout below is the one thing on this
+      // screen whose entire content comes from that assistant, so it is the one place where a
+      // signed-out pod has to be said out loud: without this the button reached the pod, the
+      // pod answered "Not logged in - Please run /login", and the callout went on saying nobody
+      // had argued - which reads as a button that does nothing.
+      login: null,
     };
   },
 
@@ -234,6 +247,17 @@ export default {
 
     roleOptions() {
       return ROLES;
+    },
+
+    /**
+     * The pod was read and its claude has no credential.
+     *
+     * Three states and not two: `null` is "not asked yet" and `read: false` is "could not ask",
+     * and neither of those is grounds for telling somebody they are signed out. Only the state
+     * where the pod answered and there was nothing there says so.
+     */
+    assistantSignedOut() {
+      return !!this.login?.read && !this.login.signedIn;
     },
 
     /**
@@ -406,6 +430,10 @@ export default {
       this.loading = false;
       this.ready = true;
     });
+
+    // Not awaited and never fatal: the form is usable whatever the pod says, and the only
+    // thing that depends on the answer is one sentence in the callout below.
+    this.refreshLogin();
   },
 
   beforeUnmount() {
@@ -1219,6 +1247,18 @@ export default {
     },
 
     /**
+     * Ask the pod whether its claude has a credential.
+     *
+     * Read rather than assumed, and read again before an ask, because `/login` in the workspace
+     * terminal is exactly how this changes and the callout that told somebody to run it is the
+     * thing that has to notice they did.
+     */
+    async refreshLogin() {
+      this.login = await assistantLogin(this.extension)
+        .catch(() => ({ read: false, signedIn: false, account: '' }));
+    },
+
+    /**
      * Ask the assistant to argue with the request (34:1012's callout).
      *
      * The design has this callout asserting that the ticket named a solution rather than a
@@ -1244,6 +1284,17 @@ export default {
       try {
         clearTimeout(this.saveTimer);
         await this.saveDraft();
+
+        // Asked again here rather than trusted from mount: somebody may have run /login in the
+        // meantime, and a stale "signed out" that refuses the ask is as wrong as a stale
+        // "signed in" that sends a prompt nothing will ever read.
+        await this.refreshLogin();
+
+        if (this.assistantSignedOut) {
+          throw new Error(
+            `The claude in ${ this.extension }'s pod has no credential, so it would receive this and answer "Not logged in". Open the workspace terminal, run /login, then ask again.`
+          );
+        }
 
         const how = await askAssistant(this.extension, [
           `Read BRIEF.md in this package. It is the brief for the ${ this.extension } extension.`,
@@ -1469,13 +1520,12 @@ export default {
                 it under `## Who asked` in the brief, with the date, so the raiser and the age
                 are read rather than invented - and they are the same principal `review.ts`
                 gates the outcome sign-off on, so what this line says is what that rule
-                enforces. The id has no source and is not shown: there is no ticket system
-                behind this Studio to have issued one.
+                enforces. The id has no source and never will, so the card says there is not
+                one, on the line the design draws it on, rather than leaving a gap.
               -->
               <p class="brief__card-note">
-                The request as it was typed in the description step, kept with the brief. There
-                is no ticket system behind this Studio, so there is no id - but the brief
-                records who asked and when.
+                The request as it was typed in the description step, kept with the brief: a
+                record of what was asked for, which does not change while the brief does.
               </p>
             </header>
             <div class="brief__card-body">
@@ -1504,10 +1554,39 @@ export default {
                 </span>
               </div>
 
+              <!--
+                34:999's ticket id. It has no source and never will: nothing in this Studio
+                issues one and there is no tracker behind it to have issued one. Said here, on
+                its own line where the design draws the id, rather than left as an absence
+                somebody has to notice - an id is the first thing anybody looks for on a card
+                headed like this one, and "there isn't one, here is what there is instead" is a
+                shorter search than looking for it.
+              -->
+              <p class="brief__no-id" data-testid="brief-ticket-id">
+                <SIcon name="info" :size="13" />
+                <span>
+                  There is no ticket id. Nothing behind this Studio issues one, so rather than
+                  invent a number the card records who asked and when, out of the brief itself.
+                </span>
+              </p>
+
               <div class="brief__ticket" data-testid="brief-request">
                 <SIcon name="book" :size="15" />
-                <p class="brief__ticket-text">
-                  {{ request || 'Nothing was carried through from the description step.' }}
+                <!--
+                  Absent rather than empty, and the two read differently. A brief written before
+                  the Studio kept the original request has no `## What you were handed` at all,
+                  and those words are not recoverable afterwards - only the description step
+                  ever had them.
+                -->
+                <p v-if="request" class="brief__ticket-text">
+                  {{ request }}
+                </p>
+                <p v-else class="brief__ticket-text brief__ticket-text--absent">
+                  This brief has no <code>## What you were handed</code> section, so there is
+                  nothing to quote. That is how every extension made before the Studio kept the
+                  original request reads, and it cannot be filled in afterwards: those words
+                  were typed into the description step and only that step could have recorded
+                  them.
                 </p>
               </div>
 
@@ -1545,7 +1624,25 @@ export default {
                     puts the request and the problem statement to the assistant working on
                     {{ extension }} and asks it to write what it makes of them into this brief.
                   </p>
-                  <p v-if="argued" class="brief__insight-note">
+                  <!--
+                    The one state where the button below cannot work, said here rather than
+                    left for somebody to discover by pressing it. The ask really does reach the
+                    pod; what it finds there is a claude with no credential, which answers
+                    "Not logged in - Please run /login" and writes nothing. Without this line
+                    the callout goes on saying nobody has argued and the button looks broken.
+                  -->
+                  <p
+                    v-if="assistantSignedOut"
+                    class="brief__insight-note brief__insight-note--warn"
+                    data-testid="brief-assistant-signed-out"
+                  >
+                    Nothing can argue with it from here yet: the assistant in
+                    {{ extension }}'s pod has no credential, so anything this screen sends it
+                    comes back "Not logged in - Please run /login" and no
+                    <code>## The challenge</code> is ever written. Open the workspace terminal,
+                    run <code>/login</code>, and ask again.
+                  </p>
+                  <p v-else-if="argued" class="brief__insight-note">
                     {{ argued === 'sent'
                       ? 'Asked. It edits the brief when it gets there, so re-read it in a moment.'
                       : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.' }}
@@ -1557,7 +1654,10 @@ export default {
                       icon="sparkle"
                       data-testid="brief-ask-challenge"
                       :loading="arguing"
-                      :disabled="!problem.trim() && !request.trim()"
+                      :disabled="assistantSignedOut || (!problem.trim() && !request.trim())"
+                      :title="assistantSignedOut
+                        ? `The assistant in ${ extension }'s pod is not signed in, so it cannot answer. Run /login in the workspace terminal.`
+                        : 'Puts the request and the problem statement to the assistant in this extension\'s pod.'"
                       @click="askItToArgue"
                     >
                       {{ challenge ? 'Ask it again' : 'Ask it to argue with this' }}
@@ -2197,6 +2297,18 @@ export default {
     margin: 0;
     font:   var(--studio-caption-12);
     color:  var(--studio-text-secondary);
+
+    code { font: var(--studio-mono-12); }
+  }
+
+  // The signed-out sentence. Warning rather than error: nothing is broken, there is a thing to
+  // do, and it is the reason the button beside it is refusing.
+  &__insight-note--warn {
+    padding:       var(--studio-space-6) var(--studio-space-8);
+    border-left:   2px solid var(--studio-warn-line);
+    background:    var(--studio-warn-bg);
+    border-radius: var(--studio-radius-control);
+    color:         var(--studio-text);
   }
 
   // Who raised it and how long ago (34:999), on one line above the quoted request. A row
@@ -2224,6 +2336,16 @@ export default {
     border-radius: var(--studio-radius-control);
   }
 
+  // Where the design draws the ticket id, saying there is not one.
+  &__no-id {
+    display:     flex;
+    align-items: flex-start;
+    gap:         var(--studio-space-6);
+    margin:      0;
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-tertiary);
+  }
+
   // The autosave readout, next to the chip it qualifies: the chip says what the brief is, this
   // says whether what is on the screen has reached the file yet.
   &__saved {
@@ -2237,6 +2359,13 @@ export default {
     font:   var(--studio-body-14);
     color:  var(--studio-text);
     margin: 0;
+  }
+
+  &__ticket-text--absent {
+    font:  var(--studio-body-13);
+    color: var(--studio-text-secondary);
+
+    code { font: var(--studio-mono-12); }
   }
 
   &__ac {

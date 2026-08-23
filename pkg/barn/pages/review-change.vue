@@ -19,6 +19,14 @@
 // lines nobody watched say "changed in the pod, no prompt recorded" rather than being pinned
 // on the nearest prompt. That last sentence is what most hunks say today, and it is the truth.
 //
+// Two controls narrow what is being read and neither narrows what is being decided. The scope
+// chip (38:1117) picks one of the ranked piles, "Hide generated lines" (38:1244) takes the
+// generated pile out, and "Since my last look" (38:1249) measures the list and the diff from
+// the commit this reviewer last read instead of from the last published version - the same
+// point the queue's "Show only what changed since then" link means, which arrives here as
+// `?scope=since&from=<sha>`. All three move the file list and the patch together. Approve still
+// commits the whole change, and every banner and title on them says so.
+//
 // A comment can be left on any hunk and either sent to the assistant or left on the record.
 // Sending routes through the workspace with `?comment=<id>`, which is where the answer arrives:
 // `editor.vue` loads the comment into the pod's session with its origin stamped and marks it
@@ -30,7 +38,7 @@
 // still no second reviewer, so the sign-off line says that in words instead of drawing avatars
 // for people who do not exist.
 import {
-  SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SModal, SField
+  SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SModal, SField, SMenu
 } from '../components/ui';
 import DiffView from '../components/DiffView.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
@@ -38,7 +46,8 @@ import PreviewPanel from '../components/studio/PreviewPanel.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
   ensureRepo,
-  changedFiles, fileDiff, readExtensionFile, commitExtension, extensionUrl, extensionReady,
+  changedFiles, fileDiff, changedFilesSince, fileDiffSince,
+  readExtensionFile, commitExtension, extensionUrl, extensionReady,
   listBranches, readSettings, extensionSource, parseGithubSource, findOpenPullRequest,
   deferReview, clearDeferral, changeProvenance, publishedVersion, askAssistant, provenanceFor,
   DEFAULT_EXTENSION
@@ -65,6 +74,16 @@ import fullBleed from '../design/full-bleed';
 //
 // A heading, a table row and a fence line all close: whatever follows starts fresh. Prose does
 // not, which is what keeps a hard-wrapped sentence one sentence.
+/**
+ * Where the reading scope is remembered, per extension.
+ *
+ * sessionStorage, and that is the right amount of persistence for it: it is a reading position,
+ * not a decision, and losing it costs one click while nothing about the change has moved. The
+ * decisions on this screen - the sign-offs, the comments, the deferral - all live in the pod
+ * where everybody can see them, and a view filter would be noise in that record.
+ */
+const SCOPE_KEY = 'barn.review.scope';
+
 const OPENS = /^([-*+]\s|\d+\.\s|>|#{1,6}\s|\|)/;
 const CLOSES = /^(#{1,6}\s|\|)/;
 const FENCE = /^(```|~~~)/;
@@ -278,7 +297,7 @@ export default {
   name: 'BarnReviewChange',
 
   components: {
-    SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SModal, SField, DiffView, PreviewPanel, EditorSettingsModal
+    SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SModal, SField, SMenu, DiffView, PreviewPanel, EditorSettingsModal
   },
 
   mixins: [fullBleed],
@@ -331,6 +350,24 @@ export default {
       // What has landed since this reviewer last opened this change, read before the look
       // below is recorded - reading it afterwards would always answer "nothing".
       since:    null,
+      // The two narrowing controls the design draws over the file list (38:1117, 38:1244).
+      // `all` or one of the ranked piles, and whether the generated pile is out. Both are a
+      // reading position rather than a decision, and both are remembered - see `readScope`.
+      fileScope:     'all',
+      hideGenerated: false,
+      // 38:1249. Whether the pane is measured from the commit this reviewer last read instead
+      // of from the last published version, the files that reading gives, and why it could not
+      // be done when it could not. Not remembered across a visit: it is a question about what
+      // has moved since last time, and arriving is what makes "last time" mean something else.
+      sinceOn:       false,
+      sinceFiles:    [],
+      sinceError:    '',
+      sinceLoading:  false,
+      // Which read of the diff is the current one. Two can be in flight at once - the selection
+      // watcher and an explicit re-read after the measuring point moved - and without this the
+      // slower one wins whichever it is, which puts the whole change on screen under a banner
+      // saying it has been narrowed.
+      diffToken:     0,
     };
   },
 
@@ -637,6 +674,18 @@ export default {
     },
 
     /**
+     * What the pane is covering before it is ranked: the whole change, or only what has landed
+     * since the commit the "Since my last look" chip is measured from.
+     *
+     * `files` stays the whole change either way, because everything that is a fact about the
+     * change rather than about the reading - the risk chip, the masthead's counts, what Approve
+     * commits - has to go on answering for all of it.
+     */
+    paneFiles() {
+      return this.sinceOn ? this.sinceFiles : this.files;
+    },
+
+    /**
      * The changed files ranked by how much of the reviewer they are worth (38:1177, 38:1190,
      * 38:1203).
      *
@@ -649,8 +698,8 @@ export default {
      * in and why, and then what git measured. Anything the rules do not recognise is worth
      * attention, because the safe direction to be wrong in is towards being read.
      */
-    fileGroups() {
-      const ranked = this.files.map((file) => ({ ...file, ...rank(file.path) }));
+    allGroups() {
+      const ranked = this.paneFiles.map((file) => ({ ...file, ...rank(file.path) }));
 
       return GROUPS
         .map((group) => ({
@@ -660,6 +709,83 @@ export default {
             .sort((a, b) => a.path.localeCompare(b.path)),
         }))
         .filter((group) => group.files.length);
+    },
+
+    /**
+     * The same ranking, after the two narrowing controls (38:1117 and 38:1244).
+     *
+     * Both narrow by pile rather than by line, and that is the honest limit of what the ranking
+     * knows: a file is generated because of what it is, and no rule in this screen can tell a
+     * generated line from a hand-written one inside a file. So "hide generated lines" takes the
+     * generated pile out, which is every generated line this change has, and says so in the
+     * chip's title rather than implying a per-line reading nothing performs.
+     */
+    fileGroups() {
+      return this.allGroups
+        .filter((g) => this.fileScope === 'all' || g.id === this.fileScope)
+        .filter((g) => !(this.hideGenerated && g.id === 'generated'));
+    },
+
+    /** The files the pane is covering, which is what the scope chip counts. */
+    scopedFiles() {
+      return this.fileGroups.flatMap((g) => g.files);
+    },
+
+    /**
+     * 38:1117, as a readout that is true after it has been narrowed.
+     *
+     * "Reviewing all 3 files" is only the label of one of its states. Once a scope is on it says
+     * how many of how many, because a chip that goes on claiming "all" over a narrowed list is
+     * the lie this control was in danger of becoming.
+     */
+    scopeLabel() {
+      const shown = this.scopedFiles.length;
+      const of = this.paneFiles.length;
+
+      if (shown === of) {
+        return `Reviewing all ${ of } file${ of === 1 ? '' : 's' }`;
+      }
+
+      return `Reviewing ${ shown } of ${ of } files`;
+    },
+
+    /** The scopes on offer: everything, or one pile - only the piles this change has. */
+    scopeItems() {
+      return [
+        {
+          id: 'all', label: 'All files', icon: 'file', note: String(this.paneFiles.length),
+        },
+        ...this.allGroups.map((g) => ({
+          id: g.id, label: g.label, icon: g.icon, note: String(g.files.length),
+        })),
+      ];
+    },
+
+    scopeTitle() {
+      return `Which files the packet list and the diff cover. It narrows what you are reading and nothing else - Approve still commits the whole change, all ${ this.count } file${ this.count === 1 ? '' : 's' } of it.`;
+    },
+
+    /** The generated pile, which is what "Hide generated lines" is aimed at. */
+    generatedFiles() {
+      return (this.allGroups.find((g) => g.id === 'generated')?.files || []).map((f) => f.path);
+    },
+
+    generatedChip() {
+      const n = this.generatedFiles.length;
+
+      if (!n) {
+        return {
+          label: 'Hide generated lines',
+          tone:  this.hideGenerated ? 'info' : 'subtle',
+          title: 'Nothing in this change is generated - no lock file, no build output, no snapshot - so there are no generated lines to hide. The toggle still records the preference for the next change that has some.',
+        };
+      }
+
+      return {
+        label: this.hideGenerated ? `${ n } generated file${ n === 1 ? '' : 's' } hidden` : 'Hide generated lines',
+        tone:  this.hideGenerated ? 'info' : 'subtle',
+        title: `${ this.generatedFiles.join(', ') }. Generated files are recognised by their path, which is the only honest test: a lock file is generated because of what it is. Hiding takes the whole file out, because no rule here can tell a generated line from a hand-written one inside a file.`,
+      };
     },
 
     /**
@@ -685,40 +811,118 @@ export default {
     /**
      * `?scope=since`: the queue's "Show only what changed since then" (36:1116), arriving here.
      *
-     * One key, the literal `since`, and no payload - the point to measure from is
-     * `sinceLastLook().sha`, which this screen reads for itself, and a sha in the URL would be
-     * a second copy of that answer, stale the moment anybody looks again.
+     * `scope` is the instruction and `from` is the commit it means. The queue's banner counts
+     * from the commit an approval was given against; this screen's own chip counts from the
+     * commit the reviewer last read. They are two different points, so the link carries its
+     * own rather than being silently re-measured against the other one.
      */
     scope() {
       return String(this.$route.query.scope || '');
     },
 
     /**
-     * What to say when a scope arrives that cannot be applied.
+     * The commit "since" means, and which fact it is.
      *
-     * The instruction is read rather than dropped, and then refused out loud, because the two
-     * alternatives are both worse. Dropping it silently is the defect class the handoff guard
-     * exists to catch: the navigation happens, the link looks like it worked, and the reviewer
-     * believes they are looking at a narrowed diff. Drawing the chip (38:1249) in its on state
-     * over an unnarrowed diff is the same lie with a control on it.
+     * The URL's, when the queue sent one and it looks like a commit id - an approval names one
+     * commit for ever, so it is not a copy of a moving answer. Otherwise the commit this
+     * reviewer's own last look recorded. `''` when nothing recorded either, which is a state
+     * the chip has to be able to say rather than guess its way out of.
      *
-     * Narrowing needs a diff taken from an arbitrary commit. Every diff in `extensions.ts` is
-     * pinned to `$BARN_BASE`, `showCommit` shows one commit's own patch rather than a range
-     * against the working tree, and `runInPackage` says in as many words that a screen wanting
-     * to run something in the pod should be given a named function instead. So this screen
-     * cannot honour it yet, and says which commit it would have measured from so the refusal
-     * is checkable rather than a shrug.
+     * Validated here and again in the pod: `changedFilesSince` refuses anything that is not a
+     * commit in this repository rather than falling back to the whole change.
      */
-    scopeNotice() {
-      if (this.scope !== 'since') {
-        return '';
+    sinceFrom() {
+      const asked = String(this.$route.query.from || '').trim().toLowerCase();
+
+      if (/^[0-9a-f]{7,40}$/.test(asked)) {
+        return { sha: asked, why: 'approved' };
       }
 
-      const from = this.since?.sha
-        ? `the commit you last read (${ this.since.sha.slice(0, 7) })`
-        : 'the commit you last read, which nothing recorded';
+      return this.since?.sha ? { sha: this.since.sha, why: 'look' } : { sha: '', why: '' };
+    },
 
-      return `You asked for only what has landed since your last look, and this is the whole change instead. Every diff in the Studio is measured from the last published version, and nothing can yet take one from ${ from }. Nothing has been hidden from you.`;
+    /** 38:1249, in each of the four states it can honestly be in. */
+    sinceChip() {
+      const { sha, why } = this.sinceFrom;
+      const label = why === 'approved' ? 'Since you approved it' : 'Since my last look';
+
+      if (!sha) {
+        return {
+          label,
+          tone:     'subtle',
+          disabled: true,
+          title:    'Nothing recorded which commit you last read of this change, so there is no point to measure from. Opening this screen records one, so this works from your next visit.',
+        };
+      }
+
+      if (this.sinceError) {
+        return {
+          label, tone: 'error', disabled: false, title: this.sinceError,
+        };
+      }
+
+      return {
+        label,
+        tone:     this.sinceOn ? 'info' : 'subtle',
+        disabled: false,
+        title:    `Measures the list and the diff from ${ sha.slice(0, 7) }, the commit ${ why === 'approved' ? 'your approval was given against' : 'you last read' }, instead of from the last published version. It changes what you are reading and nothing else - Approve still commits the whole change.`,
+      };
+    },
+
+    /**
+     * What the screen says about the narrowing, in the state it is actually in.
+     *
+     * Four states and each is a different sentence, because this control used to have one: a
+     * refusal, printed whether or not the reviewer had asked for anything the product could
+     * not do. The refusal is still here for the two cases that earn it - no recorded point, and
+     * a point that has left the branch - and the other two say what was done.
+     */
+    sinceNotice() {
+      const { sha, why } = this.sinceFrom;
+      const asked = this.scope === 'since';
+
+      if (this.sinceError) {
+        return {
+          tone: 'warning',
+          testid: 'rc-scope-refused',
+          text: `Only what has landed since ${ sha.slice(0, 7) } was asked for, and it could not be measured: ${ this.sinceError } The whole change is shown instead, and nothing has been hidden from you.`,
+        };
+      }
+
+      if (asked && !sha) {
+        return {
+          tone: 'warning',
+          testid: 'rc-scope-refused',
+          text: 'Only what has landed since your last look was asked for, and nothing recorded which commit that was, so there is no point to measure from. The whole change is shown instead, and nothing has been hidden from you.',
+        };
+      }
+
+      if (this.sinceOn) {
+        const shown = this.sinceFiles.length;
+        // Deliberately not "N of M": the point being measured from can be older than the last
+        // published version, in which case the narrowed reading has *more* files in it than
+        // the change does. Both counts are stated instead, so neither can be read as a share
+        // of the other.
+        const point = why === 'approved' ? 'your approval was given against' : 'you last read';
+
+        return {
+          tone: 'info',
+          testid: 'rc-scope-applied',
+          text: shown
+            ? `Showing what has landed since ${ sha.slice(0, 7) }, the commit ${ point }: ${ shown } file${ shown === 1 ? '' : 's' }. The whole change, measured from the last published version, is ${ this.count } file${ this.count === 1 ? '' : 's' }. Approve still commits all of it.`
+            : `Nothing has landed since ${ sha.slice(0, 7) }, the commit ${ point }. The whole change is the same ${ this.count } file${ this.count === 1 ? '' : 's' } it was then.`,
+        };
+      }
+
+      if (this.since?.behind) {
+        return {
+          tone: 'info',
+          testid: 'rc-since',
+          text: `${ this.since.banner } The diff below is the whole change; "${ this.sinceChip.label }" above the diff narrows it to what has landed since.`,
+        };
+      }
+
+      return null;
     },
 
     /** The provenance report's entry for the file being read, if it has one. */
@@ -885,12 +1089,23 @@ export default {
       this.prov = prov;
       this.loading = false;
 
+      // Read after the files, because a remembered pile that this change has nothing in would
+      // leave the pane empty with no way back to it.
+      this.readScope();
+
       if (files.length) {
-        this.selected = files[0].path;
+        this.selected = (this.scopedFiles[0] || files[0]).path;
       }
 
       this.checkPullRequest();
-      this.recordLook();
+      // Awaited, unlike the pull-request check, because the "since" chip cannot know which
+      // commit it measures from until the look has been read - and `?scope=since` is applied
+      // straight afterwards.
+      await this.recordLook();
+
+      if (this.scope === 'since') {
+        await this.applySince();
+      }
 
       // The preview is the same dev server the workspace frames. It may still be compiling,
       // which is why this waits rather than framing a connection-refused page.
@@ -906,9 +1121,157 @@ export default {
         return;
       }
 
+      const token = ++this.diffToken;
+
       this.diffing = true;
-      this.patch = await fileDiff(this.extension, this.selected).catch(() => '');
+      // The same file, measured from whichever point the pane is on. Both are one git diff, so
+      // the counts in the list and the patch under it stay two readings of one thing.
+      const patch = await (this.sinceOn
+        ? fileDiffSince(this.extension, this.sinceFrom.sha, this.selected)
+        : fileDiff(this.extension, this.selected)).catch(() => '');
+
+      // A newer read started while this one was out, so this answer is about a file or a
+      // measuring point the screen has already left. Dropped rather than drawn.
+      if (token !== this.diffToken) {
+        return;
+      }
+
+      this.patch = patch;
       this.diffing = false;
+    },
+
+    /**
+     * Measure the pane from the commit "since" means (38:1249, and 36:1116 arriving as a link).
+     *
+     * The list and the diff move together, because a file list taken from one point over a
+     * patch taken from another is the defect that made the file-scope chip worth fixing.
+     *
+     * A commit that is no longer in the branch is refused rather than fallen back from. A
+     * reviewer who asked for "what landed since I approved" and is silently given the whole
+     * change has been told something false about a change they are about to sign for.
+     */
+    async applySince() {
+      const { sha } = this.sinceFrom;
+
+      if (!sha || this.sinceLoading) {
+        return;
+      }
+
+      this.sinceLoading = true;
+
+      try {
+        this.sinceFiles = await changedFilesSince(this.extension, sha);
+        this.sinceError = '';
+        this.sinceOn = true;
+      } catch (e) {
+        this.sinceFiles = [];
+        this.sinceOn = false;
+        this.sinceError = e?.message || String(e);
+      } finally {
+        this.sinceLoading = false;
+      }
+
+      this.followScope();
+      await this.loadDiff();
+    },
+
+    /** The chip's press: on, or back to the whole change. */
+    async toggleSince() {
+      if (this.sinceChip.disabled) {
+        return;
+      }
+
+      if (!this.sinceOn) {
+        await this.applySince();
+
+        return;
+      }
+
+      this.sinceOn = false;
+      this.sinceError = '';
+      this.followScope();
+      await this.loadDiff();
+    },
+
+    /**
+     * The remembered reading position, dropped rather than honoured when it does not fit.
+     *
+     * A pile this change has nothing in is not a scope, it is an empty pane, and a reviewer who
+     * arrives at one has no way of knowing a filter they set on a different change is why. So
+     * an unrecognised or empty pile falls back to all files.
+     */
+    readScope() {
+      let stored = {};
+
+      try {
+        stored = JSON.parse(window.sessionStorage.getItem(`${ SCOPE_KEY }.${ this.extension }`) || '{}') || {};
+      } catch {
+        stored = {};
+      }
+
+      const has = this.allGroups.some((g) => g.id === stored.scope);
+
+      this.fileScope = has ? stored.scope : 'all';
+      this.hideGenerated = !!stored.hideGenerated;
+    },
+
+    writeScope() {
+      try {
+        const key = `${ SCOPE_KEY }.${ this.extension }`;
+
+        if (this.fileScope === 'all' && !this.hideGenerated) {
+          window.sessionStorage.removeItem(key);
+        } else {
+          window.sessionStorage.setItem(key, JSON.stringify({ scope: this.fileScope, hideGenerated: this.hideGenerated }));
+        }
+      } catch {
+        // A browser that refuses storage still gets the filter, just not across a reload.
+      }
+    },
+
+    /**
+     * Narrow the pane to one pile, or open it back up (38:1117).
+     *
+     * The selection follows, because the alternative is a diff of a file the list no longer
+     * shows - the pane would keep drawing the old patch under a heading nothing on screen
+     * points at. Choosing a scope the current file is already in leaves it alone.
+     */
+    setScope(id) {
+      this.fileScope = id;
+      this.writeScope();
+      this.followScope();
+    },
+
+    /** 38:1244. The generated pile in or out, with the selection following it the same way. */
+    toggleGenerated() {
+      this.hideGenerated = !this.hideGenerated;
+      this.writeScope();
+      this.followScope();
+    },
+
+    /**
+     * Every filter off, for the way out of an empty pane.
+     *
+     * All three of them, including the measuring point: "Since my last look" over a change
+     * nothing has landed on leaves the pane empty too, and a button labelled "review all N
+     * files" that left it empty would be the worst control on the screen.
+     */
+    async showAllFiles() {
+      this.fileScope = 'all';
+      this.hideGenerated = false;
+      this.sinceOn = false;
+      this.sinceError = '';
+      this.writeScope();
+      this.followScope();
+      await this.loadDiff();
+    },
+
+    followScope() {
+      if (this.scopedFiles.some((f) => f.path === this.selected)) {
+        return;
+      }
+
+      this.selected = this.scopedFiles[0]?.path || '';
     },
 
     /**
@@ -1432,30 +1795,38 @@ export default {
 
       <span class="rc__grow" />
 
-      <SChip :label="`Reviewing all ${ count } file${ count === 1 ? '' : 's' }`" tone="subtle" />
+      <!-- 38:1117: the scope, as a readout that can be changed. See `scopeLabel`. -->
+      <SMenu
+        :items="scopeItems"
+        align="right"
+        aria-label="Choose which files to review"
+        @select="setScope"
+      >
+        <template #trigger>
+          <SChip
+            :label="scopeLabel"
+            :tone="fileScope === 'all' && !hideGenerated ? 'subtle' : 'info'"
+            icon="compare"
+            data-testid="rc-scope"
+            :title="scopeTitle"
+          />
+        </template>
+      </SMenu>
       <SButton variant="ghost" size="sm" icon="refresh" @click="load">
         Refresh
       </SButton>
     </div>
 
-    <!-- The queue's "Show only what changed since then" arriving as `?scope=since`, read and
-         then refused in words rather than dropped on the floor. See `scopeNotice`. -->
+    <!-- What the narrowing is doing, or why it is not. One banner, four sentences - see
+         `sinceNotice`. The testid changes with the state, so a refusal and an applied scope are
+         never mistaken for each other. -->
     <SBanner
-      v-if="scopeNotice"
-      type="warning"
+      v-if="sinceNotice"
+      :type="sinceNotice.tone"
       class="rc__since"
-      data-testid="rc-scope-refused"
+      :data-testid="sinceNotice.testid"
     >
-      {{ scopeNotice }}
-    </SBanner>
-
-    <!-- 38:1249's question, answered rather than offered as a chip: what landed since this
-         reviewer last opened this change. Recorded by `markLook` on the way in, which is what
-         lets the queue say the same thing. -->
-    <SBanner v-else-if="since && since.behind" type="info" class="rc__since" data-testid="rc-since">
-      {{ since.banner }} The diff below is still the whole change rather than only the newer
-      part of it: narrowing it needs a diff taken against the commit you last read, and nothing
-      in the Studio takes one against an arbitrary commit yet.
+      {{ sinceNotice.text }}
     </SBanner>
 
     <!-- body (38:1130) -->
@@ -1531,7 +1902,10 @@ export default {
           </div>
 
           <div class="rc__files">
-            <SLabel :text="`Changed files (${ count })`" />
+            <!-- The heading counts what is on the list, which is what the scope has left on it. -->
+            <SLabel :text="scopedFiles.length === count
+              ? `Changed files (${ count })`
+              : `Changed files (${ scopedFiles.length } of ${ count })`" />
 
             <!-- ranked by how much attention each file needs (38:1177, 38:1190, 38:1203) -->
             <div v-for="g in fileGroups" :key="g.id" class="rc__group">
@@ -1567,6 +1941,27 @@ export default {
           <SIcon name="code" :size="14" />
           <span class="rc__panel-title">{{ selected || 'No file selected' }}</span>
           <span class="rc__grow" />
+          <!-- 38:1249. Measures the list and the diff from the commit "since" means. -->
+          <SChip
+            :label="sinceChip.label"
+            :tone="sinceChip.tone"
+            icon="undo"
+            clickable
+            data-testid="rc-since-last-look"
+            :title="sinceChip.title"
+            :class="{ 'rc__chip--off': sinceChip.disabled }"
+            @click="toggleSince"
+          />
+          <!-- 38:1244. Takes the generated pile out of the list and the pane. -->
+          <SChip
+            :label="generatedChip.label"
+            :tone="generatedChip.tone"
+            icon="eye"
+            clickable
+            data-testid="rc-hide-generated"
+            :title="generatedChip.title"
+            @click="toggleGenerated"
+          />
           <!-- how much of this change has a prompt behind it, before a reviewer reads a hunk -->
           <SChip
             v-if="provSummary.text"
@@ -1581,8 +1976,13 @@ export default {
         </div>
 
         <div class="rc__code">
+          <!--
+            `paneFiles` as well as `count`: a change with nothing uncommitted can still have
+            commits on it since the reviewer last looked, and "nothing to review" over a diff
+            the "since" chip has just produced would be the screen contradicting itself.
+          -->
           <SEmpty
-            v-if="!count && !loading"
+            v-if="!count && !paneFiles.length && !loading"
             icon="check"
             title="Nothing to review"
             message="This extension matches its last commit."
@@ -1591,6 +1991,22 @@ export default {
             <SIcon name="spinner" :size="20" class="rc__spin" />
             Reading {{ selected }}
           </div>
+          <!--
+            The scope is on and it covers nothing. Said as itself, with the way out on it: an
+            empty pane over a change that has files in it is the one state a filter must never
+            leave a reader in without explaining.
+          -->
+          <SEmpty
+            v-else-if="!scopedFiles.length"
+            icon="compare"
+            title="Nothing in this scope"
+            :message="`The filters above the diff leave nothing to read. This change has ${ count } file${ count === 1 ? '' : 's' } in it and none of them has gone anywhere.`"
+            data-testid="rc-scope-empty"
+          >
+            <SButton variant="secondary" icon="file" data-testid="rc-scope-reset" @click="showAllFiles">
+              Review all {{ count }} files
+            </SButton>
+          </SEmpty>
           <div v-else class="rc__code-inner">
             <DiffView :patch="patch">
               <!-- what produced this hunk (38:1256) -->
@@ -2157,6 +2573,13 @@ export default {
   &__since {
     flex:   0 0 auto;
     margin: var(--studio-space-8) var(--studio-space-16) 0;
+  }
+
+  // A chip whose control has nothing to act on. Still drawn, still says why in its title, but
+  // dimmed so it does not read as a filter somebody forgot to turn on.
+  &__chip--off {
+    opacity: 0.55;
+    cursor:  default;
   }
 
   // One flex child of __code, so the diff and anything under it stack instead of sitting

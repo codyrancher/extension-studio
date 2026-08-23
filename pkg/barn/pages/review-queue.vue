@@ -907,22 +907,27 @@ export default {
     },
 
     /**
-     * 36:1116: open the change with only what has landed since your last look in it.
+     * 36:1116: open the change with only what has landed since then in it.
      *
-     * The same route the row's own action opens, with one query parameter on it: `scope=since`
-     * is the review screen's "Since my last look" chip (38:1249) already switched on.
+     * The same route the row's own action opens, with `scope=since` on it - the review screen's
+     * "Since my last look" chip (38:1249) already switched on - and `from`, the commit to
+     * measure from.
      *
-     * One key and no payload, deliberately. What "since" means for this reviewer is in the
-     * review record - `sinceLastLook()` returns the commit their last look was at - and the
-     * screen that renders the diff has to read it there anyway for its own chip. Handing a sha
-     * along in the URL would be a second copy of that answer, stale the moment somebody looks
-     * again, and hand-editable by whoever is reading the address bar.
+     * `scope` says narrow it; `from` says from where, and the two are not the same fact. This
+     * banner counts from the commit the *approval* was given against (`changesSince` sets
+     * `from` to exactly that), while screen 12's own chip counts from the commit the reviewer
+     * last *read*. Sending only `scope` would hand the link's promise to a different
+     * measurement and quietly show a different diff from the one it offered.
+     *
+     * It is safe to put in a URL because it is not a copy of a moving answer: an approval names
+     * one commit for ever. Screen 12 still refuses it out loud if that commit has left the
+     * branch, rather than falling back to the whole change.
      */
     openSince(row) {
       this.$router.push({
         name:   REVIEW_CHANGE_ROUTE,
         params: { extension: row.name, change: 'working' },
-        query:  { scope: 'since' },
+        query:  { scope: 'since', from: row.since.from },
       });
     },
 
