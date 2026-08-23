@@ -213,3 +213,36 @@ node -e "const v=require('./verdicts/w4-review.json');
 
 `node todo.mjs <screen> --json` already does the common case. Reach for grep only on the source
 tree, where the files are small and line-oriented.
+
+## A pattern-matching wait never finishes: it matches itself
+
+This has now caught three agents in this project, including the orchestrator, so it is worth
+stating outright.
+
+```bash
+until ! pgrep -f "drive-check"; do sleep 5; done    # never exits
+pkill -f "vue-cli-service serve"                     # kills your own shell
+```
+
+`pgrep -f` and `pkill -f` match against the whole command line of every process, **including the
+shell running the command that contains the pattern**. So the wait waits on itself and the kill
+kills itself. Four such loops idled for nearly an hour here before anyone noticed, and one `pkill`
+took out the shell that issued it before its own heredoc had run.
+
+Wait on something the waiter does not contain:
+
+```bash
+# a PID you captured
+node long-thing.mjs & pid=$!
+wait "$pid"
+
+# or a marker the work writes when it is done
+node long-thing.mjs > out.log 2>&1 &
+until grep -q '^DONE' out.log; do sleep 5; done
+
+# and if you must match a name, exclude your own process
+until ! pgrep -f '[d]rive-check'; do sleep 5; done   # the bracket keeps the pattern from matching itself
+```
+
+Better still: prefer a foreground run, or `run_in_background` and let the completion notification
+arrive. A polling loop is almost never the shortest path here, and it is the one that leaks.
