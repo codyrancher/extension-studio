@@ -23,6 +23,14 @@ export default {
       type:    String,
       default: '',
     },
+
+    // What git says about each path, keyed by path: 'new' | 'edited' | 'gone'. Optional and
+    // empty by default, so a caller that has no git reading to hand renders exactly what it
+    // rendered before this existed.
+    marks: {
+      type:    Object,
+      default: () => ({}),
+    },
   },
 
   emits: ['select'],
@@ -61,6 +69,7 @@ export default {
         :key="child.path"
         :node="child"
         :current="current"
+        :marks="marks"
         @select="$emit('select', $event)"
       />
       <button
@@ -71,7 +80,12 @@ export default {
         :class="{ 'file-tree__file--current': file.path === current }"
         @click="$emit('select', file.path)"
       >
-        {{ file.name }}
+        <span class="file-tree__name">{{ file.name }}</span>
+        <span
+          v-if="marks[file.path]"
+          class="file-tree__mark"
+          :class="`file-tree__mark--${ marks[file.path] }`"
+        >{{ marks[file.path] }}</span>
       </button>
     </div>
   </div>
@@ -125,6 +139,10 @@ export default {
   &__file {
     // The colour a link is, which is what these are: the tree is a list of things to open.
     color: var(--link);
+    // A flex row so a change badge can sit at the right of the name. The padding above is
+    // shared with the loose rows on screen 05 and is measured against the frame, so it stays.
+    display:     flex;
+    align-items: center;
 
     // A different colour from the selected row below, not the same one. They were both
     // --accent-btn, which meant the row under the pointer and the file actually open looked
@@ -138,6 +156,30 @@ export default {
       color:      var(--body-text);
       font-weight: 600;
     }
+  }
+
+  &__name {
+    flex:          1 1 auto;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+  }
+
+  // 22:1000 "new" / 22:1013 "edited": which files differ from what this Rancher is running.
+  &__mark {
+    flex:           0 0 auto;
+    padding:        0 5px;
+    border-radius:  2px;
+    font:           var(--studio-caption-11-caps);
+    letter-spacing: var(--studio-tracking-caps);
+    text-transform: uppercase;
+    line-height:    15px;
+    color:          var(--studio-on-status);
+    background:     var(--studio-text-tertiary);
+
+    &--new { background: var(--studio-success); }
+    &--edited { background: var(--studio-warning); }
+    &--gone { background: var(--studio-error); }
   }
 
   &__caret {

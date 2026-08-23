@@ -4,8 +4,25 @@ import { ensureBrowser, ensureDefaultExtension } from './extensions';
 import {
   EDITOR_ROUTE, EXTENSION_STARTING_ROUTE, STUDIO_ROUTE, NEW_EXTENSION_ROUTE,
   REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, REVIEW_QUEUE_ROUTE, REVIEW_CHANGE_ROUTE,
-  VERIFICATION_ROUTE, BUILD_FAILED_ROUTE
+  VERIFICATION_ROUTE, BUILD_FAILED_ROUTE, SETTINGS_ROUTE, EDITOR_PRODUCT
 } from './editor-product';
+
+/**
+ * Every Studio route says which product it belongs to, here, in its own definition.
+ *
+ * Rancher's top-level menu highlights an entry when `getProductFromRoute($route)` matches it,
+ * and that reads `route.meta.product`. Without it the rail highlighted `/barn/extensions` and
+ * nowhere else, because the only thing marking the entry was vue-router's own
+ * `router-link-exact-active` on the one path the entry links to. Every other Studio screen
+ * rendered with no section marked current, which four separate verifiers reported from four
+ * different screens.
+ *
+ * The first attempt stamped this on afterwards, by walking `$plugin.routes` once the product was
+ * registered. It did not work: driving the real thing showed the highlight still only on
+ * `/barn/extensions`. Declaring it on the route is the version that survives, because the object
+ * the router matches is the object that carries it, with nothing in between to copy it wrong.
+ */
+const STUDIO_META = { product: EDITOR_PRODUCT };
 
 // Init the package
 export default function(plugin: IPlugin): void {
@@ -45,6 +62,7 @@ export default function(plugin: IPlugin): void {
   plugin.addRoute('plain', {
     name:      STUDIO_ROUTE,
     path:      '/barn/extensions',
+    meta:      STUDIO_META,
     component: () => import('./pages/extensions.vue'),
   });
 
@@ -52,12 +70,15 @@ export default function(plugin: IPlugin): void {
   plugin.addRoute('plain', {
     name:      NEW_EXTENSION_ROUTE,
     path:      '/barn/extensions/new',
+    meta:      STUDIO_META,
     component: () => import('./pages/new-extension.vue'),
   });
 
   // The rest of the Studio. Each is a full frame in the design, so each is a route: the brief
   // agreed before any code exists, the gate in front of publishing, the file browser, and the
-  // three review screens.
+  // three review screens - plus the one page every setting is edited on, which is a route for
+  // the same reason: the design's screen 09 is a frame, and the modal it replaces was not a
+  // place anybody could link to.
   //
   // Each import is written out rather than built from a template literal: webpack turns a
   // template-literal import into a context module over the whole pages directory, which pulls
@@ -70,7 +91,8 @@ export default function(plugin: IPlugin): void {
     { name: REVIEW_CHANGE_ROUTE, path: '/barn/review/:extension/:change', component: () => import('./pages/review-change.vue') },
     { name: VERIFICATION_ROUTE, path: '/barn/extensions/:extension/verification', component: () => import('./pages/verification.vue') },
     { name: BUILD_FAILED_ROUTE, path: '/barn/extensions/:extension/build-failed', component: () => import('./pages/build-failed.vue') },
-  ].forEach((route) => plugin.addRoute('plain', route));
+    { name: SETTINGS_ROUTE, path: '/barn/settings', component: () => import('./pages/settings.vue') },
+  ].forEach((route) => plugin.addRoute('plain', { ...route, meta: STUDIO_META }));
 
   // The editor itself: two panes under Rancher's own header.
   //
@@ -88,12 +110,14 @@ export default function(plugin: IPlugin): void {
   plugin.addRoute('plain', {
     name:      EDITOR_ROUTE,
     path:      '/barn/editor/:extension?',
+    meta:      STUDIO_META,
     component: () => import('./pages/editor.vue'),
   });
 
   // Where a newly created extension is watched while its pod pulls, installs and compiles.
   plugin.addRoute('plain', {
     name:      EXTENSION_STARTING_ROUTE,
+    meta:      STUDIO_META,
     path:      '/barn/extension/:extension/starting',
     component: () => import('./pages/extension-starting.vue'),
   });

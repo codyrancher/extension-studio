@@ -9,30 +9,84 @@
 // file's basename across the package - not a symbol index, and it says so, but it finds the
 // imports and the references and it finds them in the tree rather than guessing at them.
 //
-// Editing is the one thing this screen does not do. The file is shown read-only because the
-// thing that edits files here is the assistant in the pod, and two writers on one tree with no
-// locking between them is a way to lose work rather than a feature.
+// Editing used to be the one thing this screen did not do, on the argument that the assistant
+// in the pod is the other writer and two writers on one tree lose work. The designer's caption
+// for the screen is the opposite ("Replaces: the read-only Files tab"), and the argument was
+// answerable rather than decisive: Edit re-reads the file from the pod at the moment you press
+// Save and refuses to overwrite a copy that changed underneath you. So the pane is read-only
+// until you say otherwise, and a conflict is reported instead of resolved silently.
 //
 // The history under the file is not a list of labels either: picking a commit puts that
 // commit's patch in the middle column, in the same DiffView the review screens use, with the
 // file it replaced named on the way back. It is also not just `git log`: an automatic snapshot
 // is a commit hung off HEAD rather than an ancestor of it, so a log walk cannot see one, and
 // half of what happened to the tree was missing from the list until listHistory merged them.
+// Above the commits sits the working tree itself, which is the one entry in the history that
+// has not happened yet.
+//
+// The rail's other half is where the open file *surfaces*: `routing/index.ts` says which
+// component each route renders, so for a page component this screen can name the route, frame
+// the running page at it, and open it in a tab. A file that renders no page says that rather
+// than showing the extension's home page and implying it is the file's.
 import {
-  SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu
+  SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu, SModal
 } from '../components/ui';
 import FileTree from '../components/FileTree.vue';
 import DiffView from '../components/DiffView.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
   ensureRepo,
-  listExtensionFiles, readExtensionFile, listHistory, listBranches, countChanges,
-  findUsages, showCommit, fileProvenance, DEFAULT_EXTENSION
+  listExtensionFiles, readExtensionFile, writeExtensionFile, listHistory, listBranches,
+  checkoutBranch, countChanges, changedFiles, discardChanges, workingDiff, askAssistant,
+  findUsages, showCommit, fileProvenance, extensionUrl, DEFAULT_EXTENSION
 } from '../extensions';
 import { highlight } from '../highlight';
 import { EDITOR_ROUTE, STUDIO_ROUTE, REVIEW_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
+
+/** How the tree can be ordered. Both orders are read from the pod, neither is a guess. */
+const TREE_SORTS = [
+  {
+    id: 'name', label: 'Name', icon: 'list', note: 'folders first, then A to Z',
+  },
+  {
+    id: 'changed', label: 'Changed first', icon: 'compare', note: 'uncommitted files at the top',
+  },
+];
+
+/**
+ * What a tree badge says, per `changedFiles` status (22:1000 "new", 22:1013 "edited").
+ *
+ * `changedFiles` reads against the last published baseline rather than against HEAD, so these
+ * mark every file that differs from what this Rancher is running - which is the set the review
+ * screens are about, and is what the badge's title says out loud.
+ */
+const MARKS = {
+  added: 'new', deleted: 'gone', modified: 'edited',
+};
+
+/** Where the tree's order is kept, so it is the same order the next time you open the screen. */
+const SORT_KEY = 'barn.files.sort';
+
+function readSort() {
+  try {
+    const saved = window.localStorage.getItem(SORT_KEY);
+
+    return TREE_SORTS.some((each) => each.id === saved) ? saved : 'name';
+  } catch (e) {
+    return 'name';
+  }
+}
+
+function writeSort(id) {
+  try {
+    window.localStorage.setItem(SORT_KEY, id);
+  } catch (e) {
+    // Storage turned off keeps the choice for this session and loses it on reload, which is
+    // not worth telling anybody about.
+  }
+}
 
 /**
  * Turn a flat list of paths into the shape FileTree renders.
@@ -41,7 +95,7 @@ import fullBleed from '../design/full-bleed';
  * walks, and giving it `children` renders an empty tree with no error, which is exactly the
  * kind of bug that survives a build and a type-check.
  */
-function toTree(paths) {
+function toTree(paths, marks = {}, order = 'name') {
   const root = {
     name: '', path: '', dirs: [], files: [],
   };
@@ -72,9 +126,17 @@ function toTree(paths) {
     }
   });
 
+  // "Changed first" is a real reading rather than a second alphabet: it is `git status` joined
+  // onto the listing, so the rows that move to the top are the rows the review screen is about.
+  // A folder counts as changed when anything under it is, or a changed file three levels down
+  // would sort its parent to the bottom and be no easier to find than it was.
+  const changed = (node) => node.files.some((f) => marks[f.path]) || node.dirs.some(changed);
+
   const sort = (node) => {
-    node.dirs.sort((a, b) => a.name.localeCompare(b.name));
-    node.files.sort((a, b) => a.name.localeCompare(b.name));
+    node.dirs.sort((a, b) => (order === 'changed' ? (changed(b) - changed(a)) : 0) ||
+      a.name.localeCompare(b.name));
+    node.files.sort((a, b) => (order === 'changed' ? (!!marks[b.path] - !!marks[a.path]) : 0) ||
+      a.name.localeCompare(b.name));
     node.dirs.forEach(sort);
   };
 
@@ -83,11 +145,105 @@ function toTree(paths) {
   return root;
 }
 
+/**
+ * Which route renders which file, read out of the extension's own routing table.
+ *
+ * The designer calls this a required output of the screen ("where each file surfaces in the
+ * UI"), and it is derived rather than declared: `routing/index.ts` imports a component and
+ * names the path it is mounted at, so the mapping is already written down - in two files, in
+ * template literals, which is the only reason it needs any code at all.
+ *
+ * Deliberately narrow. It resolves the constants those two files actually use (`PRODUCT_NAME`,
+ * `HOME_PAGE`, and anything else declared as a string literal in product.ts) and gives up on
+ * anything else, returning nothing rather than a path with `${ ... }` still in it. A wrong
+ * route here would send somebody to a blank page and blame their file for it.
+ */
+function routesFromSource(routing, product) {
+  // The string constants product.ts declares, resolved against each other so `HOME_ROUTE`,
+  // which is written as a template of the two above it, comes out as a route name rather than
+  // as its own source.
+  const constants = {};
+  const fill = (text) => text.replace(/\$\{\s*(\w+)\s*\}/g, (whole, key) => constants[key] ?? whole);
+
+  (product || '').split('\n').forEach((line) => {
+    const m = /export\s+const\s+(\w+)\s*=\s*[`'"]([^`'"]*)[`'"]/.exec(line);
+
+    if (m) {
+      constants[m[1]] = fill(m[2]);
+    }
+  });
+
+  // `import Home from '../pages/Home.vue'` - the local name, and the path it resolves to from
+  // inside `routing/`, which is where this file sits.
+  const components = {};
+
+  (routing || '').split('\n').forEach((line) => {
+    const m = /^\s*import\s+(\w+)\s+from\s+'(\.[^']+)'/.exec(line);
+
+    if (m) {
+      components[m[1]] = m[2].replace(/^\.\.\//, '').replace(/^\.\//, 'routing/');
+    }
+  });
+
+  // Line by line rather than by matching the object, because both the things worth reading are
+  // template literals: `${ PRODUCT_NAME }` puts braces inside the braces, and so does the
+  // `meta: { ... }` on the line below, so an object matched by its brackets stops at the first
+  // of them and finds nothing.
+  const out = [];
+  let current = null;
+
+  (routing || '').split('\n').forEach((line) => {
+    if (/^\s*\{\s*$/.test(line)) {
+      current = {};
+
+      return;
+    }
+
+    if (!current) {
+      return;
+    }
+
+    const path = /path:\s*[`'"]([^`'"]*)[`'"]/.exec(line);
+    const component = /component:\s*(\w+)/.exec(line);
+    const name = /name:\s*([\w]+)/.exec(line);
+
+    if (path) {
+      current.path = path[1];
+    }
+
+    if (component) {
+      current.component = component[1];
+    }
+
+    if (name && current.name === undefined) {
+      current.name = name[1];
+    }
+
+    if (/^\s*\},?\s*$/.test(line)) {
+      const resolved = fill(current.path || '');
+
+      // A path this cannot finish resolving is dropped rather than shown with `${ ... }` still
+      // in it. A wrong route sends somebody to a blank page and blames their file for it.
+      if (resolved && !resolved.includes('${') && components[current.component]) {
+        out.push({
+          path: resolved,
+          file: components[current.component],
+          route: constants[current.name] || current.name || '',
+        });
+      }
+
+      current = null;
+    }
+  });
+
+  return out;
+}
+
 export default {
   name: 'BarnFiles',
 
   components: {
-    SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu, FileTree, DiffView
+    SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu, SModal, FileTree, DiffView
   },
 
   mixins: [fullBleed],
@@ -120,6 +276,33 @@ export default {
       commit:   null,
       patch:    '',
       loadingPatch: false,
+      // `git status`, keyed by path: 'new' for a file git has never seen, 'edited' for one it
+      // has. What puts the badges on the tree, and what "Changed first" sorts on.
+      marks:    {},
+      // Every branch in the pod's repository, and whether the switcher is mid-checkout.
+      branches: [],
+      switching: false,
+      sort:     readSort(),
+      // Editing. `draft` is what is in the textarea; `editedFrom` is the copy of the file the
+      // edit started against, which is what Save compares the pod's current copy to before it
+      // writes over it.
+      editing:  false,
+      draft:    '',
+      editedFrom: '',
+      savingFile: false,
+      conflict: '',
+      // The uncommitted diff, shown where the file was when the top history row is picked.
+      working:  false,
+      workingPatch: '',
+      confirmRevert: false,
+      confirmPublish: false,
+      asking:   false,
+      // Every route the extension registers, and which file renders it, read out of
+      // routing/index.ts and product.ts in the pod.
+      routeTable: [],
+      // Whether the framed miniature has been asked for. The rail does not load an iframe of a
+      // whole dashboard until somebody has said they want to see it.
+      showThumb: false,
     };
   },
 
@@ -227,17 +410,129 @@ export default {
         },
       ];
     },
+
+    sortOptions() {
+      // The chosen order is marked rather than removed, so the menu is the same two lines each
+      // time and the current order is readable without closing it.
+      return TREE_SORTS.map((each) => ({
+        ...each,
+        note: each.id === this.sort ? `${ each.note } · current` : each.note,
+      }));
+    },
+
+    sortLabel() {
+      return (TREE_SORTS.find((each) => each.id === this.sort) || TREE_SORTS[0]).label;
+    },
+
+    /**
+     * The branches, as a menu.
+     *
+     * The one that is checked out is marked and disabled: picking it would be a checkout to
+     * where you already are, which reads as a control that did nothing.
+     */
+    branchMenu() {
+      if (!this.branches.length) {
+        return [{
+          id: '', label: 'No branches yet', disabled: true, note: 'nothing committed',
+        }];
+      }
+
+      return this.branches.map((name) => ({
+        id:       name,
+        label:    name,
+        icon:     'branch',
+        disabled: name === this.branch,
+        note:     name === this.branch ? 'checked out' : '',
+      }));
+    },
+
+    /**
+     * What the branch row can honestly say under the branch name.
+     *
+     * The design's line is "up to date with origin". This Studio's repositories are created in
+     * the pod and have no remote unless something pushed one, and nothing this screen can call
+     * reports ahead/behind against an upstream - so it says how many branches are in the pod
+     * rather than a sync state nobody measured. See the note in the return message: this wants
+     * a `branchSync()` reading in extensions.ts.
+     */
+    branchNote() {
+      if (!this.branches.length) {
+        return 'no commits yet';
+      }
+
+      const n = this.branches.length;
+
+      return `${ n } branch${ n === 1 ? '' : 'es' } in the pod · sync with origin is not read here`;
+    },
+
+    /** 'new' | 'edited' | 'deleted' | undefined, for the file the middle column is showing. */
+    currentMark() {
+      return this.marks[this.current];
+    },
+
+    /**
+     * Where the open file surfaces in the UI (23:905), or nothing.
+     *
+     * Matched on the path the extension's own routing table names, so a page component gets its
+     * route and everything else gets an honest silence rather than the extension's home page
+     * dressed up as this file's.
+     */
+    surface() {
+      return this.routeTable.find((r) => r.file === this.current) || null;
+    },
+
+    /**
+     * The running app the open file is part of, on the pod's dev server.
+     *
+     * The extension's own route is *not* appended, and that is a limit rather than an
+     * oversight: the dev server has no history fallback, so it answers 200 for `/` and 404 for
+     * every route the app itself owns. Verified against the running pod - `/proxy/` is 200,
+     * `/proxy/base/c/local/home` is 404 - so a deep link would open a 404 page and blame the
+     * file for it. The route is named beside the frame instead, where it is a true statement
+     * about the file rather than a link that does not work.
+     */
+    previewUrl() {
+      return this.surface ? extensionUrl(this.extension) : '';
+    },
+
+    /** The route the open file is mounted at, with the cluster this Studio runs in filled in. */
+    surfaceRoute() {
+      return this.surface ? this.surface.path.replace(/:cluster/g, 'local') : '';
+    },
+
+    /**
+     * The history, with the working tree on top of it (22:941).
+     *
+     * The uncommitted work is the newest thing that happened to this package and the only entry
+     * in the list that is not a commit, so it is a row of its own rather than a badge on the
+     * first commit. It appears only when there is something in it.
+     */
+    historyRows() {
+      if (!this.changes) {
+        return this.history;
+      }
+
+      return [{
+        ref:     'working',
+        kind:    'working',
+        subject: 'Working changes',
+        when:    'now',
+        who:     '',
+      }, ...this.history];
+    },
+
+    /** Whether the open file has something to throw away. */
+    canRevert() {
+      return !!this.current && (this.currentMark === 'new' || this.currentMark === 'edited');
+    },
   },
 
   watch: {
     current: 'openCurrent',
     extension: 'load',
 
-    filter(q) {
-      const term = q.trim().toLowerCase();
-
-      this.tree = toTree(term ? this.allPaths.filter((p) => p.toLowerCase().includes(term)) : this.allPaths);
-    },
+    filter: 'rebuildTree',
+    sort:   'rebuildTree',
   },
 
   mounted() {
@@ -253,30 +548,57 @@ export default {
 
       this.loading = true;
 
-      const [paths, history, branches, changes] = await Promise.all([
+      const [paths, history, branches, changes, changed, routing, product] = await Promise.all([
         listExtensionFiles(this.extension).catch(() => []),
         listHistory(this.extension, 20).catch(() => []),
         listBranches(this.extension).catch(() => null),
         countChanges(this.extension).catch(() => 0),
+        // `git status`, which the tree listing is a `find` and knows nothing about. This is
+        // what puts "new" and "edited" on the rows the assistant just touched.
+        changedFiles(this.extension).catch(() => []),
+        readExtensionFile(this.extension, 'routing/index.ts').catch(() => ''),
+        readExtensionFile(this.extension, 'product.ts').catch(() => ''),
       ]);
 
       this.allPaths = paths;
-      this.tree = toTree(paths);
+      this.marks = changed.reduce((out, f) => ({ ...out, [f.path]: MARKS[f.status] || 'edited' }), {});
       this.history = history;
       this.branch = branches?.current || '';
+      this.branches = branches?.branches || [];
       this.changes = changes;
+      this.routeTable = routesFromSource(routing, product);
+      this.rebuildTree();
       this.loading = false;
 
       if (!this.current && paths.length) {
-        // Open something worth looking at rather than whatever sorts first.
-        this.current = paths.find((p) => p.endsWith('index.ts')) || paths[0];
+        // `?file=` is how another screen says which file it meant - the brief's prior-art card
+        // sends somebody here to read the line its search found. Only when the path is really
+        // in the tree, so a stale link opens the package rather than an empty pane.
+        const asked = this.$route.query.file;
+
+        this.current = (asked && paths.includes(asked) ? asked : '') ||
+          paths.find((p) => p.endsWith('index.ts')) || paths[0];
       }
     },
 
+    /** The tree the filter and the order between them produce, from one listing. */
+    rebuildTree() {
+      const term = this.filter.trim().toLowerCase();
+      const paths = term ? this.allPaths.filter((p) => p.toLowerCase().includes(term)) : this.allPaths;
+
+      this.tree = toTree(paths, this.marks, this.sort);
+    },
+
     async openCurrent() {
-      // Picking a file is the way back out of a commit, as well as the way into a file.
+      // Picking a file is the way back out of a commit, of the working diff, and of an edit,
+      // as well as the way into a file.
       this.commit = null;
       this.patch = '';
+      this.working = false;
+      this.workingPatch = '';
+      this.editing = false;
+      this.conflict = '';
+      this.showThumb = false;
 
       if (!this.current) {
         this.contents = '';
@@ -330,8 +652,12 @@ export default {
       this.loadingPatch = false;
     },
 
-    /** How a history row names its source: a person's commit, or an automatic snapshot. */
+    /** How a history row names its source: uncommitted work, an automatic snapshot, or a person. */
     entrySource(c) {
+      if (c.kind === 'working') {
+        return `${ this.changes } file${ this.changes === 1 ? '' : 's' } not yet committed`;
+      }
+
       return c.kind === 'snapshot' ? 'automatic' : (c.who || 'unknown author');
     },
 
@@ -392,6 +718,227 @@ export default {
     backToFile() {
       this.commit = null;
       this.patch = '';
+      this.working = false;
+      this.workingPatch = '';
+    },
+
+    /**
+     * Show the uncommitted work where the file was (22:941).
+     *
+     * The same DiffView the commits use, from the same column, so the newest thing that
+     * happened to the package reads the same way as everything that happened before it.
+     */
+    async openWorking() {
+      this.commit = null;
+      this.patch = '';
+      this.working = true;
+      this.workingPatch = '';
+      this.loadingPatch = true;
+      this.workingPatch = await workingDiff(this.extension).catch(() => '');
+      this.loadingPatch = false;
+    },
+
+    openHistory(entry) {
+      return entry.kind === 'working' ? this.openWorking() : this.openCommit(entry);
+    },
+
+    chooseSort(id) {
+      this.sort = id;
+      writeSort(id);
+    },
+
+    /**
+     * Switch branch, and reload everything that was a reading of the old one.
+     *
+     * Every column on this screen is a reading of one branch - the tree, the file, its history
+     * and where it is used - so a checkout reloads all of them rather than leaving three of
+     * them describing a branch nobody is on.
+     */
+    async chooseBranch(name) {
+      if (!name || name === this.branch || this.switching) {
+        return;
+      }
+
+      this.switching = true;
+
+      try {
+        const out = await checkoutBranch(this.extension, name);
+
+        // `git checkout` writes its refusals to the same stream as its progress, so a tree with
+        // local changes that would be overwritten comes back as text rather than as a throw.
+        if (/^error:|^fatal:/m.test(out)) {
+          throw new Error(out.split('\n').filter(Boolean)[0]);
+        }
+
+        await this.load();
+        await this.openCurrent();
+        toastSuccess(this.$store, `Now on ${ name }.`, { title: 'Switched branch' });
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: `Could not switch to ${ name }` });
+      } finally {
+        this.switching = false;
+      }
+    },
+
+    /**
+     * Make the pane editable.
+     *
+     * The copy the edit starts from is kept beside the draft, because the assistant in the pod
+     * is writing to the same tree: Save compares it against what is on disk at that moment and
+     * refuses rather than overwriting somebody else's work. That is the whole answer to the
+     * objection this screen used to be read-only for.
+     */
+    startEditing() {
+      this.draft = this.contents;
+      this.editedFrom = this.contents;
+      this.conflict = '';
+      this.editing = true;
+    },
+
+    cancelEditing() {
+      this.editing = false;
+      this.draft = '';
+      this.conflict = '';
+    },
+
+    async saveFile() {
+      if (!this.editing || this.savingFile) {
+        return;
+      }
+
+      this.savingFile = true;
+      this.conflict = '';
+
+      try {
+        const onDisk = await readExtensionFile(this.extension, this.current);
+
+        if (onDisk !== this.editedFrom) {
+          this.conflict = 'The file changed in the pod while you were editing it, so this was not saved. Re-read it, then make the edit again.';
+
+          return;
+        }
+
+        await writeExtensionFile(this.extension, this.current, this.draft);
+        this.editing = false;
+        this.contents = this.draft;
+        toastSuccess(this.$store, `Saved ${ this.current } into the pod.`);
+        // The badge, the counts and the provenance line are all now out of date.
+        await this.load();
+        await this.refreshProvenance();
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: `Could not save ${ this.current }` });
+      } finally {
+        this.savingFile = false;
+      }
+    },
+
+    /** Re-read only what the header says, after a write that did not change which file is open. */
+    async refreshProvenance() {
+      this.provenance = await fileProvenance(this.extension, this.current).catch(() => ({
+        who: '', when: '', state: 'unknown',
+      }));
+    },
+
+    /**
+     * Throw away one file's uncommitted work (22:1072).
+     *
+     * `discardChanges` with a single path, which restores a tracked file to the last commit and
+     * removes one git has never seen - so for a new file this deletes it, which is what the
+     * confirmation says before anybody presses it.
+     */
+    async revertFile() {
+      this.confirmRevert = false;
+
+      const path = this.current;
+      const wasNew = this.currentMark === 'new';
+
+      try {
+        await discardChanges(this.extension, [path]);
+        toastSuccess(this.$store, wasNew ? `Removed ${ path }.` : `Reverted ${ path } to the last commit.`);
+        await this.load();
+
+        // A file that was never committed is gone, so the pane has to move somewhere. Setting
+        // `current` is enough - the watcher on it re-reads the column - and calling openCurrent
+        // as well would read the same file twice.
+        if (wasNew && !this.allPaths.includes(path)) {
+          this.current = this.allPaths[0] || '';
+        } else {
+          await this.openCurrent();
+        }
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: `Could not revert ${ path }` });
+      }
+    },
+
+    /**
+     * Hand the open file to the assistant (22:1061).
+     *
+     * Same shape as the review screen's: the question goes into the one conversation this
+     * extension has, so it arrives with everything that session already knows, and the answer
+     * is somewhere a person can argue with it. Which means going there, so the toast names the
+     * file before the route changes.
+     */
+    async askAboutFile() {
+      if (!this.current || this.asking) {
+        return;
+      }
+
+      const path = this.current;
+
+      this.asking = true;
+
+      try {
+        const how = await askAssistant(this.extension, [
+          `Read ${ path } in this package and explain it to somebody who has not seen it:`,
+          'what it is for, what depends on it, and anything in it that looks wrong.',
+          'Do not change any files yet.',
+        ].join(' '));
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? `Asked about ${ path }. The answer appears in the workspace terminal.`
+            : `The workspace session is not open yet, so ${ path } is the first thing it will be asked when it opens.`,
+          { title: 'Asked the assistant' }
+        );
+
+        this.$router.push({
+          name:   EDITOR_ROUTE,
+          params: { extension: this.extension },
+          query:  { tab: 'terminal' },
+        });
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not ask the assistant' });
+      } finally {
+        this.asking = false;
+      }
+    },
+
+    /** The running extension this file is part of, in a tab of its own (22:1178). */
+    openLivePreview() {
+      if (!this.previewUrl) {
+        return;
+      }
+
+      window.open(this.previewUrl, '_blank', 'noopener');
+    },
+
+    /**
+     * Publish from this masthead (22:881).
+     *
+     * Asked first, and then handed to the workspace exactly as screen 04 hands it: `local` is
+     * the word `publishTo` takes, the workspace owns the status strip that reports the build,
+     * and a second implementation of the same three steps here would be a second thing to keep
+     * right. Publishing points this Rancher at the result, so it is not a button to press by
+     * accident.
+     */
+    startPublish() {
+      this.confirmPublish = false;
+      this.$router.push({
+        name:   EDITOR_ROUTE,
+        params: { extension: this.extension },
+        query:  { publish: 'local' },
+      });
     },
 
     /**
@@ -489,12 +1036,28 @@ export default {
         {{ changes ? `Review ${ changes } change${ changes === 1 ? '' : 's' }` : 'Review changes' }}
       </SButton>
       <SButton
-        variant="primary"
+        variant="secondary"
         size="sm"
         icon="sparkle"
         @click="$router.push({ name: routes.EDITOR_ROUTE, params: { extension } })"
       >
         Back to assistant
+      </SButton>
+      <!--
+        22:881: the primary in this masthead is Publish, not the way back to the workspace.
+        Disabled with nothing to publish, because a build of a tree that matches what this
+        Rancher is already running is several minutes for no change.
+      -->
+      <SButton
+        variant="primary"
+        size="sm"
+        icon="rocket"
+        data-testid="files-publish"
+        :disabled="!changes"
+        :title="changes ? '' : 'Nothing has changed since the last commit'"
+        @click="confirmPublish = true"
+      >
+        Publish
       </SButton>
       <SMenu :items="overflowMenu" aria-label="More file actions" @select="onOverflow" />
     </div>
@@ -509,7 +1072,34 @@ export default {
         <div class="files__panel-head">
           <SIcon name="folder" :size="14" />
           <span class="files__panel-title">Files</span>
+          <span class="files__grow" />
+          <!-- 56:1114: the sort glyph at the right of the section heading. -->
+          <SMenu
+            :items="sortOptions"
+            icon="filter"
+            :aria-label="`Order the tree (${ sortLabel })`"
+            @select="chooseSort"
+          />
         </div>
+
+        <!--
+          22:928: the branch, and what it can honestly say about itself underneath. Switching
+          reloads every column, because every column is a reading of one branch.
+        -->
+        <SMenu
+          :items="branchMenu"
+          align="left"
+          class="files__branch"
+          aria-label="Switch branch"
+          @select="chooseBranch"
+        >
+          <template #trigger>
+            <SIcon name="branch" :size="14" />
+            <span class="files__branch-name" data-testid="files-branch">{{ branch || 'no branch' }}</span>
+            <span class="files__branch-note">{{ branchNote }}</span>
+            <SIcon :name="switching ? 'spinner' : 'chevronDown'" :size="12" />
+          </template>
+        </SMenu>
 
         <div class="files__search">
           <SIcon name="search" :size="13" />
@@ -532,6 +1122,7 @@ export default {
             :key="dir.path"
             :node="dir"
             :current="current"
+            :marks="marks"
             @select="current = $event"
           />
           <button
@@ -542,7 +1133,13 @@ export default {
             :class="{ 'files__loose--current': file.path === current }"
             @click="current = file.path"
           >
-            {{ file.name }}
+            <span class="files__loose-name">{{ file.name }}</span>
+            <span
+              v-if="marks[file.path]"
+              class="files__mark"
+              :class="`files__mark--${ marks[file.path] }`"
+              title="Different from what this Rancher is running"
+            >{{ marks[file.path] }}</span>
           </button>
 
           <div
@@ -561,9 +1158,32 @@ export default {
           own box; what changes is what the panel is a panel of.
         -->
         <div class="files__panel-head files__panel-head--wide">
-          <SIcon :name="commit ? 'compare' : 'file'" :size="14" />
+          <SIcon :name="commit || working ? 'compare' : 'file'" :size="14" />
 
-          <template v-if="commit">
+          <template v-if="working">
+            <code class="files__sha">working</code>
+            <span class="files__panel-title">Working changes</span>
+            <span class="files__grow" />
+            <span class="files__muted">{{ changes }} file{{ changes === 1 ? '' : 's' }} not yet committed · now</span>
+            <SButton
+              variant="secondary"
+              size="sm"
+              icon="compare"
+              @click="$router.push({ name: routes.REVIEW_ROUTE, params: { extension } })"
+            >
+              Review them
+            </SButton>
+            <SButton
+              variant="ghost"
+              size="sm"
+              icon="chevronLeft"
+              @click="backToFile"
+            >
+              Back to {{ basename || 'the file' }}
+            </SButton>
+          </template>
+
+          <template v-else-if="commit">
             <code class="files__sha">{{ commit.kind === 'snapshot' ? 'snapshot' : commit.ref }}</code>
             <span class="files__panel-title">{{ commit.subject }}</span>
             <span class="files__grow" />
@@ -584,12 +1204,71 @@ export default {
             <span v-if="current" class="files__muted" data-testid="files-provenance">
               {{ provenanceLine }}
             </span>
+
+            <template v-if="current && editing">
+              <SButton
+                variant="ghost"
+                size="sm"
+                :disabled="savingFile"
+                @click="cancelEditing"
+              >
+                Cancel
+              </SButton>
+              <SButton
+                variant="primary"
+                size="sm"
+                icon="save"
+                data-testid="files-save"
+                :loading="savingFile"
+                :disabled="draft === contents"
+                @click="saveFile"
+              >
+                Save
+              </SButton>
+            </template>
+
+            <template v-else-if="current">
+              <!-- 22:1061 -->
+              <SButton
+                variant="secondary"
+                size="sm"
+                icon="sparkle"
+                data-testid="files-ask-about-file"
+                :loading="asking"
+                @click="askAboutFile"
+              >
+                Ask about this file
+              </SButton>
+              <!-- 22:1067 -->
+              <SButton
+                variant="neutral"
+                size="sm"
+                icon="code"
+                data-testid="files-edit"
+                @click="startEditing"
+              >
+                Edit
+              </SButton>
+              <!-- 22:1072. Only offered when there is something to throw away. -->
+              <SButton
+                v-if="canRevert"
+                variant="ghost"
+                size="sm"
+                icon="undo"
+                data-testid="files-revert"
+                @click="confirmRevert = true"
+              >
+                Revert
+              </SButton>
+            </template>
+
             <SButton
               variant="ghost"
               size="sm"
               icon="refresh"
               icon-only
               title="Re-read this file"
+              :disabled="editing"
               @click="openCurrent"
             />
           </template>
@@ -598,8 +1277,21 @@ export default {
         <div class="files__code">
           <div v-if="loadingPatch" class="files__loading">
             <SIcon name="spinner" :size="20" class="files__spin" />
-            Reading {{ commit.ref }}
+            Reading {{ working ? 'the working tree' : commit.ref }}
           </div>
+
+          <SEmpty
+            v-else-if="working && !workingPatch.trim()"
+            icon="check"
+            title="Nothing uncommitted"
+            message="Every file in the package matches the last commit."
+          />
+
+          <DiffView
+            v-else-if="working"
+            :patch="workingPatch"
+            subject="Working changes"
+          />
 
           <SEmpty
             v-else-if="commit && !patch.trim()"
@@ -624,6 +1316,26 @@ export default {
           <div v-else-if="reading" class="files__loading">
             <SIcon name="spinner" :size="20" class="files__spin" />
             Reading {{ current }}
+          </div>
+
+          <!--
+            The editable pane (22:1067). A textarea rather than a code editor: the highlighting
+            beside it is a tokeniser over a string, not an editing surface, and a plain
+            textarea is the one control that cannot lose a keystroke or reformat somebody's
+            file on the way in.
+          -->
+          <div v-else-if="editing" class="files__edit">
+            <div v-if="conflict" class="files__conflict">
+              <SIcon name="alert" :size="15" />
+              <span>{{ conflict }}</span>
+            </div>
+            <textarea
+              v-model="draft"
+              class="files__edit-area"
+              spellcheck="false"
+              data-testid="files-edit-area"
+              :aria-label="`Edit ${ current }`"
+            />
           </div>
 
           <!--
@@ -660,14 +1372,17 @@ export default {
               the distinction the row is there to draw.
             -->
             <div
-              v-for="c in history"
+              v-for="c in historyRows"
               :key="c.ref"
               class="files__commit"
-              :class="{ 'files__commit--current': commit && commit.ref === c.ref }"
+              :class="{
+                'files__commit--current': c.kind === 'working' ? working : (commit && commit.ref === c.ref),
+                'files__commit--working': c.kind === 'working',
+              }"
               data-testid="files-history-entry"
-              @click="openCommit(c)"
+              @click="openHistory(c)"
             >
-              <code class="files__sha">{{ c.kind === 'snapshot' ? 'snapshot' : c.ref }}</code>
+              <code class="files__sha">{{ c.kind === 'commit' ? c.ref : c.kind }}</code>
               <span class="files__commit-subject">{{ c.subject }}</span>
               <span class="files__commit-meta">{{ entrySource(c) }} · {{ c.when }}</span>
             </div>
@@ -686,6 +1401,71 @@ export default {
         </div>
 
         <div class="files__used-body">
+          <!--
+            22:1157: the miniature of the page this file renders, with the cluster and the page
+            it is (22:1159 "local", 22:1160 "Node health"). The route comes out of the
+            extension's own routing table, so a file that renders no page of its own says that
+            instead of framing the extension's home page and implying it is this file's.
+          -->
+          <template v-if="current">
+            <SLabel text="Where it surfaces" />
+
+            <div v-if="surface" class="files__surface" data-testid="files-surface">
+              <div class="files__thumb">
+                <!--
+                  Same-origin, through the apiserver's service proxy, scaled down rather than
+                  screenshotted - there is nothing in this product that can take a screenshot.
+                  Framed only once somebody asks for it: it is a whole dashboard booting.
+                -->
+                <iframe
+                  v-if="showThumb"
+                  class="files__thumb-frame"
+                  :src="previewUrl"
+                  :title="`Live preview of ${ extension }`"
+                />
+                <button
+                  v-else
+                  type="button"
+                  class="files__thumb-load"
+                  data-testid="files-show-thumb"
+                  @click="showThumb = true"
+                >
+                  <SIcon name="monitor" :size="18" />
+                  Show the running extension
+                </button>
+              </div>
+
+              <div class="files__surface-meta">
+                <SChip label="local" icon="server" />
+                <code class="files__surface-route" data-testid="files-surface-route">{{ surfaceRoute }}</code>
+              </div>
+
+              <!-- 22:1178 -->
+              <SButton
+                variant="neutral"
+                size="sm"
+                icon="external"
+                data-testid="files-open-live-preview"
+                @click="openLivePreview"
+              >
+                Open the live preview
+              </SButton>
+
+              <p class="files__note files__note--tight">
+                {{ basename }} is mounted at <code>{{ surfaceRoute }}</code>, read out of
+                <code>routing/index.ts</code>. The preview opens the extension's dev server,
+                which serves the app at its root only - it has no history fallback, so a link
+                straight to that route is a 404 rather than the page. Navigate to it inside.
+              </p>
+            </div>
+
+            <p v-else class="files__note files__note--tight">
+              {{ basename }} does not render a page of its own. Only the components named in
+              <code>routing/index.ts</code> have a route, and the route is read from there
+              rather than guessed at from the file's name.
+            </p>
+          </template>
+
           <SLabel :text="basename ? `References to ${ basename }` : 'No file open'" />
 
           <div v-if="searching" class="files__muted">
@@ -721,6 +1501,80 @@ export default {
         </div>
       </div>
     </div>
+
+    <!--
+      Reverting is destructive and the two cases are not the same destruction: a file git has
+      seen goes back to its last commit, and one it has not is deleted. The dialog says which
+      before anybody agrees to it.
+    -->
+    <SModal
+      v-if="confirmRevert"
+      :title="`Revert ${ basename }`"
+      icon="undo"
+      :width="520"
+      @close="confirmRevert = false"
+    >
+      <p class="files__say">
+        <template v-if="currentMark === 'new'">
+          <strong>{{ current }}</strong> has never been committed, so there is nothing to put
+          back: reverting it deletes the file from the pod.
+        </template>
+        <template v-else>
+          <strong>{{ current }}</strong> goes back to its last commit. Everything the assistant
+          or you have changed in it since then is thrown away.
+        </template>
+      </p>
+      <p class="files__say">
+        Only this file. Nothing else in the working tree is touched, and nothing is committed
+        or pushed anywhere.
+      </p>
+
+      <template #footer>
+        <SButton variant="neutral" @click="confirmRevert = false">
+          Cancel
+        </SButton>
+        <SButton
+          variant="danger"
+          icon="undo"
+          data-testid="files-revert-confirm"
+          @click="revertFile"
+        >
+          {{ currentMark === 'new' ? 'Delete it' : 'Revert it' }}
+        </SButton>
+      </template>
+    </SModal>
+
+    <SModal
+      v-if="confirmPublish"
+      :title="`Publish ${ extension }`"
+      icon="rocket"
+      :width="520"
+      @close="confirmPublish = false"
+    >
+      <p class="files__say">
+        <strong>{{ extension }}</strong> is built in its pod from the working tree you have been
+        reading, and this Rancher is pointed at the result. Everybody signed into this cluster
+        gets the new build the next time they load a page.
+      </p>
+      <p class="files__say">
+        Nothing is committed and nothing is pushed anywhere. The workspace runs it and reports
+        each step on its status strip.
+      </p>
+
+      <template #footer>
+        <SButton variant="neutral" @click="confirmPublish = false">
+          Cancel
+        </SButton>
+        <SButton
+          variant="primary"
+          icon="rocket"
+          data-testid="files-publish-confirm"
+          @click="startPublish"
+        >
+          Publish to this Rancher
+        </SButton>
+      </template>
+    </SModal>
   </div>
 </template>
 
@@ -863,7 +1717,11 @@ export default {
 
   // A file that sits at the root of the package, with no folder above it.
   &__loose {
-    display:       block;
+    // A flex row so the change badge can sit at the right of the name without leaving the
+    // row's box: the padding below is measured against 22:1015 and must not move.
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-6);
     width:         100%;
     // The same box FileTree gives a row, down to the 6px on the left: these are siblings of
     // the root folders in one list, and 8px put them 2px off the pitch every other row in the
@@ -1065,12 +1923,187 @@ export default {
 
   &__pad { padding: var(--studio-space-12) 14px; }
 
+  &__loose-name {
+    flex:          1 1 auto;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+  }
+
+  /*
+   * 22:1000 "new" / 22:1013 "edited". Small enough that a tree of twenty rows with three marks
+   * in it still reads as a tree, and worded rather than coloured only, because a colour on its
+   * own is not a readout.
+   */
+  &__mark {
+    flex:           0 0 auto;
+    padding:        0 5px;
+    border-radius:  2px;
+    font:           var(--studio-caption-11-caps);
+    letter-spacing: var(--studio-tracking-caps);
+    text-transform: uppercase;
+    line-height:    15px;
+    color:          var(--studio-on-status);
+    background:     var(--studio-text-tertiary);
+
+    &--new { background: var(--studio-success); }
+    &--edited { background: var(--studio-warning); }
+    &--gone { background: var(--studio-error); }
+  }
+
+  /* The branch row at the top of the tree column (22:928). */
+  &__branch {
+    display: block;
+
+    :deep(.s-menu__trigger) {
+      display:       flex;
+      width:         100%;
+      align-items:   center;
+      gap:           var(--studio-space-8);
+      padding:       var(--studio-space-8) 14px;
+      border-radius: 0;
+      border-bottom: 1px solid var(--studio-border-subtle);
+      text-align:    left;
+    }
+  }
+
+  &__branch-name {
+    font:  var(--studio-body-13);
+    color: var(--studio-text);
+  }
+
+  &__branch-note {
+    flex:          1 1 auto;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-tertiary);
+  }
+
+  /* The editable pane. */
+  &__edit {
+    display:        flex;
+    flex-direction: column;
+    flex:           1 1 auto;
+    min-height:     0;
+  }
+
+  &__edit-area {
+    flex:        1 1 auto;
+    min-height:  240px;
+    width:       100%;
+    resize:      none;
+    border:      none;
+    outline:     none;
+    background:  transparent;
+    padding:     0 var(--studio-space-16);
+    color:       var(--studio-text);
+    font:        var(--studio-mono-12);
+    tab-size:    2;
+  }
+
+  &__conflict {
+    display:     flex;
+    align-items: flex-start;
+    gap:         var(--studio-space-8);
+    margin:      0 var(--studio-space-16) var(--studio-space-8);
+    padding:     var(--studio-space-8);
+    border:      1px solid var(--studio-border);
+    border-radius: var(--studio-radius-control);
+    background:  var(--studio-surface-subtle);
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text);
+  }
+
+  /* Where the open file surfaces (22:1157). */
+  &__surface {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-8);
+  }
+
+  &__thumb {
+    position:       relative;
+    height:         150px;
+    overflow:       hidden;
+    border:         1px solid var(--studio-border);
+    border-radius:  var(--studio-radius);
+    background:     var(--studio-surface);
+  }
+
+  /*
+   * A whole dashboard, scaled to fit the rail. `transform: scale` rather than a smaller
+   * viewport, because the page inside is responsive and a 340px viewport would show its mobile
+   * layout rather than the page the design draws.
+   */
+  &__thumb-frame {
+    position:         absolute;
+    top:              0;
+    left:             0;
+    width:            1280px;
+    height:           800px;
+    border:           0;
+    transform:        scale(0.24);
+    transform-origin: 0 0;
+    pointer-events:   none;
+  }
+
+  &__thumb-load {
+    display:         flex;
+    width:           100%;
+    height:          100%;
+    align-items:     center;
+    justify-content: center;
+    gap:             var(--studio-space-8);
+    border:          none;
+    background:      none;
+    min-height:      0;
+    font:            var(--studio-caption-12);
+    color:           var(--studio-text-secondary);
+    cursor:          pointer;
+
+    &:hover { background: var(--studio-surface-subtle); }
+  }
+
+  &__surface-meta {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    min-width:   0;
+  }
+
+  &__surface-route {
+    flex:          1 1 auto;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+    font:          var(--studio-mono-11);
+    color:         var(--studio-text-secondary);
+  }
+
+  &__say {
+    margin: 0 0 var(--studio-space-12);
+    font:   var(--studio-body-14);
+    color:  var(--studio-text);
+
+    &:last-child { margin-bottom: 0; }
+  }
+
   &__note {
     font:       var(--studio-caption-12);
     color:      var(--studio-text-tertiary);
     margin:     var(--studio-space-4) 0 0;
     border-top: 1px solid var(--studio-border-subtle);
     padding-top: var(--studio-space-8);
+
+    &--tight {
+      border-top:  none;
+      padding-top: 0;
+    }
   }
 
   &__loading {

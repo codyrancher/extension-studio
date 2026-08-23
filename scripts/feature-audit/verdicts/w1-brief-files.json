@@ -1,0 +1,324 @@
+{
+  "screen": "w1-brief-files",
+  "note": "Re-verification of the 52 `fail` items on 10-brief, 13-verify, 05-files, 02-new, 06-import, 06a-import-first and 09-settings, driven against the installed 0.5.22 bundle. `not-implemented` items were skipped by instruction.",
+  "verdicts": [
+    {
+      "id": "10-brief-ac-list",
+      "status": "pass",
+      "evidence": "The four criteria now load from BRIEF.md: the inputs arrived pre-filled with 'The tab appears under the cluster nav without a reload' ... 'Nothing on the existing cluster page moves or changes', matching the pod's '## How we will know it worked' list exactly. Appended a marker to criterion 3, waited 2.5s, and `kubectl -n barn exec deploy/barn-base-extension -- cat BRIEF.md` showed it on that checklist line; reloading read it back into criterion 3's input.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-changes",
+      "status": "pass",
+      "evidence": "Field arrived populated from the pod's '## What changes for them'. Appended a unique marker, waited 2.5s, and the pod's BRIEF.md carried it under that heading. The '## Verification' section and both '**Met**' verdicts survived the write.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-not-doing",
+      "status": "pass",
+      "evidence": "Arrived populated with 'No alerting, and no history beyond 24 hours...'. Appended a marker; the pod's '## What we are deliberately not doing' section carried it 2.5s later, with '## Verification' intact.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-problem",
+      "status": "pass",
+      "evidence": "Arrived populated from the pod's '## The problem'. Typed a marker; the save-state readout in the masthead went 'Saved in BRIEF.md' -> 'Unsaved' (at 300ms) -> 'Saved 04:19 AM' (at 2.8s), and the pod's BRIEF.md then held the marker. Reload read it back. The debounce and the readout both work; briefDocument() preserved '## Verification' and its four verdict lines through every write.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-who",
+      "status": "pass",
+      "evidence": "Arrived populated with 'Whoever is on call, in the first two minutes of an incident.' (previously blank on arrival). Appended a marker; the pod's '## Who has it' carried it after the debounce.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-insight",
+      "status": "fail",
+      "evidence": "The callout now renders unconditionally (no query param needed), headed 'Nobody has argued with this yet', with: 'A request often names a solution rather than the problem behind it, and this Studio cannot tell you which this one is: nothing here has read it. Ask what is unclear, on the right, puts the brief to the assistant working on base and it answers in that extension's terminal.'",
+      "defect": "Half fixed. The callout no longer disappears on reload and is no longer an echo of the user's own words. But it still does not argue about THIS request: nothing analyses the description against the outcome, so there is no 'the ticket asked for a solution' claim and no 'why building it as written would miss the point'. The copy says so plainly instead, which is the honest choice, but the promise is not delivered."
+    },
+    {
+      "id": "10-brief-rail-selected",
+      "status": "fail",
+      "evidence": "On /barn/extensions/base/brief the rail's 'Extension Studio' entry has className exactly `option` (href /dashboard/barn/extensions). No `active`, no `router-link-active`, no accent. Every other rail entry carries the same class.",
+      "defect": "Unchanged. Nothing marks the Studio as the current section on any barn route other than /barn/extensions itself, because the product entry is an exact router-link."
+    },
+    {
+      "id": "10-brief-status-chip",
+      "status": "pass",
+      "evidence": "Computed from the file, not hard-coded. With no agreement line in BRIEF.md the chip is `s-chip s-chip--warning` reading 'Draft - not yet agreed'. Clicked 'Agree and start building': the pod's BRIEF.md gained `_Agreed in the Extension Studio on 2026-08-23._` (and '## Verification' survived), and re-opening the brief showed `s-chip s-chip--success` reading 'Agreed 2026-08-23'. I then deleted that line from the pod's BRIEF.md so the spec selector still measures the warning-toned chip, and restored the file from backup at the end.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ticket",
+      "status": "fail",
+      "evidence": "The card is now headed 'What you were handed' and reads 'The request as it was typed in the description step, kept with the brief. There is no ticket system behind this Studio, so there is no id, no reporter and no age to show you.' With no query param it says 'Nothing was carried through from the description step.' rather than rendering nothing.",
+      "defect": "Deliberately not delivered. The id, the raiser and the age still do not exist, and the card now says so instead of pretending. The framing has moved off 'ticket', which is the right call, but the promise as written (id, raiser, age, verbatim quote) is still three quarters unmet."
+    },
+
+    {
+      "id": "13-verify-blocked-note",
+      "status": "fail",
+      "evidence": "Setting criterion 3 to No expands an inline sentence beside it: 'A No holds the outcome sign-off open until it is answered Yes; a \"Can't tell\" does not. It does not stop a publish - nothing in the publish path reads this brief.' The sign-off half is real (verified: the Sign off button is disabled with title '1 criterion is answered No...'). The publish half is not: /barn/extensions/base/review still offers Publish and Publish... with a No recorded.",
+      "defect": "The rule is now stated inline next to the failing criterion, which is the half that was missing entirely, and the Can't tell exception is stated. But 'a No blocks publishing' is still false, and the screen now says so out loud rather than enforcing it. Whoever closes this needs to decide whether the publish path should read the verification state or whether the promise should be rewritten around the sign-off gate."
+    },
+    {
+      "id": "13-verify-blocked-summary",
+      "status": "pass",
+      "evidence": "The footer sentence tracks the counts and restates the gate: with 0 Nos it reads '2 of 4 met, 2 still to look at. The sign-off waits on the ones nobody has looked at.'; after setting two criteria to No it reads '2 of 4 met, 2 not met. A No holds the sign-off open until it is answered Yes.'",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-failed-styling",
+      "status": "pass",
+      "evidence": "Clicking No put class `verify__criterion verify__criterion--fail` on the card and revealed a note textarea labelled 'WHY CRITERION 3 IS NOT MET', the explanatory line about where the note is recorded, the publishing/sign-off rule sentence, and a 'Send this back to the assistant' button. With 0 Nos there are no 'Send this back' buttons in the DOM; with 4 Nos there are 4; setting them back to Yes removed them and re-enabled the sign-off.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-framing",
+      "status": "pass",
+      "evidence": "The accented banner (`s-banner`) above the criteria now reads 'You are checking whether this does the job, not whether the code is any good' / 'Reading the code is a separate step, on the review screen, and not this one. Answer each criterion against what you can see in the preview on the right. Nothing here changes the extension: the only thing you can change from this screen is the record of what you found.' All three things the design asks for (their job, not reading code, cannot break anything) are stated.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-header-actions",
+      "status": "fail",
+      "evidence": "Enumerated every button in the Rancher masthead on /barn/extensions/base/verification: 'Cluster menu item local' (cluster selector), 'Open notification center' (icon-notify-bell) and 'Open user menu'. No third app-collection control.",
+      "defect": "Unchanged. The app-collection icon the design draws is not present in this Rancher's masthead. Rancher chrome, not Studio code."
+    },
+    {
+      "id": "13-verify-identity",
+      "status": "pass",
+      "evidence": "The masthead now renders two lines: 'base v0.1.0' and 'VERIFICATION · OUTCOME SIGN-OFF · ADMIN'. The version is read (matches the pod package.json 0.1.0) and the reviewer's role is stated. The design's 'you raised RANCHER-4821' half has no source in this product (no ticket entity) and is replaced by the signed-in user's role.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-nav-rail",
+      "status": "fail",
+      "evidence": "On /barn/extensions/base/verification the rail's 'Extension Studio' entry has className exactly `option`. Nothing is marked current.",
+      "defect": "Unchanged, same root cause as the cross-cutting rail defect: the product entry is an exact router-link to /barn/extensions."
+    },
+    {
+      "id": "13-verify-note",
+      "status": "pass",
+      "evidence": "Set criterion 3 to No, typed 'The trend chart is unreadable. W1NOTE-<ts>' into its per-criterion note field, clicked 'Record the result'. The pod's BRIEF.md gained, under that criterion's line: '- **Not met** at `/`: A 24-hour trend is readable at a glance' followed by an indented blockquote '  > The trend chart is unreadable. W1NOTE-<ts>'. Reloaded: the note read back into criterion 3's textarea only, and the other three textareas were absent/empty. The copy beside it says it is recorded in BRIEF.md for whoever opens the brief next and that sending it back puts it to the assistant.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-open-brief",
+      "status": "pass",
+      "evidence": "'Open the brief' in the verification masthead navigates to /barn/extensions/base/brief with all four fields and all four criteria populated from BRIEF.md. The data-destroying half of the old defect is gone: agreeing from there now writes the agreement line while leaving '## Verification' and its verdict lines untouched (verified in the pod).",
+      "defect": "Minor remaining divergence: it is a route change, not the brief opened beside the verification flow. Returning is one click."
+    },
+    {
+      "id": "13-verify-preview-context",
+      "status": "pass",
+      "evidence": "The preview pane header is bound to the criterion. Before any Show me it reads 'The extension, running'. After Show me on criterion 4 it reads 'Criterion 4 / Nothing on the existing cluster page moves or changes'; after Show me on criterion 1 it reads 'Criterion 1 / The tab appears under the cluster nav without a reload'. The live dot ('Loaded · just now') sits below it. The Show me buttons also carry the recorded route in their title ('Drive the preview to /home' once a route is recorded, 'No route recorded yet - takes the preview back to the start' before).",
+      "defect": null
+    },
+    {
+      "id": "13-verify-progress-chip",
+      "status": "pass",
+      "evidence": "The chip counts settled, not met. With criteria 1-2 Yes and 3-4 unanswered it read '2/4'; setting criterion 3 to No moved it to '3/4'; setting all four to No moved it to '4/4'. The old behaviour would have read 0/4 for four Nos.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-sign-off",
+      "status": "pass",
+      "evidence": "A primary 'Sign off on the outcome' button (data-testid verify-sign-off) sits beside 'Record the result'. It refuses while anything is open: disabled with title '2 criteria have not been looked at yet.' at 2/4, and '4 criteria are answered No. A No holds the sign-off open until it is answered Yes.' at four Nos. With all four Yes it enabled (title 'Records in the brief that the outcome is signed off'); clicking it wrote to the pod's BRIEF.md: 'Verdict: **Signed off 2026-08-23**' / 'Passed 4 of 4.' / 'Outcome signed off by admin on 2026-08-23.' Reloading, the masthead read 'Signed off 2026-08-23'. Revocation: flipping criterion 2 to No immediately re-disabled the button ('1 criterion is answered No...'), and recording that verdict rewrote the block to 'Verdict: **1 not met**' with the 'Outcome signed off by' line gone from the file.",
+      "defect": "The gate is the sign-off only. Publishing is still not gated by it (see 13-verify-blocked-note)."
+    },
+
+    {
+      "id": "05-files-code-view",
+      "status": "pass",
+      "evidence": "The pane is tokenized: lines render as `<span class=\"files__tok files__tok--keyword|--string|--comment|--number\">` inside `td.files__code-line`. Lossless against the pod for four files - joined every `.files__code-line` textContent and compared byte-for-byte with `cat` in the pod: pages/Home.vue (46 lines), routing/index.ts (16), l10n/en-us.yaml (2), product.ts (28). All four identical, gutter numbering from 1.",
+      "defect": null
+    },
+    {
+      "id": "05-files-editor-header-path",
+      "status": "pass",
+      "evidence": "The provenance caption is real and varies per file. product.ts (committed at 8a704fb): 'Last commit by barn, 30 hours ago · 28 lines · committed' - matches `git log --format=%an %ar` in the pod. BRIEF.md (which `git status --porcelain` reports as ' A'): '34 lines · never committed'.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-metadata",
+      "status": "pass",
+      "evidence": "Two entries, snapshots merged with commits, each with source and relative time: 'snapshot / probe point A / automatic · 12 hours ago' and '8a704fb / The seeded extension / barn · 30 hours ago'. Cross-checked in the pod: `git log` has exactly one commit (8a704fb barn 30 hours ago) and `git tag -l` has barn-snap/1787416713830. Clicking the snapshot row opened its patch: a `.diff` panel headed 'probe point A / 3 files +48−0' with per-file hunks (BRIEF.md +34 −0, numbered added lines).",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-rail-icons",
+      "status": "fail",
+      "evidence": "On /barn/extensions/base/files the rail's 'Extension Studio' entry has className exactly `option`. No selected treatment anywhere in the rail.",
+      "defect": "Unchanged."
+    },
+    {
+      "id": "05-files-reference-reasons",
+      "status": "pass",
+      "evidence": "Each reference row now carries a derived relation rather than the raw grep hit, and it changes with the open file. Home.vue: 'routing/index.ts:3 / IMPORTS IT / import Home from '../pages/Home.vue';'. index.ts: two rows both 'DESCRIBES IT IN A TABLE' (CLAUDE.md:18 and :20). product.ts: 'CLAUDE.md:19 / DESCRIBES IT IN A TABLE'. The footnote states the honest limit: it is a fixed-string search, and the relation falls back to 'mentions it' when the line does not show one.",
+      "defect": null
+    },
+    {
+      "id": "05-files-review-changes",
+      "status": "pass",
+      "evidence": "The count is live. With one changed file the button read 'Review 1 change'. Created verify-05-files.txt in the pod and reloaded: 'Review 2 changes' (git status then showed ' A BRIEF.md' + '?? verify-05-files.txt'). Removed the file and reloaded: back to 'Review 1 change'. Singular/plural follows too.",
+      "defect": null
+    },
+
+    {
+      "id": "02-new-header-logo",
+      "status": "fail",
+      "evidence": "Enumerated every anchor in the header on /barn/extensions/new. The SUSE Rancher Prime logo is a bare `<svg class=\"top-menu-icon\">` with no wrapping anchor; the only href to /dashboard/home is the rail's separate 'Home' option.",
+      "defect": "Unchanged. Rancher chrome, not barn code."
+    },
+    {
+      "id": "02-new-nav-extensions",
+      "status": "fail",
+      "evidence": "On /barn/extensions/new the rail's 'Extension Studio' entry has className exactly `option` - no router-link-exact-active, no highlight.",
+      "defect": "Unchanged."
+    },
+    {
+      "id": "02-new-outcome",
+      "status": "fail",
+      "evidence": "The field's copy now reads 'Answer this and the assistant can tell you when your description is a solution rather than a problem'. The collection half improved: created v02w1 with an outcome and a description, and the outcome landed in the new extension's BRIEF.md '## The problem' at creation time, not only via Agree. The challenge half is now delegated rather than performed: the generated CLAUDE.md carries an instruction to the pod's assistant ('If \"What changes for them\" describes a solution rather than the problem in \"The problem\", say so before building it').",
+      "defect": "Nothing in the Studio itself compares the description against the outcome, and no prompt is sent on submit. Screen 10's callout still says 'nothing here has read it'. The challenge only happens if someone later runs the assistant in the pod and it obeys CLAUDE.md; I did not observe it happening, so the second half of the promise is still unproven at the UI."
+    },
+    {
+      "id": "02-new-where-resource",
+      "status": "pass",
+      "evidence": "Selecting 'On a resource' now reveals the follow-up the design asks for: an 'On which resource?' field appears in the card, pre-filled with 'node', and Draft the brief refuses while it is empty (canSubmit checks asksResource). The generator in the installed 0.5.22 bundle emits placement-specific code for it: product.ts gains `export const TAB_RESOURCE = '<resource>'` and `TAB_LABEL`, and an index.ts is emitted (only for this placement) that calls `plugin.addTab(TabLocation.RESOURCE_DETAIL, { resource: [TAB_RESOURCE] }, {...})`, with the brief's '## Where it appears' reading 'A tab on the detail page of `<resource>`, registered with `plugin.addTab` in `index.ts`.'",
+      "defect": "Split evidence: the follow-up field was driven in the browser; the emitted code was read out of the installed bundle's generator rather than from a created extension, because I was limited to creating one extension and used it for the top-level placement."
+    },
+    {
+      "id": "02-new-where-top-level",
+      "status": "pass",
+      "evidence": "Placement now changes generated code. Created one extension `v02w1` with 'Top-level nav'. Its product.ts md5 is 25742c8ad4e5f3cac673d86fa79281b7 against the base seed's 32e7dbe72a559dd61c14e9c56c6e5b39; `PRODUCT_NAME = 'v02w1'` (not 'base'); package.json name is v02w1; the file is headed with a placement comment ('Where it appears: its own entry in the global menu... `inStore: 'management'` with the cluster switcher off is what makes a product top-level'), and it emits inStore 'management' + showClusterSwitcher false + `params: { cluster: '_' }`. Its BRIEF.md gained a '## Where it appears' section: 'Parent route: `root`' / 'Top-level nav - its own entry in the global menu. Registered in `product.ts`.' The bundle's generator branches on placement for product.ts, routing/index.ts, index.ts, BRIEF.md and CLAUDE.md - the 'cluster' branch emits inStore 'cluster', showClusterSwitcher true and drops `cluster: '_'`. v02w1 was then deleted completely (deployment, service, configmap all deleted, pod terminated, no UIPlugin was ever created; `kubectl -n barn get all,cm | grep v02w1` returns nothing).",
+      "defect": "The generated product registers the top-level shape but I did not publish v02w1, so I did not see the global nav entry actually appear in a running Rancher."
+    },
+    {
+      "id": "02-new-where-unsure",
+      "status": "pass",
+      "evidence": "'Not sure yet' no longer drops the decision. In the installed bundle the placement resolves to route `undecided` (not ''), and it produces: a product.ts headed 'Where it appears: NOT DECIDED YET' that names the file as a placeholder and lists what each of the three alternatives would need; a BRIEF.md '## Where it appears' section written as an open question ('pick one of `c-cluster`... change `product.ts` and `routing/index.ts` to match, and replace this paragraph with the choice and why. Seeded as a top-level entry in the meantime so the extension runs.'); and a CLAUDE.md addendum instructing the assistant 'If \"Where it appears\" says `undecided`, choose a placement before writing any UI... and write the choice and the reason into that section. It is a question left for you on purpose.' I confirmed the CLAUDE.md addendum is really written into a created extension by reading v02w1's CLAUDE.md in its pod.",
+      "defect": "The brief names the question, not yet a chosen placement and reason - the answer arrives only when the assistant is run against the tree, which I did not exercise."
+    },
+
+    {
+      "id": "06-import-branch",
+      "status": "fail",
+      "evidence": "The Branch control is still a plain text input. Placeholder is now 'the repository's default' (matching the drawn wording) and the hint reads 'Leave blank for the repository's default.' Pasting https://github.com/rancher/dashboard/tree/release-2.9 into the repository field auto-filled Branch with 'release-2.9'.",
+      "defect": "Still no select and no chevron, and nothing lists the repository's branches or pre-selects the default - a typo is still only discovered when the clone fails. The wording half of the old defect is fixed and URL-derived branches are a real improvement, but the control is not the one the design draws."
+    },
+    {
+      "id": "06-import-dialog-header",
+      "status": "pass",
+      "evidence": "Title is now 'Import an extension from GitHub' (was 'Import from GitHub'), and the one-way clone reassurance renders directly under it: 'The repository is cloned into your workspace. Nothing is pushed back until you publish.' Measured `.s-modal__card` at 680px wide, matching the drawn width (was 620).",
+      "defect": null
+    },
+    {
+      "id": "06-import-name",
+      "status": "pass",
+      "evidence": "'Name in Studio' now sits after the repository field and pre-fills from it. Typing any of six repository forms filled it with 'dashboard', and the hint reads 'Taken from the repository. Change it to call it something else here.' The field stayed editable (typed 'keepme' over it and it held).",
+      "defect": null
+    },
+    {
+      "id": "06-import-paste-url",
+      "status": "pass",
+      "evidence": "The repository field itself is the escape hatch and is labelled as one: placeholder 'owner/name, or paste the repository URL' with the helper 'Studio does not list your repositories. Name the one you want, or paste its URL.' Tested six forms - https://github.com/rancher/dashboard, the same with .git, git@github.com:rancher/dashboard.git, github.com/rancher/dashboard, .../tree/release-2.9, and bare rancher/dashboard. Every one was accepted, echoed 'Reads as rancher/dashboard.', filled the name with 'dashboard', and left the Import button enabled. The /tree/ form additionally filled Branch. No import was completed.",
+      "defect": null
+    },
+    {
+      "id": "06-import-repo-pick",
+      "status": "fail",
+      "evidence": "There is no repository list in the dialog. The step reads 'GitHub repository' with the helper 'Studio does not list your repositories. Name the one you want, or paste its URL.'",
+      "defect": "The clickable list (rows, #EAF4FB selected fill, check icon, single selection) is still absent. The dialog now says so plainly rather than implying one exists, and pasting a URL removes the worst of the pain, but a repo whose exact name the user cannot recall is still unreachable from here."
+    },
+
+    {
+      "id": "06a-import-first-connect-copy",
+      "status": "fail",
+      "evidence": "With no token stored, step 1 is headed 'Connect GitHub' and reads 'A public repository imports without a token. A private one needs one, and you can paste it here without leaving this dialog or losing what you have typed.' Opening the disclosure adds 'Needs the repo scope only. Create one on GitHub with the scope pre-selected. It is stored in a Secret in this Rancher, not in your browser, because the thing that spends it is a pod - which also means it is shared with everyone using this Rancher's Studio, not held per user.'",
+      "defect": "Two of the three things the design asks for are still missing. 'You are not navigated away' is now both true and stated, which was the worst part of the old defect. But there is no indication of how long it takes ('about fifteen seconds'), and the 'list repositories' purpose is absent - correctly, since nothing lists repositories, but that means the promise as written cannot be met without building the listing."
+    },
+    {
+      "id": "06a-import-first-header",
+      "status": "pass",
+      "evidence": "Connecting GitHub is no longer a separate dialog. With no token stored, opening Import gives one `.s-modal__card` measured at 680px titled 'Import an extension from GitHub' with the one-way clone caption. Typed 'rancher/dashboard' into the repository field and 'keepme' into Name in Studio, then clicked 'Paste a personal access token': the token field appeared inside the same card, still exactly one `.s-modal__card`, title unchanged, and both typed values survived intact.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-import-disabled",
+      "status": "fail",
+      "evidence": "With no GitHub token at all, Import starts disabled at computed opacity 0.5, but pasting rancher/dashboard (which also fills the name) enabled it immediately - `button:has-text(\"Import\")` isDisabled() returned false with the secret barn-settings empty.",
+      "defect": "Import is gated on name + repository validity, not on GitHub being connected, and dimmed opacity is 0.5 against the drawn 0.4. This looks deliberate and is now defensible - the dialog states that a public repository imports without a token - but it is not what the design draws, where connecting GitHub gates the whole wizard."
+    },
+    {
+      "id": "06a-import-first-token-choice",
+      "status": "fail",
+      "evidence": "'Paste a personal access token' is now an inline disclosure inside step 1 (it toggles to 'Never mind' and reveals a 'Personal access token' field plus a Connect button in the same card), and taking it no longer loses the form's state.",
+      "defect": "Half fixed. It is a disclosure inside step 1 now rather than a link to another dialog, but it is still the only path: there is no Authorise/OAuth button and therefore no 'or' between two options. The design draws the token path as the alternative to OAuth."
+    },
+    {
+      "id": "06a-import-first-token-field",
+      "status": "pass",
+      "evidence": "Opening the disclosure reveals a field labelled 'Personal access token' inside step 1 of the same dialog, placeholder 'ghp_...', `type=\"password\"` with computed -webkit-text-security: disc, and font-family 'JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace'. Typed a fake token and it stayed masked. The place, the masking and the monospace face - all three halves of the old defect - are fixed.",
+      "defect": "Two residuals. The value is masked in full rather than showing the ghp_ prefix (the ghp_ is only the placeholder). And I did not click Connect, so I did not exercise the token actually being stored from here - the secret is shared with every other agent on this machine. The equivalent write path was verified through the settings modal instead (see 09-settings-github-disconnect)."
+    },
+
+    {
+      "id": "09-settings-github-account",
+      "status": "fail",
+      "evidence": "Seeded a token into the barn-settings Secret (key gh_token) and opened the settings surface: it shows only 'A GitHub token is stored' plus 'It is never read back into this page, so Studio cannot show which account it belongs to, what it may do, or when it expires. Typing one below replaces it.' No login, no Active pill, no scopes, no expiry, no authorisation date. Grepped the installed bundle: the only api.github.com call is the publish path's `/repos/{repo}/pulls`, nothing fetches the user or reads x-oauth-scopes.",
+      "defect": "Unchanged in substance - none of the five values is fetched or shown. What did change is that the surface now states why instead of leaving a blank card, so the gap is disclosed rather than hidden."
+    },
+    {
+      "id": "09-settings-github-disconnect",
+      "status": "pass",
+      "evidence": "Drove it end to end. Patched the barn-settings Secret with gh_token=<fake>; the Editor settings modal switched to 'A GitHub token is stored' and rendered a single ghost button 'Disconnect' (data-testid barn-settings-disconnect). One click cleared it: the modal fell back to 'No GitHub token is stored' with the banner 'The stored token was removed.', and `kubectl -n barn get secret barn-settings -o jsonpath='{.data}'` returned empty - no Save step involved. The Secret is back to the empty state I found it in.",
+      "defect": "The second half of howToVerify is still not met: with no token, /barn/extensions/base/review still offers Publish and Publish..., so the GitHub destination is not withdrawn (it degrades to a warning banner and a disabled Publish instead). The promise as written - a ghost button that removes the credential - is now exactly what exists."
+    },
+    {
+      "id": "09-settings-github-intro",
+      "status": "fail",
+      "evidence": "The card head reads 'Used to clone repositories when you import one, and to push when you publish an extension to GitHub. The pods that do both read it, so treat it as a credential Studio shares with anything it runs, and scope it to the repositories you want it to touch.'",
+      "defect": "The purpose half is now stated, and both uses are named. The isolation promise is still absent, and is now explicitly contradicted - the copy tells the user the opposite, that the token is shared with anything the Studio runs and with everyone using this Rancher's Studio. That is the truth given the barn-extension ServiceAccount is bound to cluster-admin, so closing this properly means changing where the token lives, not the copy."
+    },
+    {
+      "id": "09-settings-nav-extensions",
+      "status": "fail",
+      "evidence": "Enumerated the rail on every barn route visited: 'Extension Studio' -> /dashboard/barn/extensions (className `option`, never highlighted) and a separate 'Extensions' -> /dashboard/c/local/uiplugins.",
+      "defect": "Unchanged. No highlighted puzzle icon marks the Studio, and the puzzle 'Extensions' entry still goes to Rancher's uiplugins list."
+    },
+    {
+      "id": "09-settings-no-save",
+      "status": "fail",
+      "evidence": "There is still no settings screen: /dashboard/barn/settings and /dashboard/barn/extensions/base/settings both redirect to /dashboard/fail-whale. The only settings surface is the 'Editor settings' modal reached from the editor masthead (aria-label 'Editor settings'), whose footer is Cancel / Save (data-testid barn-settings-save).",
+      "defect": "Still save-gated, so 'no Save button anywhere' remains false. One control did move to apply-on-change: Disconnect now clears the Secret on click without a Save."
+    },
+    {
+      "id": "09-settings-permission-ask-every-edit",
+      "status": "fail",
+      "evidence": "No permission controls exist on any reachable surface: the Editor settings modal contains exactly one input (the token) and two buttons (Cancel, Save), and there is no settings route. `--dangerously-skip-permissions` still appears three times in the installed bundle barn-0.5.22.umd.min.js, including a comment reading '...dangerously-skip-permissions, which the pane's claude is always started with'.",
+      "defect": "Unchanged. The level is fixed at 'never ask'; this option cannot be selected and cannot be produced by any setting."
+    },
+    {
+      "id": "09-settings-permission-edit-freely",
+      "status": "fail",
+      "evidence": "Same surface check as above - no radio group anywhere - and the same `--dangerously-skip-permissions` in the shipped pod session script.",
+      "defect": "Unchanged. Hardcoded past this level rather than to it: the pod stops the assistant before nothing, and its ServiceAccount is bound to cluster-admin, so 'stops it before anything touching the cluster' is not enforced."
+    },
+    {
+      "id": "09-settings-permission-never-ask",
+      "status": "fail",
+      "evidence": "Same surface check - no control, no admin gate. The flag is baked into the bundle's pod session script.",
+      "defect": "Unchanged. Hardcoded on, not selectable, not restricted to admins, and the 'still cannot publish' caveat is unenforced."
+    },
+    {
+      "id": "09-settings-preview-cluster",
+      "status": "fail",
+      "evidence": "No settings route exists, the Editor settings modal has no cluster control, and grepping the installed bundle for 'Preview cluster' returns nothing. Screen 02's equivalent row is the static, non-interactive 'Build and preview against / local - this cluster' box (class new-ext__box--static, no input).",
+      "defect": "Unchanged. Namespace and cluster are module-level literals; there is no picker and no Kubernetes version shown."
+    }
+  ]
+}

@@ -23,13 +23,18 @@
 //     everything typed here. The brief is now drafted at creation time and seeded with the
 //     tree, which is also what screen 10 reads on mount - so skipping loses nothing.
 //
-//   Drawn but inert. "Build and preview against" is a field with one possible value: the pod
-//   runs in this cluster, and there is nowhere else for it to run. It is shown rather than
-//   hidden because the design shows it and because the sentence under it - changes only ever
-//   run here until you publish - is the reassurance the screen exists to give.
+//   Stated rather than chosen. "Build and preview against" is a field with one possible value
+//   and it is now read rather than typed: the cluster's own name and the Kubernetes version it
+//   reports, off Rancher's API. It is not a picker and does not pretend to be one - every pod
+//   this Studio creates is created in the `local` cluster, because that is where the Studio's
+//   namespace, its service proxy and every path in `extensions.ts` are - so a list of other
+//   clusters would be a list of places the build cannot go. The line under it says so, and the
+//   reassurance the design puts there - changes only ever run here until you publish - is the
+//   same sentence either way.
 import {
   SButton, SField, SIcon, SLabel
 } from '../components/ui';
+import { rancherFetch } from '../api';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import { toastError } from '../toast';
@@ -74,6 +79,10 @@ export default {
       settings:   false,
       creating:   false,
       error:      '',
+      // Where the build runs, read from Rancher rather than written into the template. Starts
+      // as the cluster's id, which is true before the reading arrives and stays true if it
+      // never does.
+      target:     { name: 'local', version: '' },
     };
   },
 
@@ -127,7 +136,32 @@ export default {
     },
   },
 
+  mounted() {
+    this.readTarget();
+  },
+
   methods: {
+    /**
+     * What the build will actually run against.
+     *
+     * The design draws "local - K3s v1.34.3", which is a name and a version, and both are
+     * readable: Rancher's own management API knows the cluster's display name and the
+     * Kubernetes version its nodes report. A failure leaves the id showing, which is the part
+     * that was never in doubt.
+     */
+    async readTarget() {
+      const cluster = await rancherFetch('/v1/management.cattle.io.clusters/local').catch(() => null);
+
+      if (!cluster) {
+        return;
+      }
+
+      this.target = {
+        name:    cluster.spec?.displayName || cluster.metadata?.name || 'local',
+        version: cluster.status?.version?.gitVersion || '',
+      };
+    },
+
     useExample(text) {
       this.prompt = this.prompt ? `${ this.prompt.trim() } ${ text }` : `Add ${ text }.`;
     },
@@ -340,11 +374,16 @@ export default {
           />
 
           <div class="new-ext__field">
-            <div class="new-ext__box new-ext__box--static">
+            <div class="new-ext__box new-ext__box--static" data-testid="new-ext-target">
               <span class="new-ext__box-label">Build and preview against</span>
-              <span class="new-ext__box-value">local - this cluster</span>
+              <span class="new-ext__box-value">
+                {{ target.name }}<template v-if="target.version"> - {{ target.version }}</template>
+              </span>
             </div>
-            <span class="new-ext__hint">Changes only ever run here until you publish</span>
+            <span class="new-ext__hint">
+              Changes only ever run here until you publish. Not a choice: every extension pod
+              this Studio creates lives in this cluster, so there is nowhere else to point it.
+            </span>
           </div>
         </div>
 

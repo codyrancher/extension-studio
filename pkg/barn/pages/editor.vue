@@ -35,15 +35,19 @@ import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/stud
 import { BUILD_FAILED_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import { SButton, SModal } from '../components/ui';
 import StartingExtensions from '../components/StartingExtensions.vue';
+import BuildFailure from '../components/BuildFailure.vue';
 import fullBleed from '../design/full-bleed';
 import {
   ensureExtension, extensionReady, extensionUrl, publishExtension,
-  publishExtensionToGithub, removeLocalInstall, DEFAULT_EXTENSION,
+  removeLocalInstall, DEFAULT_EXTENSION,
   askAssistant, readExtensionFile
 } from '../extensions';
+import {
+  handOverForReview, distributeExtension, readComment, markCommentSent, originStamp
+} from '../review';
 import { toastError, toastSuccess } from '../toast';
 import { installState } from '../install';
-import { recordFailure } from '../publish-failure';
+import { recordFailure, recordWorkingBuild } from '../publish-failure';
 
 // How close to an edge the divider can be dragged, in percent of the page.
 const MIN_SPLIT = 10;
@@ -129,7 +133,7 @@ export default {
   name: 'BarnEditor',
 
   components: {
-    PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions,
+    PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions, BuildFailure,
     PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal, PublishModal,
     InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton,
     SModal
@@ -518,7 +522,11 @@ export default {
       this.recordTurn(text);
 
       try {
-        const how = await askAssistant(this.extension, text);
+        // Stamped with where it came from and who sent it, which is the only way a turn ever
+        // gets a name on it: the pod has one shared conversation and no idea which Rancher
+        // user is looking at it, so a prompt typed straight into the pane carries nobody. See
+        // pod/barn-provenance.mjs.
+        const how = await askAssistant(this.extension, text, await originStamp('workspace').catch(() => undefined));
 
         if (how === 'queued') {
           toastSuccess(
@@ -577,8 +585,9 @@ export default {
     async handleHandoff() {
       const publish = this.$route.query.publish;
       const brief = this.$route.query.brief;
+      const comment = this.$route.query.comment;
 
-      if (!publish && !brief) {
+      if (!publish && !brief && !comment) {
         return;
       }
 
@@ -586,12 +595,13 @@ export default {
 
       delete query.publish;
       delete query.brief;
+      delete query.comment;
 
       await this.$router.replace({
         name: this.$route.name, params: this.$route.params, query
       }).catch(() => { /* the same route with fewer parameters is not a navigation failure */ });
 
-      if (publish === 'local' || publish === 'github') {
+      if (publish === 'local' || publish === 'github' || publish === 'distribute') {
         this.publishTo(publish);
 
         return;
@@ -599,6 +609,61 @@ export default {
 
       if (brief) {
         this.handBriefOver();
+
+        return;
+      }
+
+      if (comment) {
+        this.loadComment(String(comment));
+      }
+    },
+
+    /**
+     * A reviewer's comment, arriving as the instruction to work from.
+     *
+     * Cross-screen rule 11: a rejection from either reviewer lands back in this workspace with
+     * the comment already loaded into the assistant, and the reviewer never writes the fix.
+     * The id rather than the text in the query, because a review comment is a record with an
+     * author and a timestamp, and a URL that carried the words instead would be a second copy
+     * of them that nothing could reconcile.
+     *
+     * Recorded as sent only when it was sent. A comment that could not be delivered stays
+     * unsent in the record, so the review screen goes on showing it as outstanding rather than
+     * telling the reviewer their words arrived somewhere they did not.
+     */
+    async loadComment(id) {
+      const comment = await readComment(this.extension, id).catch(() => null);
+
+      if (!comment) {
+        toastError(
+          this.$store,
+          'That review comment is no longer in the review record, so there was nothing to hand to the assistant.',
+          { title: 'The comment did not arrive' },
+        );
+
+        return;
+      }
+
+      const where = comment.file ? ` It is about ${ comment.file }${ comment.hunk ? ` around line ${ comment.hunk }` : '' }.` : '';
+      const text = `A reviewer looked at this change and asked for something.${ where } Their words: ${ comment.text }. Make that change in the working tree and explain what you did.`;
+
+      this.leftTab = 'terminal';
+      this.recordTurn(text);
+
+      try {
+        const how = await askAssistant(this.extension, text, await originStamp('review-comment').catch(() => undefined));
+
+        await markCommentSent(this.extension, id, how).catch(() => null);
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? `${ comment.name || comment.principal || 'The reviewer' } asked for this and the assistant has it. You still decide what to do with the answer.`
+            : 'No session is open in this pod yet, so the reviewer\'s comment is the first thing the conversation will be asked.',
+          { title: 'The reviewer\'s comment is loaded' },
+        );
+      } catch (e) {
+        toastError(this.$store, e.message || String(e), { title: 'The comment did not reach the assistant' });
       }
     },
 
@@ -732,20 +797,71 @@ export default {
 
       if (targets.includes('github')) {
         this.publishingGithub = true;
+
+        return;
       }
+
+      // Leaving the gate. It has its own refusal in review.ts and needs no repository question,
+      // because a distribution goes to the repository the packet was handed over to.
+      //
+      // Two ids reach here and they are two different destinations, not one with two names.
+      // `repository` puts the reviewed packet on the repository's default branch, which is
+      // what a release is built from and is the one this product can perform. `oci` is a push
+      // to a registry, and it is listed by `distributionDestinations()` as unavailable with
+      // the reason: the pod has no helm, no oras and no chart to push, and no registry is
+      // configured anywhere. Routing it here anyway is deliberate - it goes through the same
+      // gate and comes back with that sentence, rather than being quietly dropped.
+      const destination = ['oci', 'repository', 'distribute'].find((id) => targets.includes(id));
+
+      if (destination) {
+        await this.publishTo('distribute', destination === 'distribute' ? 'repository' : destination);
+      }
+    },
+
+    /**
+     * What the status strip says when it worked.
+     *
+     * Each target ends in a different fact and the strip has to say which: a local publish
+     * names the version this Rancher is now loading, a hand-over names the packet and the pull
+     * request that carries it, and a distribution names where it went.
+     */
+    publishSummary(target, result) {
+      if (target === 'github') {
+        const pr = result.pr ? `, pull request #${ result.pr.number }` : '';
+        const failed = result.prError ? `. The branch is pushed, but the pull request could not be opened: ${ result.prError }` : '';
+
+        return `packet ${ result.n } on ${ result.branch }${ pr }${ failed }`;
+      }
+
+      if (target === 'distribute') {
+        return `packet ${ result.packet } to ${ result.repo } on ${ result.branch }`;
+      }
+
+      return `${ result.plugin } ${ result.version }`;
     },
 
     /**
      * Publish this extension, one way or the other.
      *
-     * `local` builds it in the pod and points this Rancher at the result, which reaches exactly
-     * the cluster you are standing in. `github` pushes the package's source to the configured
-     * repository, which is the half that outlives this cluster. Both are minutes rather than
-     * seconds and both report through the same status strip, so they share this.
+     * Three targets now, and the difference between them is the gate:
      *
-     * The progress the strip counts is the running publish's own: the two have different
-     * stages, and `total` arrives with each report rather than being read from a constant, so
-     * the bar is right for whichever is running without this having to know which.
+     *   `local`      builds in the pod and points this Rancher at the result. Deliberately
+     *                ungated, forever - cross-screen rule 2. It reaches exactly the cluster
+     *                you are standing in and asks nobody.
+     *   `github`     hands the change over for review: it assembles a packet, pushes the
+     *                packet's own branch and opens the pull request. Entering the gate. It
+     *                needs a brief and something to hand over; it does not need a sign-off,
+     *                because this is how you ask for one.
+     *   `distribute` puts a reviewed packet where other people can install it. Leaving the
+     *                gate, and refused by `assertGateOpen` in review.ts until two different
+     *                people have signed the two questions against that packet.
+     *
+     * The check is not here. A page is where the UI reacts; the load-bearing refusal lives in
+     * `distributeExtension` so that no screen, and no future screen, can route around it.
+     *
+     * The progress the strip counts is the running publish's own: they have different stages,
+     * and `total` arrives with each report rather than being read from a constant, so the bar
+     * is right for whichever is running without this having to know which.
      */
     async publishTo(target, repo) {
       if (this.publishing) {
@@ -757,9 +873,14 @@ export default {
       this.published = '';
       this.publishLog = '';
 
-      const run = target === 'github'
-        ? (name, onProgress) => publishExtensionToGithub(name, repo, onProgress)
-        : publishExtension;
+      let run = publishExtension;
+
+      if (target === 'github') {
+        run = (name, onProgress) => handOverForReview(name, repo, onProgress);
+      } else if (target === 'distribute') {
+        // `repo` carries the destination id here, which is what the publish dialog picked.
+        run = (name, onProgress) => distributeExtension(name, repo || 'repository', onProgress);
+      }
 
       try {
         const result = await run(this.extension, (stage, label, total) => {
@@ -768,10 +889,13 @@ export default {
           this.publishTotal = total;
         });
 
-        this.published = result.repo
-          ? `${ result.plugin } ${ result.version } to ${ result.repo }`
-          : `${ result.plugin } ${ result.version }`;
+        this.published = this.publishSummary(target, result);
         this.publishLog = result.log;
+
+        // The only moment in the product that can take this snapshot: the tree that has just
+        // been proved to build. It is what turns "a way back" from a failure into the design's
+        // guaranteed one, and it cannot be taken later, because by then something has broken.
+        recordWorkingBuild(this.extension, result.version);
 
         return true;
       } catch (e) {
@@ -783,7 +907,7 @@ export default {
         // The failure is recorded before the status strip reports it, so the screen that
         // explains it has the log even if somebody reloads on the way there. The strip still
         // shows the error inline - this is the longer read, not a replacement for it.
-        recordFailure(this.extension, this.publishError, this.publishLog);
+        recordFailure(this.extension, this.publishError, this.publishLog, e.stage || '');
 
         return false;
       } finally {
@@ -949,6 +1073,22 @@ export default {
       :names="starting"
       @open="openExtension"
       @dismiss="starting = starting.filter((each) => each !== $event)"
+    />
+
+    <!--
+      A build failure belongs here, not on a route of its own. Every amber recovery arrow on the
+      flow map returns into this same workspace box, under a legend saying that every recovery
+      route leads back into the product rather than out of it, and the failure itself arrives as
+      an assistant turn. Its root is already conditional on there being a failure to show, and it
+      reads the record itself, so there is nothing to guard here.
+    -->
+    <BuildFailure
+      class="mc-editor__failure"
+      :extension="extension"
+      embedded
+      @open-tab="onLeftTab"
+      @changed="changesRevision++"
+      @resolved="publishError = ''"
     />
 
     <!--
@@ -1233,6 +1373,13 @@ $rancher-rail-width: 70px;
     margin: 0 0 var(--studio-space-12);
     font:   var(--studio-body-13);
     color:  var(--studio-text-secondary);
+  }
+
+  // The build failure sits between the masthead and the panes, in the page's own gutter: it is
+  // part of the workspace rather than a page of its own, and the panes below it are still the
+  // way back into the work.
+  &__failure {
+    padding: 0 16px 12px;
   }
 
   &__panes {

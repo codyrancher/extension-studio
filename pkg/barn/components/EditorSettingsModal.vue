@@ -1,69 +1,67 @@
 <script>
-// What the editor is configured with, which is currently the one thing publishing to GitHub
-// needs and cannot work out for itself.
+// The GitHub credential, asked for in the middle of whatever needed it.
 //
-// The token is write-only from here. It is stored in a Secret rather than this browser (see
-// SETTINGS_SECRET) because the thing that eventually spends it is a pod, and it never comes
-// back out: the field says whether one is set and offers to replace it, which is the whole of
-// what a settings form has to know. Showing a saved credential back to the page would put it
-// in the DOM of a tab somebody leaves open on a shared screen, and buys nothing - nobody
-// reads a token to check it, they replace it.
+// This used to be the Studio's settings: a dialog titled "Editor settings" holding one token
+// field behind a Save button, and the only settings surface in the product. Screen 09's caption
+// is "connection, permissions, access and data in one place", and the frame's own note says it
+// replaces this dialog - so the settings moved to pages/settings.vue and what is left here is
+// not settings at all. It is one credential, asked for where it was found to be missing.
 //
-// The corollary is that this surface cannot name the account, its scopes or its expiry, and
-// says so rather than leaving a blank where the design draws them. All three would mean
-// reading the credential back and spending it against api.github.com from the browser, which
-// is the thing the Secret exists to avoid.
+// That distinction is the whole design of this file:
+//
+//   - It does not offer the permission level, the preview target, access or the sign-off
+//     policy. Exactly one surface edits those, and it is the page.
+//   - It does keep the token, because the four callers open this from inside something - an
+//     import, a create, a review that cannot ask the assistant - and the design puts connecting
+//     inside those flows rather than sending somebody away and hoping they come back.
+//   - It has no Save button, the same as the page: Enter stores, Disconnect removes, and both
+//     happen when you do them.
+//
+// The credential is write-only in both places. It goes into a Secret and never comes back out;
+// what comes back is the account GitHub named when it was stored, which is not secret. Both
+// halves of that are `studio-settings.ts`, shared with the page so the two cannot drift.
 import {
-  SModal, SButton, SField, SBanner
+  SModal, SButton, SField, SBanner, SIcon
 } from './ui';
-import { readSettings, saveSettings } from '../extensions';
+import {
+  TokenRejected, connectGithub, disconnectGithub, githubConnected, readStudioSettings
+} from '../studio-settings';
+import { SETTINGS_ROUTE } from '../editor-product';
 
 export default {
   name: 'EditorSettingsModal',
 
   components: {
-    SModal, SButton, SField, SBanner
+    SModal, SButton, SField, SBanner, SIcon
   },
 
   emits: ['close', 'saved'],
 
   data() {
     return {
-      // '' means "left alone" and is not written; see save below. Removing one is Disconnect,
-      // which does it there and then, because a blank field cannot mean both "keep" and
-      // "delete" and a destructive action behind a second button is a destructive action
-      // people perform by accident.
-      token:    '',
-      hasToken: false,
-      loading:  true,
-      error:    '',
-      removed:  false,
-      // The primary button's own spinner, which AsyncButton used to own.
-      saving:        false,
+      token:         '',
+      hasToken:      false,
+      connection:    null,
+      loading:       true,
+      error:         '',
+      storing:       false,
       disconnecting: false,
+      removed:       false,
     };
   },
 
   computed: {
     tokenPlaceholder() {
-      return this.hasToken ? 'Stored. Leave blank to keep it.' : 'ghp_...';
-    },
-  },
-
-  watch: {
-    /** "Removed" is about what is stored, and typing a replacement is no longer about that. */
-    token(value) {
-      if (value) {
-        this.removed = false;
-      }
+      return this.hasToken ? 'Stored. Type here to replace it.' : 'ghp_...';
     },
   },
 
   async mounted() {
     try {
-      // Any extension will do: the token is the one setting left here and it is the same for
-      // all of them. The repository moved to the point of publishing, where it is asked.
-      this.hasToken = (await readSettings('')).hasToken;
+      const [connected, stored] = await Promise.all([githubConnected(), readStudioSettings()]);
+
+      this.hasToken = connected;
+      this.connection = stored.github;
     } catch (e) {
       this.error = e?.message || String(e);
     } finally {
@@ -72,14 +70,38 @@ export default {
   },
 
   methods: {
-    /**
-     * Remove the credential, now, on one click.
-     *
-     * Not armed-and-saved. Everything else on this form is a value being replaced, where
-     * changing your mind means closing without saving; this is the one action with nothing to
-     * replace it with, and leaving it pending meant the state on screen disagreed with the
-     * state in the cluster until somebody pressed a second button.
-     */
+    async store() {
+      const token = this.token.trim();
+
+      if (!token || this.storing) {
+        return;
+      }
+
+      this.storing = true;
+      this.error = '';
+      this.removed = false;
+
+      try {
+        const { connection } = await connectGithub(token);
+
+        this.hasToken = true;
+        this.connection = connection;
+        this.token = '';
+        this.$emit('saved');
+      } catch (e) {
+        this.error = e instanceof TokenRejected ? e.message : (e?.message || String(e));
+      } finally {
+        this.storing = false;
+      }
+    },
+
+    /** Clicking away from a pasted token stores it too. Length-guarded; Enter is not. */
+    storeOnBlur() {
+      if (this.token.trim().length >= 20) {
+        this.store();
+      }
+    },
+
     async disconnect() {
       if (this.disconnecting || !this.hasToken) {
         return;
@@ -89,8 +111,10 @@ export default {
       this.error = '';
 
       try {
-        await saveSettings('', { token: '' });
+        await disconnectGithub();
+
         this.hasToken = false;
+        this.connection = null;
         this.token = '';
         this.removed = true;
         this.$emit('saved');
@@ -101,23 +125,9 @@ export default {
       }
     },
 
-    async save() {
-      // undefined rather than '' when the field was left alone, because '' is the deliberate
-      // clear and Disconnect owns that. Whitespace counts as left alone for the same reason:
-      // a stray space must not read as "delete the credential".
-      const token = this.token.trim() || undefined;
-
-      this.saving = true;
-
-      try {
-        await saveSettings('', { token });
-        this.$emit('saved');
-        this.$emit('close');
-      } catch (e) {
-        this.error = e?.message || String(e);
-      } finally {
-        this.saving = false;
-      }
+    openSettings() {
+      this.$emit('close');
+      this.$router.push({ name: SETTINGS_ROUTE });
     },
   },
 };
@@ -125,34 +135,47 @@ export default {
 
 <template>
   <SModal
-    title="Editor settings"
-    icon="gear"
+    title="Connect GitHub"
+    icon="github"
     :width="560"
-    :busy="saving || disconnecting"
+    :busy="storing || disconnecting"
     @close="$emit('close')"
   >
     <div class="editor-settings">
       <SBanner v-if="error" type="error" :message="error" />
 
       <p class="editor-settings__intro">
-        Used to clone repositories when you import one, and to push when you publish an
-        extension to GitHub. The pods that do both read it, so treat it as a credential Studio
-        shares with anything it runs, and scope it to the repositories you want it to touch.
+        Used to clone repositories when you import one, and to push when you publish an extension
+        to GitHub. The pods that do both read it, so treat it as a credential Studio shares with
+        anything it runs, and scope it to the repositories you want it to touch.
       </p>
 
       <div v-if="!loading" class="editor-settings__state">
+        <SIcon name="github" :size="16" />
+
         <div class="editor-settings__state-text">
           <p class="editor-settings__state-head">
-            {{ hasToken ? 'A GitHub token is stored' : 'No GitHub token is stored' }}
-          </p>
-          <p class="editor-settings__state-note">
-            <template v-if="hasToken">
-              It is never read back into this page, so Studio cannot show which account it
-              belongs to, what it may do, or when it expires. Typing one below replaces it.
+            <template v-if="hasToken && connection && connection.login">
+              Connected as {{ connection.login }}
+            </template>
+            <template v-else-if="hasToken">
+              A GitHub token is stored
             </template>
             <template v-else>
-              Importing a public repository still works. A private one, and publishing to
-              GitHub, do not.
+              No GitHub token is stored
+            </template>
+          </p>
+          <p class="editor-settings__state-note">
+            <template v-if="hasToken && connection && connection.scopes">
+              Scopes: {{ connection.scopes }}. Typing below replaces it.
+            </template>
+            <template v-else-if="hasToken">
+              It is never read back into this page, so Studio cannot show which account it
+              belongs to. Typing below replaces it, and records the account at that moment.
+            </template>
+            <template v-else>
+              Importing a public repository still works. A private one, and publishing to GitHub,
+              do not.
             </template>
           </p>
         </div>
@@ -177,12 +200,14 @@ export default {
       <SField
         v-model="token"
         class="editor-settings__token"
-        data-testid="barn-settings-token"
+        input-testid="barn-settings-token"
         label="GitHub token"
         type="password"
         :placeholder="tokenPlaceholder"
-        :disabled="loading || disconnecting"
-        @enter="save"
+        :disabled="loading || storing || disconnecting"
+        hint="Press Enter to store it. There is no Save button: it is written when you do that."
+        @enter="store"
+        @blur="storeOnBlur"
       />
 
       <p class="editor-settings__hint">
@@ -198,17 +223,17 @@ export default {
     </div>
 
     <template #footer>
-      <SButton variant="ghost" :disabled="saving || disconnecting" @click="$emit('close')">
-        Cancel
-      </SButton>
       <SButton
-        variant="primary"
-        data-testid="barn-settings-save"
-        :loading="saving"
-        :disabled="loading || disconnecting || !token.trim()"
-        @click="save"
+        variant="ghost"
+        icon="gear"
+        data-testid="barn-settings-open"
+        @click="openSettings"
       >
-        Save
+        All Studio settings
+      </SButton>
+      <span class="editor-settings__grow" />
+      <SButton variant="neutral" :disabled="storing || disconnecting" @click="$emit('close')">
+        Close
       </SButton>
     </template>
   </SModal>
@@ -234,10 +259,11 @@ export default {
     background:    var(--studio-surface-subtle);
     border:        1px solid var(--studio-border);
     border-radius: var(--studio-radius-control);
+    color:         var(--studio-text-secondary);
   }
 
   &__state-text {
-    flex:     1 1 auto;
+    flex:      1 1 auto;
     min-width: 0;
   }
 
@@ -268,5 +294,7 @@ export default {
 
     code { font: var(--studio-mono-11); }
   }
+
+  &__grow { flex: 1 1 auto; }
 }
 </style>

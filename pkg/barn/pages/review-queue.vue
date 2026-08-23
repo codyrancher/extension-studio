@@ -12,19 +12,26 @@
 // back to a diffstat. The counts are on the line below, where they belong: they are how big the
 // reading is, not what it is for.
 //
-// There used to be a third tab, "Waiting on others". It is gone: nothing in this product models
-// a second reviewer, so it was a filter that could never match, carrying a hardcoded count of
-// zero and an apology where its rows would be. What it was really saying - that you are both
-// author and reviewer here - is a fact about the whole screen rather than about one row, and it
-// is in the lede. There used to be a "Your part" column saying it once per row as though it
-// varied between them; that is gone for the same reason.
+// "Waiting on others" is back, and this time it has a truth condition. It was deleted when
+// nothing in this product recorded who had decided what, so the filter could never match; the
+// review record (`review.ts`) now names a principal per sign-off, so a change you have approved
+// one half of and somebody else has not approved the other half of is a real, observable state.
+// The tab says exactly that and nothing more. There is still no "Your part" column, because
+// most rows are the same part and a constant repeated per row is not information - what varies
+// is the action, and the action cell says so.
 import {
   SButton, SBadge, SChip, SIcon, SEmpty, STabs, SMenu, SModal, SField
 } from '../components/ui';
 import {
-  listExtensions, extensionDetail, readExtensionFile, countChanges, changedFiles, readDeferral
+  listExtensions, extensionDetail, readExtensionFile, countChanges, changedFiles, readDeferral,
+  listHistory
 } from '../extensions';
-import { STUDIO_ROUTE, REVIEW_CHANGE_ROUTE } from '../editor-product';
+import {
+  readReview, gateFrom, currentSigner, whoAsked, sinceLastLook
+} from '../review';
+import {
+  STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
+} from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -215,6 +222,9 @@ export default {
       rows:          [],
       tab:           'you',
       loading:       true,
+      // Who the cluster believes is asking, so "waiting on others" can mean "on somebody who
+      // is not you". null when Rancher would not say, and the tab says so rather than guessing.
+      me:            null,
       sort:          settings.sort,
       signedOffDays: settings.signedOffDays,
       showSettings:  false,
@@ -225,14 +235,35 @@ export default {
   },
 
   computed: {
+    /**
+     * Changes you have already answered one half of, still waiting on somebody else.
+     *
+     * The predicate the deleted version of this tab could never satisfy. It is true when the
+     * review record holds one approval from you and the other question has no approval from
+     * anybody else - which the design's own rule makes a real state rather than a formality:
+     * one person ticking both boxes defeats it, so a change you have approved is a change
+     * waiting on a second person by construction.
+     */
+    waitingOnOthers() {
+      if (!this.me) {
+        return [];
+      }
+
+      return this.rows.filter((r) => r.mine && r.theirs);
+    },
+
     waitingOnYou() {
-      return this.rows.filter((r) => r.changes > 0);
+      const others = new Set(this.waitingOnOthers.map((r) => r.name));
+
+      return this.rows.filter((r) => r.changes > 0 && !others.has(r.name));
     },
 
     signedOff() {
       const span = this.signedOffDays * DAY;
+      const others = new Set(this.waitingOnOthers.map((r) => r.name));
 
-      return this.rows.filter((r) => r.changes === 0 && r.committedAt && (Date.now() - r.committedAt) < span);
+      return this.rows.filter((r) => r.changes === 0 && !others.has(r.name) &&
+        r.committedAt && (Date.now() - r.committedAt) < span);
     },
 
     signedOffLabel() {
@@ -246,6 +277,7 @@ export default {
     tabs() {
       return [
         { id: 'you', label: 'Waiting on you', count: this.waitingOnYou.length },
+        { id: 'others', label: 'Waiting on others', count: this.waitingOnOthers.length },
         { id: 'signed', label: this.signedOffLabel, count: this.signedOff.length },
       ];
     },
@@ -287,7 +319,9 @@ export default {
     },
 
     shown() {
-      const rows = this.tab === 'signed' ? this.signedOff : this.waitingOnYou;
+      const rows = {
+        signed: this.signedOff, others: this.waitingOnOthers,
+      }[this.tab] || this.waitingOnYou;
 
       return this.inOrder(rows);
     },
@@ -300,6 +334,10 @@ export default {
   methods: {
     async load() {
       this.loading = true;
+
+      // Once, not per row: the same two calls answer it for the whole screen, and a queue that
+      // cannot say who you are is a queue with no "waiting on others" rather than no queue.
+      this.me = await currentSigner().catch(() => null);
 
       const summaries = await listExtensions().catch(() => []);
 
@@ -326,13 +364,26 @@ export default {
      * only as an orphan, and writes to it go nowhere visible.
      */
     async enrich(name) {
-      const [detail, changes, files, brief, manifest, deferred] = await Promise.all([
+      const [
+        detail, changes, files, brief, manifest, deferred, review, history, asked, look,
+      ] = await Promise.all([
         extensionDetail(name).catch(() => null),
         countChanges(name).catch(() => 0),
         changedFiles(name).catch(() => []),
         readExtensionFile(name, 'BRIEF.md').catch(() => ''),
         readExtensionFile(name, 'package.json').catch(() => ''),
         readDeferral(name).catch(() => null),
+        // Who has decided what about this change. A missing record is the normal state of an
+        // extension nobody has reviewed and costs one 404.
+        readReview(name).catch(() => ({ signoffs: {} })),
+        listHistory(name, 50).catch(() => []),
+        // Who the brief records as having asked for this. '' for every extension written
+        // before the brief had a place to put it, which is a real answer and is said out loud
+        // rather than filled in with whoever is standing here.
+        whoAsked(name).catch(() => ''),
+        // The packet-based counterpart of the banner below, owned by review.ts: how many
+        // hand-overs have landed since this reviewer last opened one.
+        sinceLastLook(name).catch(() => null),
       ]);
 
       const row = this.rows.find((r) => r.name === name);
@@ -342,6 +393,25 @@ export default {
       }
 
       const risk = assessRisk(files);
+      const head = history.find((h) => h.kind === 'commit')?.ref || '';
+      const gate = gateFrom(review, head);
+      const mine = this.me
+        ? [gate.code, gate.outcome].find((s) => s?.principal === this.me.principal && s.verdict === 'approved')
+        : null;
+      const theirs = mine
+        ? ![gate.code, gate.outcome].some((s) => s && s.principal !== this.me.principal && s.verdict === 'approved')
+        : false;
+
+      row.gate = gate;
+      row.mine = !!mine;
+      row.theirs = theirs;
+      row.waitingFor = mine && mine === gate.code ? 'the outcome sign-off' : 'a code review';
+      row.asked = asked;
+      // The packet model's sentence first, because it is the product's own record of what a
+      // reviewer has seen; the approval count second, for the changes that predate a packet.
+      row.since = (look?.banner
+        ? { text: look.banner, when: '', who: '' }
+        : null) || this.changesSince(gate.code, history, changes);
 
       row.changes = changes;
       row.deferred = deferred;
@@ -354,6 +424,73 @@ export default {
       row.size = this.sizeOf(files, row.criteria);
       row.risk = risk.level;
       row.riskReason = risk.reason;
+      // The part, and therefore the action. Three values, each of them a reading: a change
+      // nobody wrote a brief for cannot be reviewed against anything, and a change whose code
+      // is approved is asking the other question.
+      row.part = this.partFor(row, gate);
+      // "2 hours", not "2 hours ago": the column heading already says Waiting.
+      row.waited = row.committedAt
+        ? this.ago(new Date(row.committedAt).toISOString()).replace(/ ago$/, '')
+        : '';
+    },
+
+    /**
+     * Which of the two questions this row is asking, and of whom.
+     *
+     * 'blocked'  - there is no brief, so there is nothing to review the change against
+     * 'outcome'  - the code is approved and the outcome is not, so the next answer is screen 13's
+     * 'code'     - everything else, which is most rows
+     */
+    partFor(row, gate) {
+      if (!row.intent) {
+        return 'blocked';
+      }
+
+      return gate.state === 'awaiting-outcome' ? 'outcome' : 'code';
+    },
+
+    /**
+     * How much has landed since the code sign-off (36:1108's banner).
+     *
+     * Counted rather than claimed: the sign-off names the commit it was given against, so the
+     * commits above it in the log are the ones that landed after it, and the uncommitted files
+     * are counted separately because they are not the same kind of thing. A sign-off whose
+     * commit is not in the last fifty entries is reported as "the branch has moved past it",
+     * which is what is actually known.
+     */
+    changesSince(code, history, changes) {
+      if (!code || code.verdict !== 'approved' || !code.sha) {
+        return null;
+      }
+
+      const commits = history.filter((h) => h.kind === 'commit');
+      const at = commits.findIndex((h) => h.ref === code.sha);
+
+      if (at === 0 && !changes) {
+        return null;
+      }
+
+      const clauses = [];
+
+      if (at < 0) {
+        clauses.push('the branch has moved past the commit you approved');
+      } else if (at > 0) {
+        clauses.push(`${ at } commit${ at === 1 ? '' : 's' }`);
+      }
+
+      if (changes) {
+        clauses.push(`${ changes } uncommitted file${ changes === 1 ? '' : 's' }`);
+      }
+
+      if (!clauses.length) {
+        return null;
+      }
+
+      return {
+        text: clauses.join(' and '),
+        when: (code.at || '').slice(0, 10),
+        who:  code.name || code.principal,
+      };
     },
 
     /**
@@ -471,11 +608,48 @@ export default {
       this.showSettings = false;
     },
 
+    /**
+     * Where a row goes, which is not the same screen for every row.
+     *
+     * A change with no brief goes to the brief rather than into the diff: the design sends the
+     * reviewer to settle the open questions, and a diff read against nothing is the reading
+     * this whole screen exists to stop somebody doing. A change whose code is already approved
+     * goes to the verification screen, which is the other question and the other person.
+     */
     open(row) {
+      if (row.part === 'blocked') {
+        this.$router.push({ name: BRIEF_ROUTE, params: { extension: row.name } });
+
+        return;
+      }
+
+      if (row.part === 'outcome') {
+        this.$router.push({ name: VERIFICATION_ROUTE, params: { extension: row.name } });
+
+        return;
+      }
+
       this.$router.push({
         name:   REVIEW_CHANGE_ROUTE,
         params: { extension: row.name, change: 'working' },
       });
+    },
+
+    /** The banner's sentence: review.ts's own when it has one, the approval count otherwise. */
+    sinceText(since) {
+      if (!since.who && !since.when) {
+        return since.text;
+      }
+
+      const when = since.when ? ` on ${ since.when }` : '';
+
+      return `${ since.text } since ${ since.who || 'somebody' } approved this${ when }.`;
+    },
+
+    actionLabel(row) {
+      return {
+        blocked: 'Open the brief', outcome: 'Sign off',
+      }[row.part] || 'Review';
     },
   },
 };
@@ -542,6 +716,15 @@ export default {
       />
 
       <SEmpty
+        v-else-if="!loading && !shown.length && tab === 'others'"
+        icon="user"
+        title="Nothing is waiting on anybody else"
+        :message="me
+          ? 'A change appears here once you have approved one of its two questions and nobody else has answered the other. Both answers have to come from different people, so approving one half is what puts a change in somebody else\'s queue.'
+          : 'Rancher would not say who you are, so this list cannot tell your approvals apart from anybody else\'s.'"
+      />
+
+      <SEmpty
         v-else-if="!loading && !shown.length"
         icon="clock"
         :title="`Nothing signed off in the last ${ signedOffDays } day${ signedOffDays === 1 ? '' : 's' }`"
@@ -554,6 +737,20 @@ export default {
         class="queue__card"
         @click="open(row)"
       >
+        <!--
+          36:1108: a row you have already approved once, topped with what has landed since. It
+          appears only when there is a recorded approval to count from and something has landed
+          since it, so it is never a banner about nothing.
+        -->
+        <div v-if="row.since" class="queue__since" data-testid="queue-since">
+          <SIcon name="undo" :size="14" />
+          <span>{{ sinceText(row.since) }}</span>
+          <span class="queue__since-note">
+            The review screen shows the whole change; it cannot yet be scoped to only what has
+            landed since.
+          </span>
+        </div>
+
         <div class="queue__card-body">
           <div class="queue__main">
             <!-- what the change is for, first (36:1079) -->
@@ -575,6 +772,19 @@ export default {
             </div>
           </div>
 
+          <!--
+            36:1093: how long it has been waiting. The duration is real - it is the age of the
+            last commit, which is what this cluster records - and the person the design puts
+            beside it is not, so the line under it says that rather than inventing a name.
+          -->
+          <div class="queue__col queue__col--waiting">
+            <span class="queue__label">Waiting</span>
+            <span class="queue__value" data-testid="queue-waiting">{{ row.waited || 'never committed' }}</span>
+            <span class="queue__reason" data-testid="queue-asked">{{
+              row.asked ? `asked for by ${ row.asked }` : 'nothing records who asked for this'
+            }}</span>
+          </div>
+
           <div class="queue__col queue__col--risk">
             <span class="queue__label">Risk</span>
             <SChip :label="row.risk" :tone="riskTone(row.risk)" />
@@ -594,14 +804,33 @@ export default {
               tone="warning"
               :title="row.deferredLabel"
             />
+            <!--
+              36:1195 / 36:1162. Only on the rows that are not the ordinary case: a chip that
+              says the same thing on every row is not a readout, which is why there is no "Your
+              part" column here any more.
+            -->
+            <SChip
+              v-if="row.part === 'blocked'"
+              label="Blocked"
+              icon="lock"
+              tone="warning"
+              title="There is no brief, so there is nothing to review this against"
+            />
+            <SChip
+              v-else-if="row.part === 'outcome'"
+              label="Outcome sign-off"
+              icon="eye"
+              tone="info"
+              title="The code is approved. What is left is whether it did the job."
+            />
             <SBadge :status="row.changes ? 'unsaved' : 'live'" />
             <SButton
-              variant="secondary"
+              :variant="row.part === 'outcome' ? 'primary' : 'secondary'"
               size="sm"
               :data-testid="`queue-review-${ row.name }`"
               @click.stop="open(row)"
             >
-              Review
+              {{ actionLabel(row) }}
             </SButton>
           </div>
         </div>
@@ -805,8 +1034,9 @@ export default {
     gap:            5px;
     flex:           0 0 auto;
 
-    &--risk { width: 200px; }
-    &--who  { width: 110px; gap: var(--studio-space-4); }
+    &--risk    { width: 200px; }
+    &--who     { width: 110px; gap: var(--studio-space-4); }
+    &--waiting { width: 150px; }
 
     // The risk pill hugs its label (36:1096). Left to stretch it became a green band across
     // the column, and the extra height pushed the column's caps label off the baseline it
@@ -838,6 +1068,29 @@ export default {
     align-items: center;
     gap:         var(--studio-space-8);
     flex:        0 0 auto;
+  }
+
+  /*
+   * 36:1108: what has landed since you approved this. Tinted and above the row rather than in
+   * it, because it is about the row's history rather than about the change - and it is the one
+   * thing on the card that is addressed to you personally.
+   */
+  &__since {
+    display:       flex;
+    align-items:   center;
+    flex-wrap:     wrap;
+    gap:           var(--studio-space-8);
+    padding:       var(--studio-space-8) 18px;
+    border-bottom: 1px solid var(--studio-border-subtle);
+    border-radius: var(--studio-radius) var(--studio-radius) 0 0;
+    background:    var(--studio-info-bg);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text);
+  }
+
+  &__since-note {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
   }
 
   &__settings {

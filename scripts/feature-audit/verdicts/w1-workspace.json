@@ -1,0 +1,245 @@
+{
+  "screen": "03-workspace",
+  "verdicts": [
+    {
+      "id": "03-workspace-activity-stream",
+      "status": "fail",
+      "evidence": "The stream is now fed. Sent three messages from the composer in one session ('w1verify stream one 3311', 'two 3312', 'three 3313'): three .turn nodes appeared in [data-testid=barn-activity-stream], oldest first, each with a 'You . <relative time>' meta line, and the empty state was replaced on the first send. So it does grow. It does not alternate: no assistant turn is ever appended, and the panel says so in its own words between the turns ('The assistant's replies are in the terminal. Its output is a character stream, not typed events, so this view cannot yet show them as steps with durations.'). Cross-checked in the pod with tmux capture-pane: the prompts were submitted and claude answered, so the replies exist and are simply not parsed into the stream. Turns are also per-session only: reloading /barn/editor put the stream back to 'Nothing sent in this session yet'.",
+      "defect": "Only the user half of the conversation is rendered. AssistantPanel records a turn for each composer send but never produces an assistant turn, so the stream is a list of your own messages rather than the alternating transcript the design draws. Nothing scrolls yet either - with three turns the stream's scrollHeight equalled its clientHeight, so the keep-newest-visible behaviour is untested and unexercised."
+    },
+    {
+      "id": "03-workspace-header-logo",
+      "status": "fail",
+      "evidence": "Rancher's header is back on /barn/editor (header[data-testid=header] computes to display:flex, height 55px, and [data-testid=header__brand-img] measures 200x36 and renders the SUSE chameleon plus the 'SUSE Rancher Prime' wordmark). But it is still not a link: the img sits in div.simple-title > div.side-menu-logo with no wrapping <a>, no href and no click handler. Clicked it on /barn/editor and the URL stayed https://magic-closet-rancher/dashboard/barn/editor.",
+      "defect": "The logo is rendered but inert. This is Rancher's own markup, unchanged on every route (01-home and 02-new recorded the same thing), so the fix is not the editor's CSS any more - it needs an anchor around the brand image, or the design's promise dropped. The rail's Home entry (a[href=/dashboard/home]) is the working substitute."
+    },
+    {
+      "id": "03-workspace-header-more",
+      "status": "fail",
+      "evidence": "The header is visible again but carries no overflow control on this route. Enumerated .rd-header-right on four routes: /dashboard/home gives ['page-actions-menu-action-button', 'notifications-center', 'nav_header_showUserMenu'] with an i.icon-actions glyph; /barn/editor, /barn/extensions and /barn/extensions/base/build-failed all give only ['notifications-center', 'nav_header_showUserMenu'] and no icon-actions anywhere in the header.",
+      "defect": "The page-actions kebab is a Rancher control that only renders when the page registers page actions. Barn's routes register none, so it is absent on every barn screen even now the header is unhidden. Not a CSS problem any more. The masthead's own three-dot (barn-masthead-overflow) is a different menu and is already recorded as working."
+    },
+    {
+      "id": "03-workspace-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell ([data-testid=notifications-center], aria-label 'Open notification center') on /barn/editor. A .notification-dropdown opened headed 'Notifications' with 'Mark all as read' and real dated entries ('Done  Today, 3:30:59 am  Verification recorded', 'Done  Today, 3:24:23 am  Verifica...'). The trigger also carries the unread indicator ([data-testid=notifications-center-statusunread]). Escape closed it."
+    },
+    {
+      "id": "03-workspace-nav-extensions",
+      "status": "fail",
+      "evidence": "Half of it works. The rail entry is now labelled 'Extension Studio' with the puzzle glyph (i.icon-extension) and href /dashboard/barn/extensions; opened the rail from /barn/editor, clicked it and landed on https://magic-closet-rancher/dashboard/barn/extensions with h1 'Extension Studio' and the .studio-home__table rendered. The selected treatment does not follow you into the workspace: read the computed style of all ten .option entries on three routes. On /barn/extensions the Studio entry is 'router-link-active router-link-exact-active option', colour rgb(255,255,255) on background rgb(2,89,55). On /barn/editor and on /barn/extensions/base/build-failed it is the bare class 'option', colour rgb(0,134,87), background transparent - identical to every other entry.",
+      "defect": "The rail entry is registered with an exact-path route (/barn/extensions), so vue-router only marks it active on that one path. Every other barn route, the workspace included, leaves the rail with no section indicator at all. Registering the entry against the product's route tree (or adding an explicit active-class rule for /barn/*) would fix all of the *-nav-extensions and *-rail-selected findings at once."
+    },
+    {
+      "id": "03-workspace-nav-user",
+      "status": "pass",
+      "evidence": "The account menu is reachable from the workspace again. Clicked [data-testid=nav_header_showUserMenu] (aria-label 'Open user menu') in the restored header on /barn/editor: a dropdown opened reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out'. Same verdict basis as 01-home-nav-user and 02-new-nav-user, which passed on this control. Note the glyph is the header avatar rather than a person icon at the bottom of the rail - the rail's person icon is 'Users & Authentication' and goes to the Users list - but the account menu itself is present and functional on this screen, which is what cross-screen rule 18 asks for."
+    },
+    {
+      "id": "03-workspace-permission-mode",
+      "status": "fail",
+      "evidence": "The chip is still a read-only label. [data-testid=barn-permission-chip] renders as <span class='s-chip s-chip--warning'> with an alert icon, the text 'Edits apply without asking' and a title explaining why ('The assistant runs with --dangerously-skip-permissions in this pod, so its edits land in the working tree as it makes them. Nothing reaches this Rancher until you publish.'). It is a span with no click handler and no chevron. The chevron next to it belongs to a separate menu, [data-testid=barn-session-menu]; opened it and its five items are 'Clear the composer' (disabled), 'Open the terminal', 'Start a new conversation /clear', 'Reattach the terminal', 'Copy the session name mc-editor'. No permission level appears anywhere in it. Confirmed against the pod: the pane footer reads 'bypass permissions on (shift+tab to cycle)', so the label is true.",
+      "defect": "There is still no way to change the assistant's permission mode from anywhere in the product. The chip states the real mode honestly, and the session menu that grew a chevron beside it holds session actions rather than permission levels."
+    },
+    {
+      "id": "03-workspace-phase-chip",
+      "status": "pass",
+      "evidence": "[data-testid=barn-phase-chip] now reads 'Iterating . 1 change' and later, when other agents had added files, 'Iterating . 3 changes'. Cross-checked all three readings of the same number at one moment: the phase chip said 3 changes, the Changes tab badge (.s-tab__count) said 3, the masthead button said 'Review 3 changes' and the Changes tab body said 'Uncommitted changes / 3 files +46-0'. Cross-checked the smaller reading against the pod: with the chip on '1 change', git status --porcelain in /app/pkg/base listed exactly one entry (BRIEF.md) and git diff --numstat gave 41 0 BRIEF.md."
+    },
+    {
+      "id": "03-workspace-preview-live-state",
+      "status": "fail",
+      "evidence": ".preview-panel__live reads 'Loaded . 6s ago' (then 26s, 11s and so on as the timer runs) beside a green dot (.preview-panel__dot, background rgb(62,140,79)). Its title says outright: 'Timed from the last time the frame navigated. It will say \"Hot reload\" once the dev server patches the page in place.' So the relative time and the dot are there, but the thing being timed is a frame navigation, not a hot reload.",
+      "defect": "Unchanged in substance: the readout still measures 'the iframe finished loading', not 'the dev server patched the page', and the dot is green whenever the frame has loaded rather than when the dev server is healthy or compiling. The component now says this in a tooltip instead of a source comment, which is honest but is not the promise."
+    },
+    {
+      "id": "03-workspace-preview-viewport",
+      "status": "pass",
+      "evidence": "Fixed. The chip ([data-testid=barn-preview-viewport], inside .preview-panel__viewport .s-menu) opens a three-item menu: 'Desktop / Showing', 'Tablet / 834px', 'Mobile / 390px'. Measured .preview-panel__frame's rendered width through the whole cycle: Desktop 970px (flex-grow 1), Tablet 834px (flex-grow 0), Mobile 390px (flex-grow 0), back to Desktop 970px, Tablet again 834px. The chip label followed each pick. This is the case that read 970px in all three states before."
+    },
+    {
+      "id": "03-workspace-raw-output-toggle",
+      "status": "fail",
+      "evidence": "The strip exists now and is not dead: after sending a message, [data-testid=barn-open-raw-output] appears under the turn reading 'Open the raw output' with the note 'the terminal is still here' and a right-chevron. Clicking it moved the selected tab to Terminal and rendered the live xterm session (document.querySelector('.xterm') present). Clicking it again is not possible - the control is gone once you are on the Terminal tab; you get back with the Assistant tab.",
+      "defect": "It is a tab switch, not a disclosure. Nothing expands inline under the steps and there is no collapse, so the toggle half of the promise is unmet and the raw output replaces the stream instead of appearing beneath it. Compare 08-failed-raw-output, which now does exactly the inline expand/collapse this one is missing."
+    },
+    {
+      "id": "03-workspace-send",
+      "status": "pass",
+      "evidence": "Fixed, and verified in the pod rather than in the UI. Typed 'w1verify probe 7413 reply with only OK' into .assistant-panel__input and clicked Send. tmux -S /tmp/tmux-1000/default capture-pane -p -t mc-editor showed the line submitted as its own prompt - '> w1verify probe 7413 reply with only OK' with claude's answer under it ('Not logged in . Please run /login') - and the prompt box below it empty. That is the exact failure mode that was reported before (the text left sitting unsent in the input box) and it no longer happens. Repeated with three more messages in a later session, all submitted."
+    },
+    {
+      "id": "03-workspace-session-status",
+      "status": "pass",
+      "evidence": "The strip now reads the pod, not the dashboard. [data-testid=barn-session-state] says 'The assistant is not signed in . run /login in the terminal' with a warn-coloured dot (.assistant-panel__dot--warn) and a title that names what it checked: 'There is no credential in this pod: no OAuth credentials file, no API key in its environment and no account in .claude.json.' Cross-checked all three: kubectl -n barn exec deploy/barn-base-extension -- ls /app/.home/.claude shows no .credentials.json, and /app/.home/.claude.json contains no oauthAccount. Cross-checked the consequence too: every prompt I sent came back 'Not logged in . Please run /login' in the tmux pane. This is the reading that used to say 'Connected as admin' while the terminal said the opposite. I did not delete the pod to test the disconnected state (shared environment)."
+    },
+    {
+      "id": "03-workspace-step-duration",
+      "status": "fail",
+      "evidence": "No step rows exist to carry a duration. After four sends across two sessions the stream contained only .turn/.turn--user nodes, each made of a .turn__meta line and a .turn__bubble; document.querySelectorAll('.turn__step, .activity-step, [class*=step]') returned 0. The panel states the reason in place: the assistant's output is a character stream that is not parsed into events.",
+      "defect": "Unchanged. The user half of the stream is now populated, but nothing ever produces steps, so no per-step duration is rendered."
+    },
+    {
+      "id": "03-workspace-step-expand",
+      "status": "fail",
+      "evidence": "No step rows and no chevrons in the stream: the only nodes rendered per turn are .turn__meta and .turn__bubble, and a query for step-like elements returned 0 across four sends.",
+      "defect": "Unchanged. There is nothing to expand because no step is ever emitted."
+    },
+    {
+      "id": "03-workspace-step-files",
+      "status": "fail",
+      "evidence": "No step rows are rendered at all (0 matches for step-like selectors after four sends), so no sub-line names files. The turn bubble contains only the text you typed.",
+      "defect": "Unchanged."
+    },
+    {
+      "id": "03-workspace-step-progress",
+      "status": "fail",
+      "evidence": "Sent messages and watched the stream for nine seconds and then again after the reply landed in the pod: no in-flight row, no spinner, no tinted step ever appeared - the stream holds only the user bubble.",
+      "defect": "Unchanged. The running-step treatment exists in the component but nothing drives it."
+    },
+    {
+      "id": "03-workspace-step-status",
+      "status": "fail",
+      "evidence": "No step rows, so no completion glyphs. The only icon in a turn is the icon-user glyph in the meta line.",
+      "defect": "Unchanged."
+    },
+    {
+      "id": "03-workspace-turn-assistant",
+      "status": "fail",
+      "evidence": "Sent four prompts. Each produced a user turn and nothing else; the space where the assistant's reply would go holds a fixed .assistant-panel__gap line reading 'The assistant's replies are in the terminal. Its output is a character stream, not typed events, so this view cannot yet show them as steps with durations.' The replies do exist - tmux capture-pane in the pod shows claude answering each prompt - they are simply never turned into a turn.",
+      "defect": "The assistant side of the transcript is still absent. No prose summary, no attribution to 'Assistant', no step count. The gap line is honest about why."
+    },
+    {
+      "id": "03-workspace-turn-user",
+      "status": "pass",
+      "evidence": "Fixed. Sending 'w1verify probe 7413 reply with only OK' put a <div class='turn turn--user'> in the stream with a meta line 'You . just now' beside an icon-user glyph and the exact text in .turn__bubble. The relative time is live: the same turn read 'You . 11 seconds ago' on the next look, and a later session's first turn read 'You . 15 seconds ago' by the time the third was sent."
+    },
+
+    {
+      "id": "07-publish-autosave",
+      "status": "pass",
+      "evidence": "The masthead now carries the readout, not just the menu. [data-testid=barn-snapshot-age] sits behind an icon-history clock and read 'Snapshot saved 12h ago' on load. Took a snapshot named 'w1-workspace snapshot probe' from the same menu; the masthead string became 'Snapshot saved 9s ago' and, twenty seconds later without any interaction, 'Snapshot saved 29s ago'. Reopening the menu listed the new snapshot ('w1-workspace snapshot probe / 30 seconds ago') above the existing 'probe point A / 12 hours ago'. Snapshots are still taken by hand rather than automatically, and the masthead is honest about that (no 'autosaving' claim anywhere), but the promise as written - the masthead reports how long ago the snapshot was saved, and it updates - holds. I deleted my snapshot tag (barn-snap/1787459682007) afterwards."
+    },
+    {
+      "id": "07-publish-back",
+      "status": "pass",
+      "evidence": "Clicked the back chevron left of 'base' on /barn/editor (.studio-masthead button[aria-label=Back]). Landed on https://magic-closet-rancher/dashboard/barn/extensions with .studio-home__table rendered. Previously this went to /dashboard/home."
+    },
+    {
+      "id": "07-publish-branch-chip",
+      "status": "pass",
+      "evidence": "The chip is a real picker now and it really checks out. [data-testid=barn-branch-menu] opens an s-menu; with one branch in the pod it listed exactly 'main / current', which matches git branch in /app/pkg/base. I created a second branch in the pod (git branch w1-verify-branch) and reopened it: the menu listed both, with the current one marked. Clicked the other one, and kubectl -n barn exec -- git rev-parse --abbrev-ref HEAD returned w1-verify-branch, with the chip updating to match. Clicked 'main' from there and the pod went back to main and the chip followed. Uncommitted files survived both checkouts. I deleted the test branch afterwards and left the tree on main."
+    },
+    {
+      "id": "07-publish-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Reclassified from fail: with the header now visible the question is answerable, and there is no such control in this product. Enumerated every button and anchor in .rd-header-right on /dashboard/home (where the header is fullest): page-actions-menu-action-button, notifications-center, nav_header_showUserMenu, and the icons are icon-actions and icon-notify-bell only. No grid glyph, no app switcher, on any route. The tinted square at the far right of the header is the account avatar image, which is the user menu. Same finding as 03-workspace-header-app-collection, which is already recorded not-implemented.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-logo",
+      "status": "pass",
+      "evidence": "The header is back on the editor/publish screen and it carries the branding. header[data-testid=header] computes to display:flex at 55px tall on /barn/editor, and header .simple-title holds img[data-testid=header__brand-img] at 200x36. In a screenshot of /barn/editor the top-left of the Studio's own chrome shows the green chameleon followed by 'SUSE Rancher Prime'. The words live inside the logo SVG rather than as header text, which is why an earlier text-only search for them came up empty."
+    },
+    {
+      "id": "07-publish-header-more",
+      "status": "fail",
+      "evidence": "Same measurement as 03-workspace-header-more. The header is visible on /barn/editor and holds only the notification bell and the user menu; Rancher's page-actions kebab (data-testid page-actions-menu-action-button, i.icon-actions) is present on /dashboard/home and absent from .rd-header-right on /barn/editor, /barn/extensions and /barn/extensions/base/build-failed.",
+      "defect": "The kebab only renders for pages that register page actions, and no barn route does. Unhiding the header did not bring it back because it was never being rendered on these routes."
+    },
+    {
+      "id": "07-publish-header-notifications",
+      "status": "pass",
+      "evidence": "Same control, same screen as 03-workspace-header-notifications: clicked [data-testid=notifications-center] on /barn/editor and the notification tray opened with real entries ('Verification recorded', timestamped today) and a 'Mark all as read' action."
+    },
+    {
+      "id": "07-publish-nav-extensions",
+      "status": "fail",
+      "evidence": "The link half is fixed: the rail's puzzle-glyph entry is now 'Extension Studio' -> /dashboard/barn/extensions (it used to be a flask labelled 'Editor', with the puzzle going to Rancher's uiplugins page). Clicked it from /barn/editor and landed on the Studio home, h1 'Extension Studio'. The highlight half is not: on /barn/editor every .option in the rail computes to colour rgb(0,134,87) on a transparent background with the bare class 'option'; the router-link-exact-active treatment (white on rgb(2,89,55)) only appears when you are actually on /barn/extensions.",
+      "defect": "No rail item is drawn as the current section while you are in the workspace. Same root cause as 03-workspace-nav-extensions and 08-failed-rail-selected."
+    },
+    {
+      "id": "07-publish-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the account button in the restored header on /barn/editor ([data-testid=nav_header_showUserMenu]) and the account menu opened: 'admin / Default Admin / Preferences / Account & API Keys / Log Out'. Consistent with the pass recorded for the same control on 01-home and 02-new. The rail's person glyph is still 'Users & Authentication' and still goes to the Users list, so the menu is in the header rather than at the foot of the rail."
+    },
+    {
+      "id": "07-publish-open-dialog",
+      "status": "pass",
+      "evidence": "Publish is a chooser now. Clicked [data-testid=barn-publish-button] in the masthead on /barn/editor and a .s-modal opened titled 'Publish base', with the line 'Pick every place this should go. Each one is a separate step and says below whether it can be undone.', a changeset block, a 'Destinations' list and a Cancel / 'Publish to 1 place' footer. Nothing was published by opening it. Cancel ([data-testid=barn-publish-cancel]) closed it and left .s-modal count at 0."
+    },
+    {
+      "id": "07-publish-permission-chip",
+      "status": "fail",
+      "evidence": "Same finding as 03-workspace-permission-mode. [data-testid=barn-permission-chip] is a <span class='s-chip s-chip--warning'> reading 'Edits apply without asking' with an explanatory title; it has no click handler. The chevron beside it is [data-testid=barn-session-menu], whose items are 'Clear the composer', 'Open the terminal', 'Start a new conversation /clear', 'Reattach the terminal', 'Copy the session name'. No permission levels.",
+      "defect": "No permission-level menu exists and no permission mode is settable from anywhere. The label is true (the pod runs claude with --dangerously-skip-permissions, confirmed in its pane footer)."
+    },
+    {
+      "id": "07-publish-preview-page-tabs",
+      "status": "fail",
+      "evidence": "Reached into the preview iframe from the parent document (same origin). Its location is the pod's dev server behind the apiserver proxy (.../barn-base-extension:8005/proxy/home), its h1 is 'Welcome to Rancher Prime', and a query for [role=tab] / .tabs .tab inside it returned zero elements.",
+      "defect": "Unchanged. The framed page has no tab strip of its own, and the design's 'Node health' tab would have to be produced by the extension under preview - the base extension adds a single Home page and no tabs."
+    },
+    {
+      "id": "07-publish-preview-target-chip",
+      "status": "fail",
+      "evidence": "Still a static label. The chip reads 'Preview on: local' and renders as <span class='s-chip s-chip--default'> in the masthead, outside any .s-menu, with no clickable class and no handler; it now carries a title explaining the omission ('Every extension pod is created in this cluster (see EXT_CLUSTER in extensions.ts), so the preview is served from it. There is nowhere else to run one, which is why this is not a picker.'). Compare the branch chip beside it, which was converted into a working s-menu.",
+      "defect": "No cluster picker, and the value is still a constant rather than a reading - it would keep saying 'local' if the pod ran anywhere else. The tooltip is honest about why, so this is a declared gap rather than a lie."
+    },
+    {
+      "id": "07-publish-preview-viewport",
+      "status": "pass",
+      "evidence": "Same measurement as 03-workspace-preview-viewport, which was the reported defect on this screen too. .preview-panel__frame measured 970px on Desktop (flex-grow 1), 834px on Tablet and 390px on Mobile (flex-grow 0 in both), and returned to 970px when Desktop was reselected. The menu offers exactly Desktop / Tablet 834px / Mobile 390px and marks the current one 'Showing'."
+    },
+    {
+      "id": "07-publish-review-changes",
+      "status": "pass",
+      "evidence": "The count is in the label now and the button does the work. [data-testid=barn-review-changes] read 'Review 1 change' when the pod had one changed file and 'Review 3 changes' when it had three. Clicked it: the selected tab moved to Changes and the panel rendered the real diff - 'Uncommitted changes / 1 file +41-0 / BRIEF.md +41 -0' followed by the added lines - matching git diff --numstat in the pod (41 0 BRIEF.md)."
+    },
+    {
+      "id": "07-publish-tab-assistant",
+      "status": "fail",
+      "evidence": "The tab and its selected state work (clicked Assistant, Files, Changes and Terminal in turn; .s-tab--selected followed each and the body changed). The content behind it is now half of what the design puts there: the conversation shows your own turns (verified by sending four messages) but never the assistant's, and there are no run steps at all (0 step-like nodes in the stream).",
+      "defect": "Assistant turns and step rows are still missing, so the tab shows a list of your prompts rather than the conversation and the run. See 03-workspace-turn-assistant and the 03-workspace-step-* findings."
+    },
+    {
+      "id": "07-publish-target-dev-load",
+      "status": "pass",
+      "evidence": "It is a real destination now. In the publish modal the first row is 'This Rancher' with checkbox [data-testid=barn-publish-target-local] checked on open, described as 'Builds the package in the pod and points this Rancher at the result...' and marked 'Reversible: \"Remove local install\" takes it back off.' Unticking it dropped the confirm button from 'Publish to 2 places' to 'Publish to 1 place', and unticking both changed it to 'Pick a destination' and disabled it. Nothing gates it behind a sign-off. I cancelled rather than confirming; the same publishTo('local') path was separately proved to work end to end (see 08-failed-publish). The design's literal 'No sign-off' requirement badge is not rendered - the row carries a reversibility note instead - but no sign-off is in fact required."
+    },
+    {
+      "id": "07-publish-target-github",
+      "status": "fail",
+      "evidence": "The tickable-destination half is fixed: the modal's second row is 'GitHub' with checkbox [data-testid=barn-publish-target-github], and ticking it took the confirm button to 'Publish to 2 places'. Two things still do not match. It is not ticked by default (checked=false on open, unlike 'This Rancher'), and it does not open a pull request: the row's own note says 'Not reversible from here: it pushes to the repository's main branch rather than opening a pull request.' I cancelled rather than confirming, so I did not push anything.",
+      "defect": "Publishing to GitHub still lands on the default branch instead of opening a PR without merging, which is a materially different promise, and the row is off by default where the design has it on. The UI now states the branch behaviour plainly instead of hiding it."
+    },
+
+    {
+      "id": "08-failed-failure-card",
+      "status": "fail",
+      "evidence": "Seeded barn.publish.failure with a ten-line log and loaded /barn/extensions/base/build-failed. The card reads: headline 'The publish did not finish: the extension did not build', then the sub-heading 'The line that looks like the problem', then the raw log line 'ERROR in ./pages/Home.vue', then 'Picked out of the log by pattern, not by understanding it - the assistant does not yet read a build log and explain it. Treat this as a pointer to where to look.' No plain-language headline about what went wrong, no sub-line separating build success from the real fault, no explanatory paragraph.",
+      "defect": "Unchanged. What the screen shows is still a regex-picked log line, with a disclaimer saying so. The 'explained' half of the screen is not delivered; the honest labelling is the right call while that is true, and the two genuinely new controls on this screen (the raw-output disclosure and 'Show me <file> at line N') are the useful parts of the answer instead."
+    },
+    {
+      "id": "08-failed-publish",
+      "status": "pass",
+      "evidence": "The handoff query is live and a publish really happens. Two observations. (1) The query is read and consumed: loading /barn/editor?publish=w1bogus left the URL as /barn/editor with the key stripped and no publish started, while a control key (/barn/editor?w1keep=1) survived untouched - so the stripping is specific to publish/brief. The shipped bundle (barn-0.5.22.umd.min.863.js) shows why: mounted() calls handleHandoff(), which reads $route.query.publish, $router.replace()s the query without publish and brief, and then calls publishTo(e) for 'local' or 'github'. (2) I drove it once, deliberately, to settle the rest: clicked 'Try the publish again' on the build-failed screen. It navigated to /barn/editor/base, stripped the key, and the publish ran to completion - the publish-status strip ended on 'base 0.1.0 installed' and kubectl showed a new UIPlugin, cattle-ui-plugin-system/base, plugin base v0.1.0. I removed that UIPlugin afterwards to put the environment back. Caveat worth recording: screen 08 has no .studio-masthead at all, so the control is the 'Try the publish again' button in the Ways back column rather than a masthead Publish."
+    },
+    {
+      "id": "08-failed-rail-selected",
+      "status": "fail",
+      "evidence": "Opened the rail on /barn/extensions/base/build-failed and read the computed style of all ten .option entries: every one is class 'option', colour rgb(0,134,87), background rgba(0,0,0,0), including 'Extension Studio'. For contrast, on /barn/extensions the same entry is 'router-link-active router-link-exact-active option', colour rgb(255,255,255) on rgb(2,89,55). The rail is also a slide-out that is closed on load, so nothing at all marks the section until you open it.",
+      "defect": "Unchanged. The Studio product's rail entry is bound to the exact path /barn/extensions, so no barn sub-route lights it up."
+    },
+    {
+      "id": "08-failed-raw-output",
+      "status": "pass",
+      "evidence": "Both halves are there now. Seeded a ten-line log: the collapsed row reads 'Show raw output' with the count '10 lines' beside it, aria-expanded=false and an icon-chevron-down, and .failed__log is absent from the DOM (the panel says 'The raw output is collapsed / 10 lines of build output are kept with this failure and survive a reload'). Clicking [data-testid=barn-raw-output-toggle] expanded it: aria-expanded went to true, the chevron flipped to icon-chevron-up, and .failed__log rendered my seeded lines byte for byte, marker line included. Clicking again collapsed it and flipped the chevron back. Re-seeded with a five-line log and the count read '5 lines', so it is counting the real log rather than a constant."
+    },
+    {
+      "id": "08-failed-show-file",
+      "status": "pass",
+      "evidence": "Seeded a failure whose log names a file that exists ('ERROR in ./pages/Home.vue', 'Module parse failed: Unexpected token (17:8)'). The button ([data-testid=barn-show-file]) reads 'Show me pages/Home.vue at line 17' - it picks the line number out of the log. Clicking it expanded an inline viewer of the real file read out of the pod: 47 numbered lines matching /app/pkg/base/pages/Home.vue, and line 17 carries class 'failed__file-line failed__file-line--here' with a red-tinted background rgb(253,236,236). The button became 'Hide pages/Home.vue at line 17'. It also handles the case the old defect worried about: with a log naming a file that is not in the extension the button expands to 'The log names pages/NodeHealth.vue, and there is no such file in this extension. It is most likely a path from inside a dependency, or from a build that is no longer current', rather than routing you somewhere arbitrary."
+    }
+  ]
+}

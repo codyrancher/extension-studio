@@ -38,6 +38,19 @@ export const VERIFICATION_ROUTE = 'barn-verification';
 export const BUILD_FAILED_ROUTE = 'barn-build-failed';
 
 /**
+ * The one page settings are edited on (Figma screen 09).
+ *
+ * A route rather than the dialog it replaces, because the design's caption for this frame is
+ * "connection, permissions, access and data in one place" - and "in one place" is only true if
+ * there is a place. The gear that used to open the token modal opens a signpost to this page
+ * now (components/EditorSettingsModal.vue), so nothing else edits the same settings.
+ *
+ * Not registered as a nav entry in the rail: every Studio route uses the `plain` layout, which
+ * draws Rancher's header and no product side nav, so a virtualType here would show up nowhere.
+ */
+export const SETTINGS_ROUTE = 'barn-settings';
+
+/**
  * Where a newly created extension is watched while it comes up.
  *
  * A separate route rather than a state of the editor page, because the editor

@@ -100,8 +100,26 @@ export default {
         placeholder="owner/name"
         :disabled="loading || pushing"
         :error="repoInvalid ? 'That has to be owner/name.' : ''"
+        input-testid="barn-publish-github-repo"
         @enter="publish"
       />
+
+      <!--
+        What this actually does, said before it is done.
+
+        The design for screen 07 calls this destination a pull request, and a reader who took
+        that on trust would press this expecting a branch and a review. `publishExtensionToGithub`
+        runs `git push <remote> HEAD:refs/heads/main`: it lands on the default branch, with
+        nobody's approval, and there is no way back from here. Until that function pushes a
+        branch and opens a PR, this is the sentence that keeps the promise honest.
+      -->
+      <p
+        class="publish-github__where"
+        data-testid="barn-publish-github-where"
+      >
+        This pushes straight to <strong>main</strong> in that repository. It does not open a pull
+        request, and there is nothing here to undo it with.
+      </p>
     </div>
 
     <template #footer>
@@ -128,5 +146,11 @@ export default {
   gap:            var(--studio-space-12);
 
   a { color: var(--studio-text-link); }
+
+  &__where {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
+  }
 }
 </style>

@@ -116,14 +116,44 @@ const changed = [
     // Merged rather than assigned, so a hook someone added by hand survives, and
     // matched on the command so this cannot accumulate copies of itself.
     const hooks = settings.hooks || (settings.hooks = {});
-    const stop = hooks.Stop || (hooks.Stop = []);
-    const command = 'node /seed/claude-credentials.mjs push';
 
-    const already = stop.some((entry) => (entry.hooks || []).some((hook) => hook.command === command));
+    /**
+     * Add one hook to one event, once.
+     *
+     * Matched on the command string rather than on position, for the reason the credentials
+     * hook already had: this runs on every boot and on every tab, and a settings file that
+     * accumulated a copy of each hook per tab would run the same commit five times.
+     */
+    const register = (event, command, matcher) => {
+      const list = hooks[event] || (hooks[event] = []);
+      const already = list.some((entry) => (entry.hooks || []).some((hook) => hook.command === command));
 
-    if (!already) {
-      stop.push({ hooks: [{ type: 'command', command }] });
-    }
+      if (!already) {
+        const entry = { hooks: [{ type: 'command', command }] };
+
+        if (matcher) {
+          entry.matcher = matcher;
+        }
+
+        list.push(entry);
+      }
+    };
+
+    register('Stop', 'node /seed/claude-credentials.mjs push');
+
+    // Provenance: what produced each line of a change, recorded while it is being made. See
+    // barn-provenance.mjs for what these three record and, just as importantly, for the four
+    // things they deliberately do not claim.
+    //
+    // claude's own hooks rather than anything read off the pane. `tmux send-keys` is
+    // write-only, so the product can say what it sent and nothing about what happened next,
+    // and the pane's output is a character stream rather than a sequence of typed events.
+    register('UserPromptSubmit', 'node /seed/barn-provenance.mjs prompt');
+    register('PostToolUse', 'node /seed/barn-provenance.mjs touch', 'Edit|Write|MultiEdit|NotebookEdit');
+
+    // Last, so a refreshed credential is already pushed by the time this commits: both are
+    // Stop hooks and they run in the order they are listed.
+    register('Stop', 'node /seed/barn-provenance.mjs stop');
   }),
 ].some(Boolean);
 

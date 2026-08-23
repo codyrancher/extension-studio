@@ -15,7 +15,6 @@ import {
   SButton, SBadge, SIcon, SEmpty, SMenu, SModal
 } from '../components/ui';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
-import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import StartingExtensions from '../components/StartingExtensions.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
@@ -23,7 +22,7 @@ import {
   ensureExtension, removeLocalInstall
 } from '../extensions';
 import {
-  EDITOR_ROUTE, NEW_EXTENSION_ROUTE, REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE
+  EDITOR_ROUTE, NEW_EXTENSION_ROUTE, REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, SETTINGS_ROUTE
 } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
@@ -161,7 +160,6 @@ export default {
     SMenu,
     SModal,
     ImportExtensionModal,
-    EditorSettingsModal,
     StartingExtensions,
   },
 
@@ -182,7 +180,6 @@ export default {
       // re-shuffle of it.
       sortKey:   'name',
       sortDir:   'asc',
-      showSettings: false,
       // The row whose local install is being removed, or null. Held rather than acted on: it
       // changes the Rancher everybody else is looking at, so it asks first.
       removing:  null,
@@ -191,6 +188,17 @@ export default {
   },
 
   computed: {
+    /**
+     * The route names the template pushes to.
+     *
+     * A plain `<script>` block's module scope is not the render function's scope, so an
+     * imported constant used bare in the template resolves to `undefined` and the push is
+     * dropped without an error. See the same computed in files.vue.
+     */
+    routes() {
+      return { SETTINGS_ROUTE };
+    },
+
     columns() {
       return COLUMNS;
     },
@@ -543,22 +551,6 @@ export default {
       }
     },
 
-    /**
-     * Settings, from the import modal that wanted a token it did not have.
-     *
-     * The import modal is closed on the way, because a dialog on top of a dialog has no way
-     * back from either - and closing settings puts it back, so somebody sent here mid-import
-     * lands where they left rather than on an empty page. Same contract as editor.vue.
-     */
-    openSettings() {
-      this.importing = false;
-      this.showSettings = true;
-    },
-
-    closeSettings() {
-      this.showSettings = false;
-      this.importing = true;
-    },
   },
 };
 </script>
@@ -601,6 +593,21 @@ export default {
 
         <SButton variant="neutral" icon="github" @click="importing = true">
           Import
+        </SButton>
+        <!--
+          The Studio's settings, which this screen had no route to at all: the only way in was
+          the import dialog's "Add one in settings" link, and that link is gone. It goes to the
+          settings page rather than to the token modal - screen 09's caption makes that page
+          the one home for connection, permissions, access and data, and a second surface
+          editing the same values is the thing it replaces.
+        -->
+        <SButton
+          variant="neutral"
+          icon="gear"
+          data-testid="studio-settings"
+          @click="$router.push({ name: routes.SETTINGS_ROUTE })"
+        >
+          Settings
         </SButton>
         <SButton variant="primary" icon="plus" @click="newExtension">
           New extension
@@ -725,10 +732,7 @@ export default {
       v-if="importing"
       @close="importing = false"
       @create="onCreate"
-      @settings="openSettings"
     />
-
-    <EditorSettingsModal v-if="showSettings" @close="closeSettings" />
 
     <!--
       Removing the local install changes the Rancher everybody else is signed in to, so it asks

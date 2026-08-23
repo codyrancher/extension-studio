@@ -276,8 +276,14 @@ export function placementSection(plan: PlacementPlan): string[] {
  * reads BRIEF.md on mount and writes the same shape back, so a draft written here is the form
  * that screen opens on, and agreeing replaces it rather than colliding with it.
  *
- * The headings are exactly the ones brief.vue's `briefMarkdown` emits and its `parseBrief`
- * reads. Change one without the other and the brief stops round-tripping.
+ * The headings are exactly the ones brief.vue's `briefDocument` emits and its `parseBrief`
+ * reads, in the same order, so the first save is a no-op rather than a reshuffle. Change one
+ * without the other and the brief stops round-tripping.
+ *
+ * `## What you were handed` is the request as it was typed, and it is written here rather than
+ * left for screen 10 for the same reason everything else is: screen 10's own card for it was
+ * empty on arrival from the query alone, and a card that says "nothing was carried through"
+ * about a request somebody typed one screen ago is the product losing their words.
  */
 export function briefDraft(plan: PlacementPlan): string {
   const problem = plan.outcome.trim() || plan.prompt.trim();
@@ -286,10 +292,16 @@ export function briefDraft(plan: PlacementPlan): string {
   const lines = [
     `# ${ plan.name }`,
     '',
+    '## What you were handed',
+    plan.prompt.trim() || '_not stated_',
+    '',
     '## The problem',
     problem || '_not stated_',
     '',
     '## Who has it',
+    '_not stated_',
+    '',
+    '## Written for',
     '_not stated_',
     '',
     '## What changes for them',
@@ -300,6 +312,12 @@ export function briefDraft(plan: PlacementPlan): string {
     '',
     '## How we will know it worked',
     '_not stated_',
+    '',
+    '## Open questions',
+    '_none open_',
+    '',
+    '## Prior art we are reusing',
+    '_nothing chosen_',
     ...placementSection(plan),
     '',
     '---',

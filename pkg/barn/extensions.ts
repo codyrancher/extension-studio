@@ -806,11 +806,41 @@ export function seedConfigMapBody(name: string, source: string = DEFAULT_SEED): 
   };
 }
 
+/**
+ * The grant a reviewer needs, which is not the grant the pods have.
+ *
+ * Signing off writes the `barn-review-<extension>` ConfigMap in this namespace, and today
+ * everything in here is admin territory in practice. This creates the Role; binding it to
+ * somebody is an admin decision and not one an extension gets to make for them.
+ *
+ * Until a reviewer is bound, reading the record still works (a missing ConfigMap and a
+ * forbidden one both read as "nothing recorded"), and the sign-off controls have to be
+ * disabled with the real reason shown. An enabled button that turns into a 403 is the failure
+ * this exists to make visible.
+ */
+export const REVIEWER_ROLE = 'barn-reviewer';
+
+export function reviewerRoleBody(): Record<string, unknown> {
+  return {
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind:       'Role',
+    metadata:   { namespace: EXT_NS, name: REVIEWER_ROLE },
+    rules:      [{
+      apiGroups: [''],
+      resources: ['configmaps'],
+      verbs:     ['get', 'list', 'create', 'update', 'patch'],
+    }],
+  };
+}
+
 async function ensureShared(): Promise<void> {
   await createIfAbsent({ type: 'namespaces', name: EXT_NS, body: namespaceBody });
   await createIfAbsent({ type: 'serviceaccounts', namespace: EXT_NS, name: EXT_ACCOUNT, body: serviceAccountBody });
   await createIfAbsent({
     type: 'rbac.authorization.k8s.io.clusterrolebindings', name: EXT_ROLE_BINDING, body: clusterRoleBindingBody,
+  });
+  await createIfAbsent({
+    type: 'rbac.authorization.k8s.io.roles', namespace: EXT_NS, name: REVIEWER_ROLE, body: reviewerRoleBody,
   });
 }
 
@@ -1497,6 +1527,22 @@ export async function ensureExtensionRepo(name: string): Promise<void> {
   ].join(' ; '));
 }
 
+/**
+ * `inPackage` for the review system, which lives in its own file.
+ *
+ * review.ts owns the packet, the sign-offs and the gate, and all three are git work in the
+ * pod. Exporting the runner rather than moving the git into this file keeps the dependency in
+ * one direction - review.ts reads extensions.ts and never the other way - which is what stops
+ * the two forming a cycle in the bundle.
+ *
+ * It is the same trust boundary everything else here already crosses: the page execs into the
+ * pod with the user's own session. It is not a general escape hatch, and a screen that wants
+ * to run something in the pod should get a named function for it instead.
+ */
+export function runInPackage(name: string, script: string): Promise<string> {
+  return inPackage(name, script);
+}
+
 /** Every file in the package, as paths relative to it. Excludes node_modules by construction. */
 export async function listExtensionFiles(name: string): Promise<string[]> {
   // `find` rather than `git ls-files`, so a file created a moment ago and not yet added is
@@ -1693,20 +1739,161 @@ export async function commitExtension(name: string, message: string): Promise<st
   ].join(' && '));
 }
 
-/** How many files differ from the last commit, so the UI can offer to make one. */
+// ---------------------------------------------------------------------------
+// The baseline: the point a change is measured from.
+//
+// Step 2 of scripts/feature-audit/REVIEW-SYSTEM.md. Every diff in this product used to be
+// against HEAD, and HEAD is the wrong point twice over:
+//
+//   - A local publish never commits, so HEAD does not move when something is published and a
+//     reviewer of a published extension is shown changes measured from a commit that has
+//     nothing to do with what was published (cross-screen rule 7).
+//   - With the provenance hooks committing once per assistant turn, HEAD moves constantly, so
+//     "changed since HEAD" is "changed since the assistant last stopped typing", which is
+//     nothing at all.
+//
+// So the diff screens measure from the last version other people could get, in the order of
+// how far the extension travelled: the last distribution, then the last local publish, then
+// HEAD when neither has happened. HEAD is the honest fallback rather than a guess, and the
+// screens are told which one it was so they can say so instead of implying the last publish.
+// ---------------------------------------------------------------------------
+
+/** The last version other people could install. Written by `distributeExtension`. */
+export const BASELINE_OCI_REF = 'refs/barn/published/oci';
+
+/** The last version this Rancher loads. Written by `publishExtension`. */
+export const BASELINE_LOCAL_REF = 'refs/barn/published/local';
+
+/**
+ * Shell that leaves the baseline revision in `$BARN_BASE`.
+ *
+ * Inline rather than a round trip of its own: every caller below is already one exec into the
+ * pod, and resolving the baseline separately would double that for every diff on every screen.
+ */
+const BASELINE_SH = [
+  `BARN_BASE=$(git rev-parse --verify -q ${ BASELINE_OCI_REF }`,
+  `|| git rev-parse --verify -q ${ BASELINE_LOCAL_REF }`,
+  '|| git rev-parse --verify -q HEAD)',
+].join(' ');
+
+/**
+ * `git add -A -N`, which every baseline diff needs and not only for new files.
+ *
+ * A file that is untracked is absent from the index, so `git diff <a commit that has it>`
+ * reports it as *deleted*. Once a baseline exists that is every untracked file in the tree, so
+ * without this the review screens would show the assistant's new files as deletions. Intent-to-add
+ * records the path without staging the content, which puts the file in the diff as what it is.
+ */
+const INTENT_SH = 'git add -A -N >/dev/null 2>&1';
+
+/**
+ * The same question as a count, without writing the index.
+ *
+ * Counting is on the hottest path in the product - one call per row on the extensions list and
+ * one per row on the review queue, several of them in flight at once - and `git add -A -N` takes
+ * `index.lock`, so two of those racing on one pod leaves one of them silently doing nothing.
+ * The union of "tracked paths that differ from the baseline" and "files git has never seen" is
+ * the same answer and touches nothing.
+ */
+const COUNT_SH = [
+  '{ git diff --name-only --no-renames "$BARN_BASE" 2>/dev/null',
+  '; git ls-files -o --exclude-standard 2>/dev/null ; } | sort -u | grep -c .',
+].join(' ');
+
+export interface Baseline {
+  /** oci | local | head | none */
+  kind:  string;
+  ref:   string;
+  sha:   string;
+  /** A sentence a screen can render: which point the diff beside it was measured from. */
+  label: string;
+}
+
+/**
+ * Which point this extension's changes are being measured from, for a screen to say out loud.
+ *
+ * A separate call from the diffs themselves, because the diffs resolve it inline and a screen
+ * only needs the sentence once. `none` is a pod with no repository yet, not an error.
+ */
+export async function baselineRef(name: string): Promise<Baseline> {
+  const out = await inPackage(name, [
+    BASELINE_SH,
+    `for r in ${ BASELINE_OCI_REF } ${ BASELINE_LOCAL_REF } ; do`,
+    'git rev-parse --verify -q "$r" >/dev/null && { echo "KIND=$r"; break; } ; done',
+    'echo "SHA=$BARN_BASE"',
+  ].join(' ; ')).catch(() => '');
+
+  const sha = (/SHA=(\S+)/.exec(out)?.[1] || '').trim();
+  const ref = (/KIND=(\S+)/.exec(out)?.[1] || '').trim();
+
+  if (!sha) {
+    return {
+      kind: 'none', ref: '', sha: '', label: 'this extension has no history yet, so there is nothing to measure from',
+    };
+  }
+
+  if (ref === BASELINE_OCI_REF) {
+    return {
+      kind: 'oci', ref, sha, label: 'measured against the last version that was handed over',
+    };
+  }
+
+  if (ref === BASELINE_LOCAL_REF) {
+    return {
+      kind: 'local', ref, sha, label: 'measured against the last version published into this Rancher',
+    };
+  }
+
+  return {
+    kind:  'head',
+    ref:   'HEAD',
+    sha,
+    label: 'nothing has been published yet, so this is measured against the last commit',
+  };
+}
+
+/**
+ * Record the tree that was just published, so later diffs have a point to measure from.
+ *
+ * A commit object built from the working tree, through a scratch index, so that neither the
+ * real index nor HEAD moves: publishing is not committing, and a publish that quietly staged
+ * the whole tree would change what every other screen reads. `commit-tree` with HEAD as the
+ * parent makes it a real commit in the history's shape without being on any branch, which is
+ * what makes `git diff <ref>` and `git blame` work against it.
+ *
+ * Best effort on purpose. A publish that worked is not undone by a ref that could not be
+ * written; the cost is one screen saying it measured from the last commit instead.
+ */
+async function recordBaseline(name: string, ref: string, subject: string): Promise<string> {
+  const out = await inPackage(name, [
+    'test -d .git || exit 0',
+    'export GIT_INDEX_FILE=/tmp/barn-baseline-index.$$',
+    'rm -f "$GIT_INDEX_FILE"',
+    'git read-tree HEAD 2>/dev/null',
+    'git add -A',
+    'tree=$(git write-tree)',
+    'unset GIT_INDEX_FILE',
+    `commit=$(git -c user.email=barn@rancher.local -c user.name=barn commit-tree "$tree" -p HEAD -m ${ shellQuote(subject) })`,
+    `test -n "$commit" && git update-ref ${ ref } "$commit" && echo "BARN-BASELINE:$commit"`,
+  ].join(' ; ')).catch(() => '');
+
+  return (/BARN-BASELINE:(\S+)/.exec(out)?.[1] || '').trim();
+}
+
+/** How many files differ from the baseline, so the UI can offer to hand them over. */
 export async function countChanges(name: string): Promise<number> {
-  const out = await inPackage(name, 'git status --porcelain 2>/dev/null | wc -l');
+  const out = await inPackage(name, [BASELINE_SH, COUNT_SH].join(' ; '));
 
   return parseInt(out.trim(), 10) || 0;
 }
 
 /**
- * The working tree's changes, file by file.
+ * The change, file by file, measured from the baseline.
  *
- * `git status --porcelain` with the rename-detection off, because the Studio's review screen
- * lists paths and a rename shown as `old -> new` is a path that matches nothing. Untracked
- * files are included and reported as additions, which is what they are to somebody reading
- * the screen - the distinction between "untracked" and "added" is git's, not theirs.
+ * Rename detection off, because the Studio's review screen lists paths and a rename shown as
+ * `old -> new` is a path that matches nothing. Untracked files are included and reported as
+ * additions, which is what they are to somebody reading the screen - the distinction between
+ * "untracked" and "added" is git's, not theirs.
  */
 export interface ChangedFile {
   path:   string;
@@ -1718,46 +1905,39 @@ export interface ChangedFile {
 }
 
 export async function changedFiles(name: string): Promise<ChangedFile[]> {
-  // Three readings in one exec, because the status alone cannot say how big a change is and a
-  // second shell into the pod per screen is a second the reviewer waits.
+  // Two readings in one exec, because a name-status alone cannot say how big a change is and
+  // a second shell into the pod per screen is a second the reviewer waits.
   //
-  // `git diff --numstat HEAD` covers the tracked files only, and an untracked file is exactly
-  // the one the assistant has just written - so the rows that most needed a size were the rows
-  // that had none. They used to acquire one at random, too: `fileDiff` runs `git add -N` on
-  // whatever file you click, so opening a file's diff once made its counts appear on the next
-  // reload and not before.
-  //
-  // `git diff --no-index /dev/null <path>` is the same count without that: it is the diff of
-  // the file against nothing, which is what a new file's diff is, and it touches neither the
-  // index nor the working tree. Counting them here rather than staging intent-to-add for the
-  // whole tree keeps this function a reading.
+  // Against the baseline rather than against `git status`, which is the whole of step 2 for
+  // this function: status answers "what is uncommitted", and once the assistant commits a
+  // turn at a time that is nothing, while the change the reviewer is here for is every commit
+  // since the last published version. `git diff --name-status <baseline>` answers the
+  // question the screen is actually asking, and it covers untracked files too once INTENT_SH
+  // has told git they are coming.
   const out = await inPackage(
     name,
     [
-      // `-uall` so a directory the assistant created is listed as the files in it rather than
-      // as one row saying `pages/`. A directory row cannot be diffed, cannot be counted and
-      // cannot be ticked or unticked meaningfully, which made it the one row on the review
-      // screen that did nothing.
-      'git status --porcelain --no-renames -uall 2>/dev/null',
+      BASELINE_SH,
+      INTENT_SH,
+      'git diff --name-status --no-renames "$BARN_BASE" 2>/dev/null',
       'echo "--numstat--"',
-      'git diff --numstat HEAD 2>/dev/null',
-      'git ls-files -o --exclude-standard 2>/dev/null | while read -r p ; do git diff --no-index --numstat /dev/null "$p" 2>/dev/null ; done',
+      'git diff --numstat --no-renames "$BARN_BASE" 2>/dev/null',
     ].join(' ; ')
   ).catch(() => '');
 
   const [statusOut, numstatOut = ''] = out.split('--numstat--');
   const stats: Record<string, { added: number; removed: number }> = {};
+  // Quotes come off the same way on both readings: git quotes a path with anything awkward in
+  // it, and every caller keys on the plain one.
+  const unquote = (path: string) => path.trim().replace(/^"|"$/g, '');
 
   numstatOut.split('\n').forEach((line) => {
-    const [added, removed, ...rest] = line.trim().split(/\t/);
+    const [added, removed, ...rest] = line.trimEnd().split(/\t/);
 
     if (rest.length) {
-      // `--no-index` names the pair it compared, so an untracked file arrives as
-      // `/dev/null => path`. The path is what every caller keys on, and the quotes git puts
-      // round an awkward one come off here the same way they come off the status line below.
-      const path = rest.join('\t').replace(/^\/dev\/null => /, '').replace(/^"|"$/g, '');
-
-      stats[path] = { added: parseInt(added, 10) || 0, removed: parseInt(removed, 10) || 0 };
+      // A binary file is reported as `-\t-\t<path>`, which parses to zero on both counts -
+      // which is true: it has no lines.
+      stats[unquote(rest.join('\t'))] = { added: parseInt(added, 10) || 0, removed: parseInt(removed, 10) || 0 };
     }
   });
 
@@ -1765,15 +1945,14 @@ export async function changedFiles(name: string): Promise<ChangedFile[]> {
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map((line) => {
-      // Porcelain v1: two status characters, a space, then the path.
-      const code = line.slice(0, 2);
-      const path = line.slice(3).trim().replace(/^"|"$/g, '');
+      const [code, ...rest] = line.split(/\t/);
+      const path = unquote(rest.join('\t'));
 
       let status = 'modified';
 
-      if (code.includes('?') || code.includes('A')) {
+      if (code.startsWith('A')) {
         status = 'added';
-      } else if (code.includes('D')) {
+      } else if (code.startsWith('D')) {
         status = 'deleted';
       }
 
@@ -1787,18 +1966,19 @@ export async function changedFiles(name: string): Promise<ChangedFile[]> {
 }
 
 /**
- * One file's diff against HEAD.
+ * One file's diff, collapsed against the baseline.
  *
- * Same `git add -N` as workingDiff and for the same reason: an untracked file is invisible to
- * `git diff` until git has been told it is coming, and an untracked file is exactly the one a
- * reviewer most wants to see.
+ * The same point `changedFiles` measures from, so a row's counts and the patch under it are
+ * two readings of one change rather than two answers to different questions.
  */
 export async function fileDiff(name: string, path: string): Promise<string> {
   const quoted = `'${ path.replace(/'/g, `'\\''`) }'`;
 
-  // `diff HEAD`, for the reason workingDiff gives: a staged change is invisible to a bare
-  // `git diff`, and this product stages.
-  return inPackage(name, `git add -N -- ${ quoted } >/dev/null 2>&1 ; git diff HEAD -- ${ quoted } 2>/dev/null`);
+  return inPackage(name, [
+    BASELINE_SH,
+    INTENT_SH,
+    `git diff --no-renames "$BARN_BASE" -- ${ quoted } 2>/dev/null`,
+  ].join(' ; '));
 }
 
 /**
@@ -1878,7 +2058,12 @@ export interface ExtensionDetail {
 export async function extensionDetail(name: string): Promise<ExtensionDetail> {
   const out = await inPackage(name, [
     'echo "BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"',
-    'echo "CHANGES=$(git status --porcelain 2>/dev/null | wc -l)"',
+    // Against the baseline, not against HEAD, and for the reason countChanges gives: with the
+    // assistant committing a turn at a time, "uncommitted files" is not a count of anything a
+    // person is waiting on. This row's number has to mean the same thing as the review
+    // screen's or the two disagree in front of somebody.
+    BASELINE_SH,
+    `echo "CHANGES=$(${ COUNT_SH })"`,
     'echo "LAST=$(git log -1 --format=%cI 2>/dev/null)"',
     // `cut -c4-` drops porcelain's two status characters and the space, and the sed keeps the
     // right-hand side of a rename. A path git had to quote fails `stat` and is skipped, which
@@ -2147,15 +2332,55 @@ export async function restoreSnapshot(name: string, ref: string): Promise<void> 
 }
 
 /**
- * Undo the most recent edit to the working tree.
+ * Undo the most recent change, whichever kind the last one was.
  *
- * The most recently modified changed file, restored to HEAD - or deleted, if it is one the
- * assistant created. Scoped to one file on purpose: "undo" that reverts everything is a
- * discard, and there is already a Discard all for that.
+ * Two kinds now, because the assistant commits a turn at a time (see barn-provenance.mjs):
  *
- * Returns the path it undid, or '' if there was nothing to undo.
+ *   A dirty working tree - the most recently modified changed file, restored to HEAD, or
+ *   deleted if it is one the assistant created. Scoped to one file on purpose: an "undo" that
+ *   reverts everything is a discard, and there is already a Discard all for that.
+ *
+ *   A clean tree whose HEAD is an assistant turn - `git reset --keep` back to the commit
+ *   before it, which puts the whole turn back. Without this the Undo button stopped working
+ *   the moment provenance started committing: there was never anything uncommitted to undo.
+ *
+ * It will not reset past the baseline. The last published version is not "a change" and
+ * winding back through it would leave the review screens measuring from a commit that is no
+ * longer in the branch's history.
+ *
+ * Returns a description of what it undid, or '' if there was nothing to undo. The caller puts
+ * it in "The last change to <this> has been undone", so it has to read as a thing.
  */
 export async function undoLastChange(name: string): Promise<string> {
+  const turn = await inPackage(name, [
+    BASELINE_SH,
+    // Only when there is nothing uncommitted: an uncommitted edit is the more recent change
+    // and is what the branch below undoes.
+    'test -z "$(git status --porcelain 2>/dev/null)" || exit 0',
+    'head=$(git rev-parse --verify -q HEAD)',
+    '[ -n "$head" ] || exit 0',
+    '[ "$head" != "$BARN_BASE" ] || exit 0',
+    // A turn commit, not a hand commit: an assistant turn carries its own id, and undoing
+    // somebody's deliberate commit is not what this button offers.
+    'git log -1 --format=%B "$head" | grep -q "^Barn-Turn:" || exit 0',
+    'git rev-parse --verify -q "$head^" >/dev/null || exit 0',
+    'files=$(git show --name-only --format= "$head" | grep -c . )',
+    'subject=$(git log -1 --format=%s "$head")',
+    'first=$(git show --name-only --format= "$head" | head -1)',
+    'git reset --keep "$head^" >/dev/null 2>&1 || exit 0',
+    'echo "BARN-UNDID-TURN:$files:$first:$subject"',
+  ].join(' ; ')).catch(() => '');
+
+  const undone = /BARN-UNDID-TURN:(\d+):([^:]*):(.*)/.exec(turn);
+
+  if (undone) {
+    const count = parseInt(undone[1], 10) || 1;
+    const first = undone[2] || 'the tree';
+    const rest = count > 1 ? ` and ${ count - 1 } other file${ count === 2 ? '' : 's' }` : '';
+
+    return `${ first }${ rest } (the assistant's turn "${ undone[3].trim() }")`;
+  }
+
   const out = await inPackage(name, [
     // Newest first among the files git reports as changed.
     'f=$(git status --porcelain --no-renames 2>/dev/null | sed "s/^...//" | tr -d \'"\' | while read -r p; do [ -e "$p" ] && printf "%s\\t%s\\n" "$(stat -c %Y "$p" 2>/dev/null || echo 0)" "$p"; done | sort -rn | head -1 | cut -f2-)',
@@ -2216,24 +2441,20 @@ export async function findPriorArt(terms: string[], limit = 24): Promise<PriorAr
 }
 
 /**
- * The working tree's diff against HEAD, as a patch.
+ * The change as one patch, collapsed against the baseline.
  *
- * What the Studio's Changes tab shows, and what its "14 changes since v0.1.0" bar is counting.
+ * What the Studio's Changes tab shows, and what the review screens read. One diff against the
+ * last published version rather than the sequence of intermediate edits that produced it,
+ * which is cross-screen rule 7: an edit made and undone before the hand-over contributes
+ * nothing by construction, and a turn the assistant committed an hour ago is still in here
+ * because it is still not in what anybody else can install.
  *
- * `git add -N` first, because a file claude has just created is untracked, and `git diff` says
- * nothing at all about untracked files - so without this the one change a person most wants to
- * look at is the one change that never appears. Intent-to-add records the path without staging
- * the content, which puts the whole file in the diff as an addition and leaves the index alone
- * for whatever commits next.
+ * Against a commit, never against the index. `git diff` alone shows only what is *unstaged*,
+ * so anything already staged vanishes from the review screens - and this product stages.
+ * Found exactly that way, with the index fully staged and the diff pane empty.
  */
 export async function workingDiff(name: string): Promise<string> {
-  // Against HEAD, not against the index. `git diff` alone shows only what is *unstaged*, so
-  // anything already staged vanishes from the review screens - and this product stages:
-  // commitExtension runs `git add -A`, so a commit that fails part-way, or any hand-run add in
-  // the pod's terminal, leaves the tree looking unchanged on screens 04 and 12 while the file
-  // list beside them still counts it. Found exactly that way, with the index fully staged and
-  // the diff pane empty. "What changed since the last commit" is what those screens mean.
-  return inPackage(name, 'git add -A -N >/dev/null 2>&1 ; git diff HEAD 2>/dev/null');
+  return inPackage(name, [BASELINE_SH, INTENT_SH, 'git diff --no-renames "$BARN_BASE" 2>/dev/null'].join(' ; '));
 }
 
 /**
@@ -2247,6 +2468,154 @@ const ASSISTANT_SESSION = 'mc-editor';
 
 /** Where shell.sh looks for a prompt to open a new conversation with (see pod/shell.sh). */
 const ASSISTANT_QUEUE = '/app/.queue/editor';
+
+/**
+ * Where a prompt came from, for the turn it is about to start.
+ *
+ * Only ever what a screen knows and says: the screen it was sent from, and the Rancher
+ * principal whose session sent it. A prompt typed straight into the pane has no origin at all,
+ * and the record for that turn carries no name rather than the nearest one. See the refusals
+ * at the top of pod/barn-provenance.mjs.
+ *
+ * The principal is passed in rather than read here, so that this module never has to import
+ * the review record and the two never form a cycle. `originStamp()` in review.ts builds one.
+ */
+export interface AssistantOrigin {
+  /** Which screen sent it, e.g. `review-change`. */
+  screen:     string;
+  /** The Rancher principal id, when a screen resolved one. Empty is honest, wrong is not. */
+  principal?: string;
+  /** A readable name for that principal, when Rancher gave one. */
+  name?:      string;
+}
+
+/**
+ * Leave the stamp the UserPromptSubmit hook consumes, immediately before typing.
+ *
+ * One file, overwritten, consumed once by the hook that reads it. It is deliberately not a
+ * queue: if two screens ask something a second apart, the second stamp replaces the first and
+ * the turn it describes is the one that ran, which is a small loss and never a wrong name.
+ */
+async function stampOrigin(name: string, origin: AssistantOrigin): Promise<void> {
+  const stamp = JSON.stringify({
+    screen: origin.screen || '', principal: origin.principal || '', name: origin.name || '', at: new Date().toISOString(),
+  });
+
+  await podExecOnce(await extensionPod(name) || '', asPodUser(
+    `mkdir -p /app/.barn && printf %s ${ shellQuote(stamp) } > /app/.barn/origin`
+  )).catch(() => '');
+}
+
+/** One turn of the assistant, as the pod recorded it. See pod/barn-provenance.mjs. */
+export interface AssistantTurn {
+  turn:      string;
+  /** What was asked. Empty for a turn whose prompt record was lost. */
+  prompt:    string;
+  at:        string;
+  endedAt:   string;
+  /** The screen that sent it, when the product sent it. Empty for a prompt typed in the pane. */
+  screen:    string;
+  principal: string;
+  who:       string;
+  files:     string[];
+  /** The commit the turn ended in, or '' when it changed nothing. */
+  commit:    string;
+}
+
+/** The turns the pod recorded, newest first. What the workspace's activity stream can show. */
+export async function assistantTurns(name: string, limit = 25): Promise<AssistantTurn[]> {
+  const out = await inPackage(name, `node /seed/barn-provenance.mjs turns ${ limit } 2>/dev/null`).catch(() => '');
+  const found = /BARN-PROV:(.*)/.exec(out);
+
+  if (!found) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(found[1]) as AssistantTurn[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * What produced the lines of the collapsed diff, hunk by hunk.
+ *
+ * The review-time half of the provenance system: the pod blames each hunk of the diff against
+ * the baseline, resolves each line's commit to the `Barn-Turn:` trailer it carries, and looks
+ * the turn up in the prompt log. See pod/barn-provenance.mjs for how it is captured and for
+ * the four things it refuses to claim - in particular that a hunk answers with the *set of
+ * turns* that produced its lines, never with one prompt, and that a line nobody watched is
+ * reported as unrecorded rather than attributed to the nearest turn.
+ *
+ * `available: false` is the normal state of an extension whose pod predates the hooks. It
+ * carries the reason so a screen can say which, rather than rendering an empty column.
+ */
+export interface TurnAttribution {
+  turn:      string;
+  prompt:    string;
+  at:        string;
+  screen:    string;
+  principal: string;
+  who:       string;
+  subject:   string;
+  /** How many of the hunk's lines came from this turn. */
+  lines:     number;
+  /**
+   * True when the turn's commit contains this file but no tool record names it: swept into
+   * the turn rather than caused by it. A `Bash` edit, or somebody typing in the Terminal tab.
+   */
+  swept:     boolean;
+}
+
+export interface HunkProvenance {
+  /** First and last line of the hunk in the new file. */
+  from:  number;
+  to:    number;
+  added: number;
+  /** A hunk that only removed lines. There is no new line to attribute. */
+  deletion?:  boolean;
+  turns:      TurnAttribution[];
+  /** Lines with no turn behind them: changed in the pod, no prompt recorded. */
+  unrecorded: number;
+}
+
+export interface ChangeAttribution {
+  available: boolean;
+  /** Why not, when it is not. Shown as-is. */
+  reason:    string;
+  /** The commit the diff was taken against. */
+  base:      string;
+  baseRef:   string;
+  files:     { path: string; hunks: HunkProvenance[] }[];
+}
+
+export async function provenanceFor(name: string): Promise<ChangeAttribution> {
+  const missing = (reason: string): ChangeAttribution => ({
+    available: false, reason, base: '', baseRef: '', files: [],
+  });
+
+  const out = await inPackage(name, [
+    'test -f /seed/barn-provenance.mjs || { echo BARN-PROV-ABSENT ; exit 0 ; }',
+    'node /seed/barn-provenance.mjs report 2>/dev/null',
+  ].join(' ; ')).catch(() => '');
+
+  if (out.includes('BARN-PROV-ABSENT')) {
+    return missing('this pod was started before the Studio recorded provenance, so nothing was captured for it');
+  }
+
+  const found = /BARN-PROV:(.*)/.exec(out);
+
+  if (!found) {
+    return missing('the pod did not answer, so what produced these lines is not known');
+  }
+
+  try {
+    return JSON.parse(found[1]) as ChangeAttribution;
+  } catch {
+    return missing('the pod answered with something unreadable');
+  }
+}
 
 /**
  * Ask the claude running in an extension's pod a question, from a page that is not the
@@ -2270,7 +2639,9 @@ const ASSISTANT_QUEUE = '/app/.queue/editor';
  * One line, always. The pane is a REPL: a newline in the middle of a prompt submits half a
  * question, so every caller's text is flattened before it goes anywhere near it.
  */
-export async function askAssistant(name: string, prompt: string): Promise<'sent' | 'queued'> {
+export async function askAssistant(
+  name: string, prompt: string, origin?: AssistantOrigin
+): Promise<'sent' | 'queued'> {
   const line = prompt.replace(/\s+/g, ' ').trim();
 
   if (!line) {
@@ -2281,6 +2652,10 @@ export async function askAssistant(name: string, prompt: string): Promise<'sent'
 
   if (!pod) {
     throw new Error(`${ name } has no running pod to ask`);
+  }
+
+  if (origin) {
+    await stampOrigin(name, origin);
   }
 
   const text = shellQuote(line);
@@ -2425,6 +2800,249 @@ export async function findOpenPullRequest(name: string, repo: string, branch: st
   } catch {
     throw new Error(`GitHub answered with something unreadable for ${ repo }`);
   }
+}
+
+/**
+ * Run a GitHub API call from inside the pod, with the configured token.
+ *
+ * The same reasoning findOpenPullRequest gives for asking from in there: the token belongs to
+ * the cluster, the pod is the thing that already talks to GitHub with it, and it works from a
+ * browser that cannot reach github.com. The token goes in the environment rather than in argv,
+ * so it is not in the pod's process list for the length of the call.
+ *
+ * Every caller here needs the same three things - a method, a path and a body - so they share
+ * one script instead of each embedding their own fetch in a shell-quoted string.
+ */
+async function githubApi(
+  name: string, method: string, apiPath: string, body?: unknown
+): Promise<any> {
+  const token = await readToken();
+
+  if (!token) {
+    throw new Error('no GitHub token is configured');
+  }
+
+  // Double quotes throughout: the whole script is one single-quoted shell word by the time it
+  // reaches the pod, and a single quote inside it would end that word.
+  const script = [
+    'const [method, path, body] = process.argv.slice(1);',
+    'fetch("https://api.github.com" + path, { method, headers: {',
+    'Authorization: "Bearer " + process.env.BARN_GH_TOKEN,',
+    'Accept: "application/vnd.github+json", "Content-Type": "application/json",',
+    '"User-Agent": "rancher-extension-studio" }, body: body || undefined })',
+    '.then((r) => r.text().then((t) => ({ ok: r.ok, status: r.status, text: t })))',
+    '.then((r) => { if (!r.ok) { throw new Error(r.status + " " + r.text.slice(0, 200)); }',
+    'console.log("BARN-GH:" + (r.text || "null")); })',
+    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\r\n]+/g, " ")));',
+  ].join(' ');
+
+  const out = await runInPackage(
+    name,
+    [
+      `BARN_GH_TOKEN=${ shellQuote(token) } node -e ${ shellQuote(script) }`,
+      shellQuote(method),
+      shellQuote(apiPath),
+      shellQuote(body === undefined ? '' : JSON.stringify(body)),
+      '2>&1',
+    ].join(' ')
+  );
+
+  const failed = /BARN-GH-ERR:(.*)/.exec(out);
+
+  if (failed) {
+    throw new Error(failed[1].trim() || 'GitHub did not answer');
+  }
+
+  const found = /BARN-GH:(.*)/.exec(out);
+
+  if (!found) {
+    throw new Error(`could not reach GitHub from ${ name }'s pod: ${ out.trim().slice(0, 200) || 'no output' }`);
+  }
+
+  try {
+    return JSON.parse(found[1].trim());
+  } catch {
+    throw new Error('GitHub answered with something unreadable');
+  }
+}
+
+/**
+ * The same call, from whatever pod happens to be running.
+ *
+ * For the questions that come before an extension exists. Import is asked on a screen where
+ * there is no pod of this extension's own to run in, because the extension is what the answer
+ * is going to create - so it borrows one, the way `githubFiles` already does.
+ */
+async function githubApiAnywhere(method: string, apiPath: string): Promise<any> {
+  const [token, pod] = await Promise.all([readToken(), anyRunningPod()]);
+
+  if (!token) {
+    throw new Error('no GitHub token is configured');
+  }
+
+  if (!pod) {
+    throw new Error('no extension pod is running to ask GitHub from');
+  }
+
+  const script = [
+    'const [method, path] = process.argv.slice(1);',
+    'fetch("https://api.github.com" + path, { method, headers: {',
+    'Authorization: "Bearer " + process.env.BARN_GH_TOKEN,',
+    'Accept: "application/vnd.github+json", "User-Agent": "rancher-extension-studio" } })',
+    // The scopes a token carries are in a response header and nowhere in the body, so the
+    // answer this returns is the headers as well as the JSON.
+    '.then((r) => r.text().then((t) => ({ ok: r.ok, status: r.status, text: t,',
+    'scopes: r.headers.get("x-oauth-scopes") || "", expires: r.headers.get("github-authentication-token-expiration") || "" })))',
+    '.then((r) => { if (!r.ok) { throw new Error(r.status + " " + r.text.slice(0, 200)); }',
+    'console.log("BARN-GH:" + JSON.stringify({ body: JSON.parse(r.text || "null"), scopes: r.scopes, expires: r.expires })); })',
+    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\r\n]+/g, " ")));',
+  ].join(' ');
+
+  const out = await podExecOnce(pod, asPodUser(
+    `BARN_GH_TOKEN=${ shellQuote(token) } node -e ${ shellQuote(script) } ${ shellQuote(method) } ${ shellQuote(apiPath) } 2>&1`
+  ));
+
+  const failed = /BARN-GH-ERR:(.*)/.exec(out);
+
+  if (failed) {
+    throw new Error(failed[1].trim() || 'GitHub did not answer');
+  }
+
+  const found = /BARN-GH:(.*)/.exec(out);
+
+  if (!found) {
+    throw new Error(`could not reach GitHub: ${ out.trim().slice(0, 200) || 'no output' }`);
+  }
+
+  try {
+    return JSON.parse(found[1].trim());
+  } catch {
+    throw new Error('GitHub answered with something unreadable');
+  }
+}
+
+/** Who the configured token belongs to, and what it is allowed to do. */
+export interface GithubIdentity {
+  login:     string;
+  /** The scopes GitHub says the token carries. Empty for a fine-grained token, which lists none. */
+  scopes:    string[];
+  /** When it expires, when GitHub says. Empty means it does not, or would not say. */
+  expiresAt: string;
+}
+
+/**
+ * Whose token this is.
+ *
+ * Null means there is no token configured, which is a different fact from "the token is bad"
+ * and the two must not be shown as the same sentence. A bad token throws.
+ */
+export async function githubIdentity(): Promise<GithubIdentity | null> {
+  const token = await readToken();
+
+  if (!token) {
+    return null;
+  }
+
+  const answer = await githubApiAnywhere('GET', '/user');
+
+  return {
+    login:     answer?.body?.login || '',
+    scopes:    String(answer?.scopes || '').split(',').map((s: string) => s.trim()).filter(Boolean),
+    expiresAt: answer?.expires || '',
+  };
+}
+
+export interface GithubRepo {
+  fullName:      string;
+  private:       boolean;
+  updatedAt:     string;
+  defaultBranch: string;
+  description:   string;
+}
+
+/**
+ * The repositories this token can see, most recently touched first.
+ *
+ * `affiliation` rather than `/users/<login>/repos`, so a repository somebody was added to as a
+ * collaborator is in the list. An import is as likely to be of somebody else's extension as of
+ * your own.
+ */
+export async function listGithubRepos(limit = 30): Promise<GithubRepo[]> {
+  const capped = Math.max(1, Math.min(100, limit));
+  const answer = await githubApiAnywhere(
+    'GET',
+    `/user/repos?sort=updated&per_page=${ capped }&affiliation=owner,collaborator,organization_member`
+  );
+  const list = Array.isArray(answer?.body) ? answer.body : [];
+
+  return list.map((repo: any) => ({
+    fullName:      repo.full_name || '',
+    private:       !!repo.private,
+    updatedAt:     repo.updated_at || '',
+    defaultBranch: repo.default_branch || '',
+    description:   repo.description || '',
+  })).filter((repo: GithubRepo) => !!repo.fullName);
+}
+
+/** The branch a repository calls its default, which is where a distribution goes. */
+export async function githubDefaultBranch(name: string, repo: string): Promise<string> {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new Error(`"${ repo }" is not owner/name`);
+  }
+
+  const info = await githubApi(name, 'GET', `/repos/${ repo }`);
+
+  return info?.default_branch || 'main';
+}
+
+/**
+ * Open the pull request that is the hand-off record.
+ *
+ * Cross-screen rule 5: crossing the gate produces the PR, and the PR is what carries the
+ * review. Until now nothing in the product ever created one, which is why the chip that reads
+ * them had a precondition the product could not produce.
+ *
+ * A PR that already exists for the same head branch is not an error and is returned as it
+ * stands: pushing a packet again after a review asked for changes should find its own PR
+ * rather than fail on the second attempt.
+ */
+export async function createPullRequest(
+  name: string, repo: string, spec: { head: string; base: string; title: string; body: string }
+): Promise<PullRequest> {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    throw new Error(`"${ repo }" is not owner/name`);
+  }
+
+  try {
+    const pr = await githubApi(name, 'POST', `/repos/${ repo }/pulls`, spec);
+
+    return {
+      number: pr.number, title: pr.title, url: pr.html_url, head: pr.head?.ref || spec.head,
+    };
+  } catch (e: any) {
+    // GitHub answers 422 for "a pull request already exists" as well as for a bad request, so
+    // the only way to tell them apart is to go and look.
+    const existing = await findOpenPullRequest(name, repo, spec.head).catch(() => null);
+
+    if (existing) {
+      return existing;
+    }
+
+    throw e;
+  }
+}
+
+/**
+ * Add a comment to the pull request that records this hand-off.
+ *
+ * Best effort by contract: the review lives in the cluster and the PR is a mirror of it, so a
+ * mirror that failed must be reported as a mirror that failed and never allowed to look like
+ * the review did not happen.
+ */
+export async function commentOnPullRequest(
+  name: string, repo: string, number: number, body: string
+): Promise<void> {
+  await githubApi(name, 'POST', `/repos/${ repo }/issues/${ number }/comments`, { body });
 }
 
 /**
@@ -2719,6 +3337,14 @@ export class PublishError extends Error {
  * The build is `build-pkg`, run in the pod, and it takes minutes: it is a production build of
  * the package against the shell. It is one exec that stays open for the duration rather than
  * something polled, because the output is the only diagnostic there is when it fails.
+ *
+ * THIS PATH IS DELIBERATELY UNGATED AND MUST STAY THAT WAY. It is dev preview and developer
+ * load: it reaches exactly the cluster you are standing in, and cross-screen rule 2 says that
+ * everything before the distribution boundary asks nobody - "creating, building, previewing,
+ * breaking, rebuilding, developer-loading and reviewing your own diff must never require
+ * anyone's approval". The gate lives on `distributeExtension`, which is the point at which the
+ * extension becomes installable by other people. Do not add `assertGateOpen` here. Rule 2 is
+ * as load bearing as rule 1 and is much easier to break by accident.
  */
 export async function publishExtension(name: string, onProgress?: PublishProgress): Promise<PublishResult> {
   const total = PUBLISH_STAGES.length;
@@ -2779,6 +3405,14 @@ export async function publishExtension(name: string, onProgress?: PublishProgres
     throw new PublishError(e?.message || String(e), PUBLISH_STAGES[3], log);
   }
 
+  // After the UIPlugin and not before: the baseline records what this Rancher is loading, so
+  // it must not move for a build that never got installed. Best effort - see recordBaseline.
+  //
+  // What it records is the source tree that was built, which is not the bundle. The bundle is
+  // in /app/public and dies with the node, so what this offers a screen is a rebuild from a
+  // recorded tree, and no screen may call it a rollback to the running artifact.
+  await recordBaseline(name, BASELINE_LOCAL_REF, `Published ${ plugin } ${ version } into this Rancher`);
+
   return {
     plugin, version, url, log
   };
@@ -2793,7 +3427,7 @@ export const GITHUB_PUBLISH_STAGES = [
 ];
 
 /**
- * Push the extension's own source to the repository configured in settings.
+ * Push the extension's own source to the repository configured in settings, on a named branch.
  *
  * The other Publish builds a bundle and points this Rancher at it, which reaches exactly the
  * cluster you are standing in. This one is the other half: the package is already a git
@@ -2804,6 +3438,24 @@ export const GITHUB_PUBLISH_STAGES = [
  * receiving repository's own workflow from a tagged version - that is how barn itself is
  * published - and a bundle committed by hand would be the same artifact with no provenance.
  *
+ * THE BRANCH IS NOW REQUIRED, and that is the gate. This used to push `HEAD:refs/heads/main`
+ * with no argument and no question asked, which made it an ungated distribution: one press and
+ * the change was on the branch everybody else builds from, with no review, no packet and no
+ * PR. Cross-screen rule 1 says there is exactly one hard gate and it is the point at which the
+ * extension becomes installable by other people, so this function no longer chooses where to
+ * push. Two callers do, both in review.ts:
+ *
+ *   handOverForReview()   pushes the packet's own branch and opens the PR. Entering the gate.
+ *   distributeExtension() pushes the default branch, after assertGateOpen(). Leaving it.
+ *
+ * Called with no branch it refuses and says which of those to use, rather than defaulting back
+ * to the behaviour the gate exists to prevent.
+ *
+ * `source` is what gets pushed and defaults to `HEAD`. Both gate callers pass the packet's own
+ * commit instead, because a packet is a fixed object: what is reviewed and what is distributed
+ * have to be the same commit, and pushing HEAD would push whatever the tip happens to be by
+ * the time the button was pressed.
+ *
  * The token never reaches this page and never reaches the returned log: it is read straight
  * out of the Secret into the command, and scrubbed out of the output before it comes back. See
  * scrub below, which is not decoration - the log is shown in the UI when a publish fails.
@@ -2813,7 +3465,9 @@ export const GITHUB_PUBLISH_STAGES = [
  * remembered afterwards so the next one only has to be agreed with, which is the difference
  * between a cache and a setting: the answer is kept, but the question is still asked.
  */
-export async function publishExtensionToGithub(name: string, repo: string, onProgress?: PublishProgress): Promise<GithubPublishResult> {
+export async function publishExtensionToGithub(
+  name: string, repo: string, onProgress?: PublishProgress, branch?: string, source = 'HEAD'
+): Promise<GithubPublishResult> {
   const total = GITHUB_PUBLISH_STAGES.length;
   const report = (stage: number) => onProgress?.(stage, GITHUB_PUBLISH_STAGES[stage - 1], total);
 
@@ -2831,6 +3485,18 @@ export async function publishExtensionToGithub(name: string, repo: string, onPro
 
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
     throw new PublishError(`"${ repo }" is not owner/name`, GITHUB_PUBLISH_STAGES[0], '');
+  }
+
+  if (!branch) {
+    throw new PublishError(
+      'A push has to say which branch it is going to. Handing a change over for review is handOverForReview(); putting a reviewed change on the default branch is distributeExtension(), which will not run until both sign-offs are in.',
+      GITHUB_PUBLISH_STAGES[0],
+      ''
+    );
+  }
+
+  if (!/^[\w./-]+$/.test(branch)) {
+    throw new PublishError(`"${ branch }" is not a branch name`, GITHUB_PUBLISH_STAGES[0], '');
   }
 
   // Remembered before the push rather than after it. A push that fails is the one most likely
@@ -2858,22 +3524,28 @@ export async function publishExtensionToGithub(name: string, repo: string, onPro
 
   report(3);
 
-  const commitLog = await inPackage(name, [
-    'git add -A',
-    // Nothing to commit is not a failure: the push below is still worth making, because the
-    // last one may have been what failed.
-    `git diff --cached --quiet || git -c user.email=barn@rancher.local -c user.name=barn commit -q -m ${ shellQuote(`${ plugin } ${ version }`) }`,
-    'echo BARN-COMMIT-OK',
-  ].join(' ; '));
+  // Only when the push is of the tip. A push of a packet is a push of a fixed commit that was
+  // assembled earlier, and sweeping the working tree into a new commit on the way past would
+  // send something nobody reviewed - or, worse, quietly change what the packet's branch means
+  // after somebody had already signed it off.
+  if (source === 'HEAD') {
+    const commitLog = await inPackage(name, [
+      'git add -A',
+      // Nothing to commit is not a failure: the push below is still worth making, because the
+      // last one may have been what failed.
+      `git diff --cached --quiet || git -c user.email=barn@rancher.local -c user.name=barn commit -q -m ${ shellQuote(`${ plugin } ${ version }`) }`,
+      'echo BARN-COMMIT-OK',
+    ].join(' ; '));
 
-  if (!commitLog.includes('BARN-COMMIT-OK')) {
-    throw new PublishError('the package could not be committed', GITHUB_PUBLISH_STAGES[2], scrub(commitLog));
+    if (!commitLog.includes('BARN-COMMIT-OK')) {
+      throw new PublishError('the package could not be committed', GITHUB_PUBLISH_STAGES[2], scrub(commitLog));
+    }
   }
 
   report(4);
 
   const pushLog = await inPackage(name, [
-    `git -c http.extraheader=${ shellQuote(`AUTHORIZATION: basic ${ auth }`) } push ${ shellQuote(remote) } HEAD:refs/heads/main 2>&1`,
+    `git -c http.extraheader=${ shellQuote(`AUTHORIZATION: basic ${ auth }`) } push ${ shellQuote(remote) } ${ shellQuote(source) }:refs/heads/${ branch } 2>&1`,
     'echo BARN-PUSH-OK',
   ].join(' && '));
 
@@ -2882,7 +3554,7 @@ export async function publishExtensionToGithub(name: string, repo: string, onPro
   }
 
   return {
-    plugin, version, repo, url: `https://github.com/${ repo }`, log: scrub(pushLog),
+    plugin, version, repo, branch, url: `https://github.com/${ repo }/tree/${ branch }`, log: scrub(pushLog),
   };
 }
 
@@ -2890,6 +3562,8 @@ export interface GithubPublishResult {
   plugin: string;
   version: string;
   repo: string;
+  /** Where it went. Never the default branch unless the gate let it. */
+  branch: string;
   url: string;
   log: string;
 }

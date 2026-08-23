@@ -18,20 +18,49 @@
 // says plainly that there were none, which is a finding rather than an empty state.
 //
 // Gone. The masthead's "Send questions to the requester". There is no requester in this product
-// - no ticket, no reporter, no messaging - and no list of questions to send either, since the
-// answers to the card above arrive in a terminal. A button that cannot name who it sends to is
-// not a feature waiting on plumbing, it is a promise about a workflow this product does not
-// have, so it is removed rather than reinterpreted into something else wearing its label.
+// - no ticket, no reporter, no messaging - and no list of questions to send either. A button
+// that cannot name who it sends to is not a feature waiting on plumbing, it is a promise about
+// a workflow this product does not have, so it is removed rather than reinterpreted into
+// something else wearing its label.
+//
+// Here instead. The open questions the design draws as cards (34:1090 and the two under it) are
+// a real list, kept in BRIEF.md under `## Open questions`, marked Blocking or Worth asking, and
+// answerable in place. Two things write them: you, and the assistant - "Ask what is unclear"
+// tells the claude in this extension's pod to write what it cannot decide into that section of
+// this file, which is a thing it can actually do, unlike sending a message to a person this
+// product has never heard of. Reading them back is a button, because the pod writes the file
+// when it gets round to it rather than when this page would like it to.
+//
+// Prior art, likewise, stops at a finding and now goes one step further: a hit opens in the
+// Files screen of the extension it was found in, and "Reuse this" records the decision in the
+// brief, which is the document the assistant is handed. The design's two named entries (the
+// cluster dashboard, longhorn-capacity) stay unimplemented and the reason is in the return
+// message: nothing here can search Rancher's own pages, and neither entry's editorial half -
+// what it does and does not cover - has a source.
 import {
-  SButton, SChip, SIcon, SBanner, SField, SLabel
+  SButton, SChip, SIcon, SBanner, SField, SLabel, SMenu
 } from '../components/ui';
 import { toastSuccess, toastError } from '../toast';
 import {
   readExtensionFile, writeExtensionFile, askAssistant, findPriorArt, DEFAULT_EXTENSION
 } from '../extensions';
-import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
+import { EDITOR_ROUTE, STUDIO_ROUTE, FILES_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
+
+/**
+ * Who the extension is written for (34:1036 and the three beside it).
+ *
+ * Multi-select, not a radio group: the design draws two of the four with a tick. It is written
+ * into the brief because the audience decides half the interface - what a support engineer
+ * needs on a page and what a platform admin needs are different pages - and the assistant reads
+ * the brief before it writes any of it.
+ */
+const ROLES = ['Cluster operator', 'Support engineer', 'Platform admin', 'App developer'];
+
+/** The two severities the design distinguishes (34:1090 Blocking, 34:1106 Worth asking). */
+const BLOCKING = 'Blocking';
+const WORTH_ASKING = 'Worth asking';
 
 /**
  * Words that match everything, so they find nothing.
@@ -53,7 +82,7 @@ export default {
   name: 'BarnBrief',
 
   components: {
-    SButton, SChip, SIcon, SBanner, SField, SLabel
+    SButton, SChip, SIcon, SBanner, SField, SLabel, SMenu
   },
 
   mixins: [fullBleed],
@@ -68,6 +97,20 @@ export default {
       changes:  '',
       notDoing: '',
       criteria: ['', '', ''],
+      // Who it is for (34:1030). Multi-select, in BRIEF.md, read back on the way in.
+      roles:    [],
+      // The open questions (34:1085). `{ severity, text, answer }`, in BRIEF.md. A question
+      // with an answer is settled and stops counting against the card's badge.
+      questions: [],
+      // Which question has its answer box open, by index, or -1. Only one at a time: the box
+      // is a text field the width of the card and two of them is a form nobody asked for.
+      answeringAt: -1,
+      draftAnswer: '',
+      newQuestion: '',
+      // Prior art this brief has decided to reuse. `{ extension, where }` - the file and line
+      // the search found, which is enough for a person to go and read it and enough for the
+      // assistant to be told to.
+      reuse:    [],
       saving:   false,
       // True until BRIEF.md has been read. Agreeing writes the whole form over that
       // file, so agreeing before it has been read back would replace it with a form
@@ -94,6 +137,7 @@ export default {
       saveError:  '',
       saveTimer:  null,
       asking:   false,
+      rereading: false,
       // '' until the question has been put to the pod; then what happened to it, so the card
       // can say where the answer is rather than looking like nothing happened.
       asked:    '',
@@ -102,6 +146,8 @@ export default {
       // different sentences.
       priorArt: null,
       priorArtError: '',
+      // Whether BRIEF.md already carries a `## Where it appears` section. See ownedSections.
+      seededPlacement: false,
     };
   },
 
@@ -143,7 +189,43 @@ export default {
     formKey() {
       return JSON.stringify([
         this.request, this.problem, this.who, this.changes, this.notDoing, this.criteria,
+        this.roles, this.questions, this.reuse,
       ]);
+    },
+
+    roleOptions() {
+      return ROLES;
+    },
+
+    /**
+     * The questions nobody has answered yet, blocking ones first.
+     *
+     * The order is the design's argument rather than decoration: "separating blocking from
+     * merely useful" is the whole point of the severity, and a blocking question below two
+     * curiosities is a blocking question nobody reads.
+     */
+    openQuestions() {
+      return this.questions
+        .map((q, i) => ({ ...q, index: i }))
+        .filter((q) => !q.answer.trim())
+        .sort((a, b) => (a.severity === BLOCKING ? 0 : 1) - (b.severity === BLOCKING ? 0 : 1));
+    },
+
+    answeredQuestions() {
+      return this.questions.map((q, i) => ({ ...q, index: i })).filter((q) => !!q.answer.trim());
+    },
+
+    /** What the card's badge says. Live, off the list, not a number typed into a template. */
+    openCount() {
+      return this.openQuestions.length;
+    },
+
+    blockingCount() {
+      return this.openQuestions.filter((q) => q.severity === BLOCKING).length;
+    },
+
+    reuseKeys() {
+      return new Set(this.reuse.map((r) => `${ r.extension } ${ r.where }`));
     },
 
     canAgree() {
@@ -301,9 +383,25 @@ export default {
           this.ticked = new Set(sections.criteria.filter((_, i) => sections.criteriaTicked[i]));
         }
 
+        // These three are lists, and an empty one is a real answer - the questions were all
+        // settled, nothing is being reused - so they are taken whenever the file had the
+        // section at all, rather than only when it had something in it.
+        if (sections.roles) {
+          this.roles = sections.roles;
+        }
+
+        if (sections.questions) {
+          this.questions = sections.questions;
+        }
+
+        if (sections.reuse) {
+          this.reuse = sections.reuse;
+        }
+
         this.original = text;
         this.exists = true;
         this.agreedOn = sections.agreedOn || '';
+        this.seededPlacement = /^##\s+Where it appears\s*$/mi.test(text);
       }
 
       this.loading = false;
@@ -346,13 +444,23 @@ export default {
         out.agreedOn = agreed[1];
       }
 
+      // The sections that are a list rather than a paragraph. Each is accumulated item by item
+      // into an array below, so `flush` must leave them alone: replacing one with the prose
+      // buffer would read a full section back as empty. That is not hypothetical - the first
+      // version of this parser did exactly that to `criteria` when it reached the
+      // `## Verification` section screen 13 appends, and read four real criteria back as none,
+      // which agreeing would then have written over them as `_not stated_`.
+      const LISTS = {
+        '## how we will know it worked':   'criteria',
+        '## written for':                  'roles',
+        '## open questions':               'questions',
+        '## prior art we are reusing':     'reuse',
+      };
+
+      const LIST_KEYS = new Set(Object.values(LISTS));
+
       const flush = () => {
-        // `criteria` is accumulated line by line into an array, not buffered as prose, so
-        // flushing it would replace that array with the empty buffer. That is not hypothetical:
-        // the first version of this parser did exactly that when it reached the `## Verification`
-        // section screen 13 appends, and read four real criteria back as none - which agreeing
-        // would then have written over them as `_not stated_`.
-        if (!key || key === 'criteria') {
+        if (!key || LIST_KEYS.has(key)) {
           return;
         }
         const body = buffer.join('\n').trim();
@@ -368,12 +476,17 @@ export default {
           key = HEADINGS[line.toLowerCase()] || null;
           buffer = [];
 
-          if (line.toLowerCase() === '## how we will know it worked') {
-            out.criteria = [];
-            // Whether each box is ticked, parallel to `criteria`. Screen 13 owns the tick, so
-            // this form has to be able to put it back on the line it rewrites.
-            out.criteriaTicked = [];
-            key = 'criteria';
+          const list = LISTS[line.toLowerCase()];
+
+          if (list) {
+            key = list;
+            out[list] = [];
+
+            if (list === 'criteria') {
+              // Whether each box is ticked, parallel to `criteria`. Screen 13 owns the tick, so
+              // this form has to be able to put it back on the line it rewrites.
+              out.criteriaTicked = [];
+            }
           }
           continue;
         }
@@ -386,6 +499,50 @@ export default {
           if (m) {
             out.criteria.push(m[2].replace(/\s*-\s*\*\*.*$/, '').trim());
             out.criteriaTicked.push(m[1] !== ' ');
+          }
+          continue;
+        }
+
+        if (key === 'roles') {
+          const m = line.match(/^-\s+(.*\S)\s*$/);
+
+          if (m && ROLES.includes(m[1])) {
+            out.roles.push(m[1]);
+          }
+          continue;
+        }
+
+        if (key === 'questions') {
+          // `- **Blocking** what happens when metrics-server is missing?`, and the answer, if
+          // there is one, indented under it. Deliberately the shape a person would write by
+          // hand, because a person and the assistant in the pod are the two things that write
+          // this section and neither of them is this form.
+          const q = line.match(/^-\s+\*\*(Blocking|Worth asking)\*\*\s+(.*\S)\s*$/i);
+
+          if (q) {
+            out.questions.push({
+              severity: /^blocking$/i.test(q[1]) ? BLOCKING : WORTH_ASKING,
+              text:     q[2],
+              answer:   '',
+            });
+            continue;
+          }
+
+          const a = line.match(/^\s{2,}Answer:\s*(.*\S)\s*$/);
+
+          if (a && out.questions.length) {
+            const last = out.questions[out.questions.length - 1];
+
+            last.answer = last.answer ? `${ last.answer } ${ a[1] }` : a[1];
+          }
+          continue;
+        }
+
+        if (key === 'reuse') {
+          const m = line.match(/^-\s+(\S+)\s+(\S+)\s*$/);
+
+          if (m) {
+            out.reuse.push({ extension: m[1], where: m[2] });
           }
           continue;
         }
@@ -408,6 +565,118 @@ export default {
     },
 
     /**
+     * The per-criterion menu (34:1057 and the three under it).
+     *
+     * Reorder is the reason it exists. Delete was already a button and editing is the row
+     * itself, but the order of the criteria is the order screen 13 walks them in and there was
+     * no way to change it - so a criterion typed in the wrong place stayed there.
+     */
+    criterionMenu(i) {
+      return [
+        {
+          id: 'up', label: 'Move up', icon: 'chevronUp', disabled: i === 0,
+        },
+        {
+          id:       'down',
+          label:    'Move down',
+          icon:     'chevronDown',
+          disabled: i === this.criteria.length - 1,
+        },
+        { divider: true },
+        {
+          id:       'remove',
+          label:    'Delete this criterion',
+          icon:     'trash',
+          danger:   true,
+          disabled: this.criteria.length < 2,
+        },
+      ];
+    },
+
+    onCriterion(i, id) {
+      if (id === 'remove') {
+        this.removeCriterion(i);
+
+        return;
+      }
+
+      const to = id === 'up' ? i - 1 : i + 1;
+
+      if (to < 0 || to >= this.criteria.length) {
+        return;
+      }
+
+      const moved = this.criteria.slice();
+
+      [moved[i], moved[to]] = [moved[to], moved[i]];
+      this.criteria = moved;
+    },
+
+    toggleRole(role) {
+      this.roles = this.roles.includes(role)
+        ? this.roles.filter((each) => each !== role)
+        : [...this.roles, role];
+    },
+
+    addQuestion() {
+      const text = this.newQuestion.trim();
+
+      if (!text) {
+        return;
+      }
+
+      // New questions arrive as "Worth asking". Calling somebody else's question blocking on
+      // their behalf is the one thing this list should not do for them, and the chip on the
+      // card changes it in one click.
+      this.questions = [...this.questions, { severity: WORTH_ASKING, text, answer: '' }];
+      this.newQuestion = '';
+    },
+
+    toggleSeverity(index) {
+      this.questions = this.questions.map((q, i) => (i === index
+        ? { ...q, severity: q.severity === BLOCKING ? WORTH_ASKING : BLOCKING }
+        : q));
+    },
+
+    removeQuestion(index) {
+      this.questions = this.questions.filter((_, i) => i !== index);
+
+      if (this.answeringAt === index) {
+        this.answeringAt = -1;
+      }
+    },
+
+    startAnswering(index) {
+      this.answeringAt = index;
+      this.draftAnswer = this.questions[index]?.answer || '';
+    },
+
+    /**
+     * Answer a question yourself (34:1105).
+     *
+     * The answer goes onto the question in BRIEF.md rather than into a box that forgets it, so
+     * the question stops being open here, stops being open on the next visit, and is read by
+     * whatever reads the brief next - which is the assistant.
+     */
+    saveAnswer(index) {
+      const answer = this.draftAnswer.trim();
+
+      if (!answer) {
+        this.answeringAt = -1;
+
+        return;
+      }
+
+      this.questions = this.questions.map((q, i) => (i === index ? { ...q, answer } : q));
+      this.answeringAt = -1;
+      this.draftAnswer = '';
+    },
+
+    reopenQuestion(index) {
+      this.questions = this.questions.map((q, i) => (i === index ? { ...q, answer: '' } : q));
+    },
+
+    /**
      * The sections this form owns, in the order the document lays them out.
      *
      * The one list `parseBrief` is keyed against and `briefDocument` writes from, so the two
@@ -419,12 +688,19 @@ export default {
         ['What you were handed', this.request.trim() || '_not stated_'],
         ['The problem', this.problem.trim() || '_not stated_'],
         ['Who has it', this.who.trim() || '_not stated_'],
+        ['Written for', this.rolesBody()],
         ['What changes for them', this.changes.trim() || '_not stated_'],
         ['What we are deliberately not doing', this.notDoing.trim() || '_not stated_'],
         ['How we will know it worked', this.criteriaBody()],
+        ['Open questions', this.questionsBody()],
+        ['Prior art we are reusing', this.reuseBody()],
       ];
 
-      if (this.placement) {
+      // Only when the file does not already say. `extension-placement.ts` writes this section
+      // at creation with the paragraph that explains the choice, and this form knows the route
+      // id and nothing else - so claiming the section unconditionally flattened that paragraph
+      // to one line on the first save.
+      if (this.placement && !this.seededPlacement) {
         out.push(['Where it appears', `Parent route: \`${ this.placement }\``]);
       }
 
@@ -447,6 +723,50 @@ export default {
       return this.filledCriteria
         .map((c) => `- [${ this.ticked.has(c) ? 'x' : ' ' }] ${ c }`)
         .join('\n');
+    },
+
+    /** The audience chips, in the order the chips are drawn rather than the order clicked. */
+    rolesBody() {
+      const chosen = ROLES.filter((role) => this.roles.includes(role));
+
+      return chosen.length ? chosen.map((role) => `- ${ role }`).join('\n') : '_not stated_';
+    },
+
+    /**
+     * The open questions, in the shape the parser above reads and a person would write.
+     *
+     * The severity is the first thing on the line because it is the first thing that matters
+     * about a question, both to whoever reads the file and to the assistant that is handed it.
+     */
+    questionsBody() {
+      const rows = this.questions
+        .filter((q) => q.text.trim())
+        .map((q) => {
+          const head = `- **${ q.severity }** ${ q.text.trim() }`;
+
+          return q.answer.trim() ? `${ head }\n  Answer: ${ q.answer.trim().replace(/\s+/g, ' ') }` : head;
+        });
+
+      return rows.length ? rows.join('\n') : '_none open_';
+    },
+
+    /**
+     * What this brief has decided to reuse rather than build again.
+     *
+     * A decision, not a search result: the search is re-run every time somebody presses the
+     * button and finds whatever the words match today, while this is the line somebody chose,
+     * and it is in the document the assistant reads before it writes anything.
+     */
+    reuseBody() {
+      if (!this.reuse.length) {
+        return '_nothing chosen_';
+      }
+
+      return [
+        'Look at these before writing the same thing again, and say in the code where it came from.',
+        '',
+        ...this.reuse.map((r) => `- ${ r.extension } ${ r.where }`),
+      ].join('\n');
     },
 
     /**
@@ -675,12 +995,14 @@ export default {
     /**
      * Ask the assistant what it cannot decide from this brief.
      *
-     * The brief goes with the question, as it stands in the form right now - unsaved, because a
-     * question about a draft is about the draft. It goes to the one claude this extension has,
-     * so what it answers it answers in that conversation, in the workspace's terminal. This page
-     * does not move: the form is full of typing nobody has saved yet, and navigating away from
-     * it to show an answer would cost more than the answer is worth. The card says where to
-     * find it and offers the door.
+     * It is asked to write the questions into `## Open questions` in BRIEF.md rather than to
+     * answer in the terminal, because writing a file is a thing it can do and this screen can
+     * read - so the questions land in the list beside this button instead of scrolling past in
+     * a pane nobody has open. The answer in the terminal is still there to argue with; what
+     * changed is that the list is not lost when the pane is closed.
+     *
+     * The typing is saved first. The prompt tells it to edit the file, and an edit against a
+     * copy that does not yet contain what is on this screen would drop it.
      */
     async askWhatIsUnclear() {
       if (this.asking) {
@@ -690,20 +1012,26 @@ export default {
       this.asking = true;
 
       try {
+        clearTimeout(this.saveTimer);
+        await this.saveDraft();
+
         const how = await askAssistant(this.extension, [
-          `Here is the draft brief for the ${ this.extension } extension, written before any code exists.`,
-          'Read it and tell me only the decisions you cannot make from it - the choices where',
-          'guessing would waste the build: empty states, defaults, whether to replace something',
-          'or sit beside it. List them as questions. Do not write any code yet.',
-          '---',
-          this.briefDocument(this.original),
+          `Read BRIEF.md in this package. It is the brief for the ${ this.extension } extension,`,
+          'written before any code exists.',
+          'Work out only the decisions you cannot make from it - the choices where guessing would',
+          'waste the build: empty states, defaults, whether to replace something or sit beside it.',
+          'Then edit BRIEF.md: under the `## Open questions` heading, replace `_none open_` with one',
+          'line per question in exactly this form, and change nothing else in the file:',
+          '`- **Blocking** the question` for a question that stops you starting, or',
+          '`- **Worth asking** the question` for one that does not.',
+          'Do not answer them and do not write any other code yet.',
         ].join(' '));
 
         this.asked = how;
         toastSuccess(
           this.$store,
           how === 'sent'
-            ? 'The answer arrives in the workspace terminal for this extension.'
+            ? 'It is reading the brief now. Press "Re-read the brief" in a moment to pick the questions up.'
             : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.',
           { title: 'Asked the assistant' }
         );
@@ -712,6 +1040,81 @@ export default {
       } finally {
         this.asking = false;
       }
+    },
+
+    /**
+     * Read BRIEF.md again, for the questions the pod has written into it since.
+     *
+     * A button rather than a poll: the assistant writes the file when it gets round to it, and
+     * a form that reloads itself under somebody's cursor while they are typing in it is worse
+     * than one they have to ask. Anything unsaved goes in first, for the same reason the ask
+     * saves first.
+     */
+    async rereadBrief() {
+      if (this.rereading) {
+        return;
+      }
+
+      this.rereading = true;
+
+      try {
+        clearTimeout(this.saveTimer);
+
+        if (this.dirty) {
+          await this.saveDraft();
+        }
+
+        const before = this.questions.length;
+
+        this.ready = false;
+        this.loading = true;
+        await this.load();
+
+        const found = this.questions.length - before;
+
+        toastSuccess(this.$store, found > 0
+          ? `${ found } new question${ found === 1 ? '' : 's' } in the brief.`
+          : 'Nothing new in the brief yet.');
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not re-read the brief' });
+      } finally {
+        this.rereading = false;
+      }
+    },
+
+    /**
+     * Go and look at what the search found (34:1145's "Look at it").
+     *
+     * The Files screen of the extension the hit is in, with that file open - which is the one
+     * surface in this Studio that can show somebody else's source, so nothing new is invented
+     * to do it.
+     */
+    lookAtHit(hit) {
+      this.$router.push({
+        name:   FILES_ROUTE,
+        params: { extension: hit.extension },
+        query:  { file: hit.path },
+      });
+    },
+
+    /**
+     * Adopt a finding into the brief (34:1147's "Reuse its chart").
+     *
+     * A real commitment rather than a bookmark: it is written into BRIEF.md, which is the
+     * document CLAUDE.md tells the assistant to read first, so the choice reaches the thing
+     * that writes the code. Toggling, because the wrong line gets clicked.
+     */
+    toggleReuse(hit) {
+      const where = `${ hit.path }:${ hit.line }`;
+      const key = `${ hit.extension } ${ where }`;
+
+      this.reuse = this.reuseKeys.has(key)
+        ? this.reuse.filter((r) => `${ r.extension } ${ r.where }` !== key)
+        : [...this.reuse, { extension: hit.extension, where }];
+    },
+
+    isReused(hit) {
+      return this.reuseKeys.has(`${ hit.extension } ${ hit.path }:${ hit.line }`);
     },
 
     openWorkspace() {
@@ -897,6 +1300,28 @@ export default {
                 multiline
                 :rows="2"
               />
+
+              <!--
+                34:1030: who it is written for. Multi-select, because two of the four chips are
+                drawn ticked, and written into the brief - the audience is half of what decides
+                the interface, and the assistant reads the brief before it draws any of it.
+              -->
+              <div class="brief__roles">
+                <SLabel text="Written for" />
+                <div class="brief__role-row">
+                  <SChip
+                    v-for="role in roleOptions"
+                    :key="role"
+                    :label="role"
+                    :icon="roles.includes(role) ? 'check' : ''"
+                    :tone="roles.includes(role) ? 'info' : 'default'"
+                    clickable
+                    :data-testid="`brief-role-${ role.toLowerCase().replace(/ /g, '-') }`"
+                    @click="toggleRole(role)"
+                  />
+                </div>
+              </div>
+
               <SField
                 v-model="changes"
                 label="What changes for them"
@@ -946,6 +1371,15 @@ export default {
                   aria-label="Remove"
                   @click="removeCriterion(i)"
                 />
+                <!--
+                  34:1057: the per-row menu. Reorder is what it is for - the order here is the
+                  order screen 13 walks them in, and until this there was no way to change it.
+                -->
+                <SMenu
+                  :items="criterionMenu(i)"
+                  :aria-label="`Actions for criterion ${ i + 1 }`"
+                  @select="onCriterion(i, $event)"
+                />
               </div>
 
               <SButton variant="ghost" size="sm" icon="plus" @click="addCriterion">
@@ -960,24 +1394,153 @@ export default {
           <!-- What the assistant cannot decide (34:1085) -->
           <section class="brief__card">
             <header class="brief__card-head">
-              <h2 class="brief__card-title">
-                What the assistant cannot decide
-              </h2>
+              <div class="brief__card-title-row">
+                <h2 class="brief__card-title">
+                  What the assistant cannot decide
+                </h2>
+                <SChip
+                  v-if="questions.length"
+                  data-testid="brief-open-count"
+                  :label="openCount ? `${ openCount } open` : 'all answered'"
+                  :icon="blockingCount ? 'alert' : 'check'"
+                  :tone="blockingCount ? 'warning' : 'success'"
+                />
+              </div>
               <p class="brief__card-note">
-                The most useful thing on this screen. Ask before you build, not after.
+                The most useful thing on this screen. Ask before you build, not after. Every
+                question here lives in <code>BRIEF.md</code>, so it survives this page and is
+                read by whatever reads the brief next.
               </p>
             </header>
             <div class="brief__card-body">
-              <SBanner type="warning">
-                The answer does not appear here. Asking sends this brief, as it stands, to the
-                assistant working on <strong>{{ extension }}</strong>, and it replies in that
-                extension's terminal in the workspace - where you can argue with it, which is
-                the half of this a list on a page cannot do.
+              <SBanner v-if="!questions.length" type="info">
+                Nothing is listed yet. Asking tells the assistant working on
+                <strong>{{ extension }}</strong> to write what it cannot decide into this
+                brief; it also answers in that extension's terminal, where you can argue with
+                it. Or write a question yourself, below.
               </SBanner>
+
+              <!-- 34:1090 / 34:1106: the cards, and the severity that separates them. -->
+              <div
+                v-for="q in openQuestions"
+                :key="`open-${ q.index }`"
+                class="brief__question"
+                :class="{ 'brief__question--blocking': q.severity === 'Blocking' }"
+                data-testid="brief-question"
+              >
+                <div class="brief__question-head">
+                  <SChip
+                    :label="q.severity"
+                    :icon="q.severity === 'Blocking' ? 'alert' : 'search'"
+                    :tone="q.severity === 'Blocking' ? 'error' : 'default'"
+                    clickable
+                    :title="q.severity === 'Blocking'
+                      ? 'Blocking: nobody can start until this is answered. Click to downgrade it.'
+                      : 'Worth asking: useful, but the build can start without it. Click to mark it blocking.'"
+                    @click="toggleSeverity(q.index)"
+                  />
+                  <span class="brief__grow" />
+                  <SButton
+                    variant="ghost"
+                    size="sm"
+                    icon="close"
+                    icon-only
+                    aria-label="Remove this question"
+                    @click="removeQuestion(q.index)"
+                  />
+                </div>
+
+                <p class="brief__question-text">
+                  {{ q.text }}
+                </p>
+
+                <div v-if="answeringAt === q.index" class="brief__answer">
+                  <SField
+                    v-model="draftAnswer"
+                    label="Your answer"
+                    placeholder="What the answer is, so nobody has to ask again."
+                    multiline
+                    :rows="2"
+                    autofocus
+                  />
+                  <div class="brief__card-actions">
+                    <SButton variant="ghost" size="sm" @click="answeringAt = -1">
+                      Cancel
+                    </SButton>
+                    <SButton
+                      variant="secondary"
+                      size="sm"
+                      icon="check"
+                      :disabled="!draftAnswer.trim()"
+                      :data-testid="`brief-save-answer-${ q.index }`"
+                      @click="saveAnswer(q.index)"
+                    >
+                      Save the answer
+                    </SButton>
+                  </div>
+                </div>
+
+                <div v-else class="brief__card-actions">
+                  <!-- 34:1105 -->
+                  <SButton
+                    variant="ghost"
+                    size="sm"
+                    icon="user"
+                    :data-testid="`brief-answer-myself-${ q.index }`"
+                    @click="startAnswering(q.index)"
+                  >
+                    Answer it myself
+                  </SButton>
+                </div>
+              </div>
+
+              <div
+                v-for="q in answeredQuestions"
+                :key="`done-${ q.index }`"
+                class="brief__question brief__question--answered"
+              >
+                <div class="brief__question-head">
+                  <SChip label="Answered" icon="check" tone="success" />
+                  <span class="brief__grow" />
+                  <SButton
+                    variant="ghost"
+                    size="sm"
+                    @click="reopenQuestion(q.index)"
+                  >
+                    Reopen
+                  </SButton>
+                </div>
+                <p class="brief__question-text">
+                  {{ q.text }}
+                </p>
+                <p class="brief__question-answer">
+                  {{ q.answer }}
+                </p>
+              </div>
+
+              <div class="brief__ask-row">
+                <input
+                  v-model="newQuestion"
+                  class="brief__ask-input"
+                  placeholder="A question nobody has answered yet"
+                  aria-label="Add an open question"
+                  data-testid="brief-new-question"
+                  @keyup.enter="addQuestion"
+                >
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  icon="plus"
+                  icon-only
+                  aria-label="Add this question"
+                  :disabled="!newQuestion.trim()"
+                  @click="addQuestion"
+                />
+              </div>
 
               <p v-if="asked" class="brief__asked">
                 {{ asked === 'sent'
-                  ? 'Sent. The answer is being written in the workspace terminal.'
+                  ? 'Asked. It edits the brief when it gets there, so re-read it in a moment.'
                   : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.' }}
               </p>
 
@@ -986,11 +1549,22 @@ export default {
                   variant="ghost"
                   size="sm"
                   icon="sparkle"
+                  data-testid="brief-ask-unclear"
                   :loading="asking"
                   :disabled="!problem.trim()"
                   @click="askWhatIsUnclear"
                 >
                   Ask what is unclear
+                </SButton>
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  icon="refresh"
+                  data-testid="brief-reread"
+                  :loading="rereading"
+                  @click="rereadBrief"
+                >
+                  Re-read the brief
                 </SButton>
                 <SButton
                   v-if="asked"
@@ -1049,8 +1623,42 @@ export default {
                   >
                     <span class="brief__art-where">{{ hit.path }}:{{ hit.line }}</span>
                     <code class="brief__art-text">{{ hit.text }}</code>
+                    <div class="brief__art-actions">
+                      <!-- 34:1145: go and judge the overlap yourself. -->
+                      <SButton
+                        variant="ghost"
+                        size="sm"
+                        icon="external"
+                        data-testid="brief-look-at-it"
+                        @click="lookAtHit(hit)"
+                      >
+                        Look at it
+                      </SButton>
+                      <!-- 34:1147: a decision that reaches the assistant, not a bookmark. -->
+                      <SButton
+                        variant="ghost"
+                        size="sm"
+                        :icon="isReused(hit) ? 'check' : 'plus'"
+                        data-testid="brief-reuse"
+                        @click="toggleReuse(hit)"
+                      >
+                        {{ isReused(hit) ? 'Reusing this' : 'Reuse this' }}
+                      </SButton>
+                    </div>
                   </div>
                 </div>
+              </div>
+
+              <div v-if="reuse.length" class="brief__reusing" data-testid="brief-reusing">
+                <SLabel text="This brief says to reuse" />
+                <div v-for="r in reuse" :key="`${ r.extension } ${ r.where }`" class="brief__reuse-row">
+                  <SIcon name="check" :size="13" />
+                  <span class="brief__reuse-where">{{ r.extension }} · {{ r.where }}</span>
+                </div>
+                <p class="brief__reuse-note">
+                  Written into <code>BRIEF.md</code>, which is the first thing the assistant
+                  reads in this tree, so it is a decision rather than a note to self.
+                </p>
               </div>
 
               <SButton
@@ -1290,6 +1898,137 @@ export default {
     align-items: center;
     gap:         var(--studio-space-8);
     flex-wrap:   wrap;
+  }
+
+  &__card-title-row {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+  }
+
+  /* Who it is written for (34:1030). */
+  &__roles {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
+  }
+
+  &__role-row {
+    display:   flex;
+    flex-wrap: wrap;
+    gap:       var(--studio-space-6);
+  }
+
+  /*
+   * One open question (34:1090). The blocking ones carry a left bar as well as their chip,
+   * because severity is the reason the list is sorted the way it is and a chip alone does not
+   * survive being skimmed.
+   */
+  &__question {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
+    padding:        var(--studio-space-10) var(--studio-space-12);
+    background:     var(--studio-surface-subtle);
+    border:         1px solid var(--studio-border-subtle);
+    border-radius:  var(--studio-radius-control);
+
+    &--blocking {
+      border-left: 3px solid var(--studio-error);
+      background:  var(--studio-error-bg);
+    }
+
+    &--answered { opacity: 0.85; }
+  }
+
+  &__question-head {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+  }
+
+  &__question-text {
+    margin: 0;
+    font:   var(--studio-body-14);
+    color:  var(--studio-text);
+  }
+
+  &__question-answer {
+    margin:      0;
+    padding-left: var(--studio-space-10);
+    border-left: 2px solid var(--studio-border);
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-secondary);
+  }
+
+  &__answer {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-8);
+  }
+
+  &__ask-row {
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-6);
+    padding:       5px var(--studio-space-10);
+    border:        1px dashed var(--studio-border);
+    border-radius: var(--studio-radius-control);
+
+    &:focus-within { border-color: var(--studio-border-focus); }
+  }
+
+  &__ask-input {
+    flex:       1 1 auto;
+    min-width:  0;
+    border:     none;
+    outline:    none;
+    background: transparent;
+    padding:    0;
+    font:       var(--studio-caption-12);
+    color:      var(--studio-text);
+
+    &::placeholder { color: var(--studio-text-tertiary); }
+  }
+
+  &__art-actions {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-4);
+    margin-top:  var(--studio-space-4);
+  }
+
+  &__reusing {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-4);
+    padding:        var(--studio-space-8) var(--studio-space-10);
+    border:         1px solid var(--studio-border-subtle);
+    border-radius:  var(--studio-radius-control);
+    background:     var(--studio-success-bg);
+  }
+
+  &__reuse-row {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+    min-width:   0;
+  }
+
+  &__reuse-where {
+    flex:          1 1 auto;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+    font:          var(--studio-mono-12);
+    color:         var(--studio-text);
+  }
+
+  &__reuse-note {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
   }
 
   &__asked {

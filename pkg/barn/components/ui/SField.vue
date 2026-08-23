@@ -62,6 +62,18 @@ export default {
       type:    Boolean,
       default: false,
     },
+
+    /**
+     * A `data-testid` for the input itself.
+     *
+     * Needed because a `data-testid` written on this component falls through to its root, which
+     * is the wrapper div and not the thing anybody types into. Automation that wants the control
+     * has to be given the control.
+     */
+    inputTestid: {
+      type:    String,
+      default: '',
+    },
   },
 
   emits: ['update:modelValue', 'enter', 'focus', 'blur'],
@@ -114,6 +126,7 @@ export default {
         v-if="multiline"
         ref="input"
         class="s-field__input"
+        :data-testid="inputTestid || null"
         :value="modelValue"
         :placeholder="placeholder"
         :rows="rows"
@@ -127,6 +140,7 @@ export default {
         v-else
         ref="input"
         class="s-field__input"
+        :data-testid="inputTestid || null"
         :type="type"
         :value="modelValue"
         :placeholder="placeholder"
