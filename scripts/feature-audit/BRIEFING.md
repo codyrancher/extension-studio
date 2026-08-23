@@ -162,3 +162,31 @@ server just spawned another - four rounds of that before the keeper itself was f
 The script starts exactly one, refuses if another is already running, caps the heap at 3GB, and has
 no restart loop: if it dies it stays dead and you read the log. If you find a `vue-cli-service` it
 does not own, say so rather than adding another.
+
+## The nodehealth extension collides with base in the preview
+
+`nodehealth` was created during an early demo, before screen 02 learned to write the extension's own
+name into `product.ts`, so its source declared `PRODUCT_NAME = 'base'`. It therefore registers as the
+`base` product and **hijacks `/base/c/*` in every live preview**: the page you see on that route may
+be nodehealth's, not base's.
+
+Its source in the pod is fixed. **The installed UIPlugin still carries the old bundle**, because
+republishing means a multi-minute production build in a shared pod, so the collision persists at
+runtime until somebody publishes it again.
+
+What that means for you:
+
+- Do not verify a live-preview feature on `/base/c/_/home`. Use a route of your own, or another
+  extension. One verifier lost time to this before spotting it.
+- If a preview shows content you did not expect, check whether you are looking at nodehealth.
+- It is also a good demonstration of why the placement fix mattered: two extensions from one seed
+  used to collide silently, and this is what that looks like from the outside.
+
+## Undo is scoped to the most recently changed file
+
+`undoLastChange` picks the most recently modified file in the working tree. In a pod with one author
+that is the file you just changed. **In this pod, with several agents working at once, it is
+whoever wrote last** - a verifier clicked Undo and removed another verifier's file.
+
+That is correct behaviour for the product and a hazard for us. Before clicking Undo, check whose
+file is at the top of the working tree, and prefer undoing something you can name.

@@ -48,6 +48,10 @@ import {
   githubIdentity, listGithubRepos
 } from '../extensions';
 import { inspectRepository, rancherVersion, versionSkew } from '../import-check';
+// Imported, not copied. Both surfaces that report a GitHub refusal have to phrase it the same
+// way, and a second copy of the regex is how that stops being true: this file and the settings
+// page had byte-identical copies, which is a coincidence rather than a guarantee.
+import { asSentence, githubErrorText } from '../studio-settings';
 
 /** Long enough that typing `owner/name` does not clone three times on the way through. */
 const CHECK_DELAY = 600;
@@ -138,47 +142,6 @@ function expiresIn(text) {
 /** `a, b and c`. The check panel's two lists are read as prose, not as a bulleted set. */
 function sentence(items) {
   return items.length < 2 ? items.join('') : `${ items.slice(0, -1).join(', ') } and ${ items[items.length - 1] }`;
-}
-
-/** Git's own words, and the pod's, arrive lowercase and unpunctuated. This panel is prose. */
-function asSentence(text) {
-  return text ? `${ text[0].toUpperCase() }${ text.slice(1) }`.replace(/\.?$/, '.') : '';
-}
-
-/**
- * A refusal from GitHub, said in words.
- *
- * `githubApiAnywhere` throws the status followed by the first 200 characters of GitHub's body,
- * which is the right thing to carry back from the pod and the wrong thing to put in a sentence:
- * a rejected token arrives as `401 { "message": "Bad credentials", "documentation_url": ... }`
- * flattened onto one line. So the status and GitHub's own `message` are pulled out and the rest
- * is dropped. The body is truncated, so it is read with a pattern rather than parsed - a cut-off
- * JSON object does not parse, and a token being rejected is exactly the sentence worth keeping.
- *
- * Anything that is not a status is left alone. "No GitHub token is configured" and "no extension
- * pod is running to ask GitHub from" are this product's own words and already read as prose.
- */
-function githubErrorText(message) {
-  const text = String(message || '').trim();
-  const status = /^(\d{3})\b/.exec(text);
-
-  if (!status) {
-    return text;
-  }
-
-  const said = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(text);
-  const detail = said ? said[1] : '';
-  const because = detail ? ` (${ detail })` : '';
-
-  if (status[1] === '401') {
-    return `GitHub rejected the token${ because }.`;
-  }
-
-  if (status[1] === '403') {
-    return `GitHub refused the call${ because }.`;
-  }
-
-  return `GitHub answered ${ status[1] }${ because }.`;
 }
 
 export default {

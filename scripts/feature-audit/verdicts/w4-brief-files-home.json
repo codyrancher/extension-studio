@@ -1,0 +1,1133 @@
+{
+  "screen": "10-brief + 13-verify + 05-files + 01-home + 02-new",
+  "verdicts": [
+    {
+      "id": "01-home-actions-column",
+      "status": "pass",
+      "evidence": "The last column header renders as <button class=\"studio-home__th studio-home__th--plain\"> with empty text and no .studio-home__sort glyph (the other five all carry one). Nit rather than a defect: it is still a button wired to toggleSort({id:'actions'}), and pressing it moves the sorted indicator off whatever column had it while leaving the row order at the name tie-break, because sortValue returns '' for every row on that key.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-current",
+      "status": "pass",
+      "evidence": "The trailing crumb is <span class=\"studio-home__crumb-current\">Studio</span> - no anchor, no handler. Force-clicked it from /dashboard/barn/extensions and the URL was unchanged afterwards.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-extensions",
+      "status": "pass",
+      "evidence": "[data-testid=studio-crumb-extensions] is the 'Extensions' anchor. Clicked it and landed on /dashboard/c/local/uiplugins#installed, Rancher's own Extensions page.",
+      "defect": null
+    },
+    {
+      "id": "01-home-count",
+      "status": "pass",
+      "evidence": "The pill beside the title read 3 with title '3 extensions'. Typing 'node' took it to 1, 'zzzznomatch' to 0, clearing back to 3; after I created a fourth extension it read 4. It tracks the filtered set, not the raw one.",
+      "defect": null
+    },
+    {
+      "id": "01-home-filter",
+      "status": "pass",
+      "evidence": "Typed 'node' into .studio-home__search-input: 3 rows before, 1 after, and the survivor was nodehealth. 'zzzznomatch' removed every row and rendered 'No extension matches'. Clearing brought base, demo and nodehealth back. Filtering also narrowed correctly on a name only I had created ('v4bf' -> 1 row).",
+      "defect": null
+    },
+    {
+      "id": "01-home-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every a/button/[role=button]/i/svg in <header> on /barn/extensions: top-level-menu (aria 'Expand the Application Bar'), the Home link, menu-cluster-local plus its pin, the eight app links, notifications-center and nav_header_showUserMenu. `header [class*=apps], header [class*=grid], header .icon-apps` matched 0 elements.",
+      "defect": "No grid launcher in Rancher's header. The nearest thing is the hamburger's Application Bar slide-out, which is a different control (01-home-nav-menu). barn does not render the header, so this is Rancher chrome."
+    },
+    {
+      "id": "01-home-header-logo",
+      "status": "fail",
+      "evidence": "The logo is a bare <img data-testid=\"header__brand-img\">; img.closest('a') is null. Force-clicked it from /dashboard/barn/extensions/new and the URL stayed put.",
+      "defect": "The header logo has no wrapping anchor and no click handler, so it navigates nowhere. Rancher shell chrome rather than barn code; /dashboard/home is still one click away in the rail."
+    },
+    {
+      "id": "01-home-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header enumeration, filtered for /ellipsis|actions|kebab|more|dots/: []. The header's only buttons are top-level-menu, menu-cluster-local, the pin, notifications-center and nav_header_showUserMenu.",
+      "defect": "No overflow kebab in Rancher's header. Global actions live in the user menu."
+    },
+    {
+      "id": "01-home-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center]: a .notification-dropdown appeared, headed 'Notifications / Mark all as read' and holding real entries ('That did not work ... the snapshot of demo failed in the pod (exit 1)').",
+      "defect": null
+    },
+    {
+      "id": "01-home-import-github",
+      "status": "pass",
+      "evidence": "Clicked 'Import': the ImportExtensionModal opened, headed 'Import an extension from GitHub' with 'Step 1. Connect GitHub' and a repository form.",
+      "defect": null
+    },
+    {
+      "id": "01-home-intro",
+      "status": "pass",
+      "evidence": "<p class=\"studio-home__lede\"> under the title row reads 'Describe what you want in plain language; the assistant builds it against this Rancher. Nothing reaches users until you publish.'",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' in the rail: /dashboard/about loaded.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-book",
+      "status": "not-implemented",
+      "evidence": "Read all eleven rail entries with their icon classes and hrefs: Home, local, Cluster Management (icon-cluster-management), Continuous Delivery (icon-fleet), Extension Studio (icon-extension), Virtualization Management (icon-harvester), Base (icon-gear), Users & Authentication (icon-user), Extensions (icon-extension), Global Settings (icon-globe), About. `.side-menu [class*=book], .side-menu [class*=docs]` matched 0.",
+      "defect": "No docs or catalog entry in this Rancher's top-level menu. Apps/Charts live inside a cluster explorer, not the rail."
+    },
+    {
+      "id": "01-home-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail has one cluster chip, [data-testid=menu-cluster-local] 'local'; clicking it opened /dashboard/c/local/explorer#cluster-events. The design's three chips (LT1, CD2, AFT) are three clusters this instance does not have - the mechanism works, there is only one cluster to jump to.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-extensions",
+      "status": "pass",
+      "evidence": "On /barn/extensions the 'Extension Studio' rail entry carries router-link-exact-active/active-me and is the only highlighted one. Clicking it from /dashboard/home returned to /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-gear",
+      "status": "pass",
+      "evidence": "Clicked the gear ('Global Settings'): /dashboard/c/local/settings/management.cattle.io.setting loaded.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house: /dashboard/home loaded.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-menu",
+      "status": "pass",
+      "evidence": "The rail was 'side-menu menu-close'; clicking [data-testid=top-level-menu] made it 'side-menu menu-open'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-server",
+      "status": "pass",
+      "evidence": "Clicked the server icon ('Cluster Management'): /dashboard/c/_/manager/provisioning.cattle.io.cluster loaded.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-user",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=nav_header_showUserMenu]: a dropdown opened reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-new-extension",
+      "status": "pass",
+      "evidence": "Clicked 'New extension': the app routed to /dashboard/barn/extensions/new and the card titled 'New extension' rendered.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-actions",
+      "status": "pass",
+      "evidence": "The last cell of each row is .studio-home__td--actions, 104px wide, holding the 'Review' button plus an SMenu trigger (aria-label 'Actions for base'). Opening it gave five items - Open in the workspace, Review changes 4, Open files, Open the brief, Remove the local install (disabled, 'not installed') - and I drove the first four: they routed to /barn/editor/base, /barn/extensions/base/review, /barn/extensions/base/files and /barn/extensions/base/brief respectively.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-open",
+      "status": "pass",
+      "evidence": "Clicked the 'base' row body: the app opened /dashboard/barn/editor/base.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-review",
+      "status": "pass",
+      "evidence": "base showed 'Unsaved / 3 changes waiting for your review' and a secondary 'Review' button [data-testid=studio-review-base]; clicking it opened /dashboard/barn/extensions/base/review. The freshly created v4bf, which had nothing waiting, had no Review button in its row.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-source",
+      "status": "pass",
+      "evidence": "All the extensions in this Studio were authored here, and each shows the sparkle (i.icon-ai) plus 'Created here - no repo yet'. The repo branch of the promise has no data to render: nothing in this instance was imported, so 'owner/repo - branch' with the GitHub mark could not be observed.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-subtitle",
+      "status": "pass",
+      "evidence": "Every name cell has a second muted line and it tracks state, not a fixed string: base '3 changes waiting for your review', demo '1 change waiting for your review', nodehealth '2 changes...', and the extension I created read 'Ready' while it was Live and switched to a change count the moment I dirtied a file in its pod.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-target",
+      "status": "pass",
+      "evidence": "base and demo read 'local (preview)' (pod running, not installed) and nodehealth reads 'catalog - v0.1.0' (installed as a UIPlugin at that version), which matches the uiplugins objects. The em-dash placeholder for an extension running nowhere was not observable - every extension here has a live pod.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-when",
+      "status": "pass",
+      "evidence": "Read the cell for base across four page loads while other work was touching it: 'just now', then '2 min ago', then '14 min ago'; demo aged 13 -> 14 min over the same period. It is a relative render of a real timestamp, not a fixed string.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-last-change",
+      "status": "pass",
+      "evidence": "First click sorted newest first: 2 min ago / 14 min ago / 15 hours ago (aria-sort descending). Second click reversed it to 15 hours ago / 14 min ago / 2 min ago (ascending). It is sorting on the timestamp, not the rendered string - '15 hours ago' correctly sorts oldest despite '2' < '15' alphabetically.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-name",
+      "status": "pass",
+      "evidence": "Clicking the Name header gave nodehealth/demo/base (aria-sort descending), clicking again base/demo/nodehealth (ascending).",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-running-on",
+      "status": "pass",
+      "evidence": "First click: nodehealth ('catalog - v0.1.0') above base and demo ('local (preview)'), aria-sort ascending - installed before previewing, which is what sortValue encodes. Second click reversed it to the two previews first and nodehealth last.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-source",
+      "status": "pass",
+      "evidence": "Clicking Source toggled aria-sort ascending then descending and the indicator moved onto the column, but the order did not change and could not: every extension in this Studio is 'Created here - no repo yet', so all rows tie on the sort value (the empty string) and fall through to the name tie-break. The reordering half is untested for want of an imported extension.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-state",
+      "status": "pass",
+      "evidence": "Drove this against a real difference. With three Unsaved rows plus one Live row that I created, ascending gave Unsaved/Unsaved/Unsaved/Live and descending gave Live/Unsaved/Unsaved/Unsaved, with the indicator moving onto State. That is the STATE_ORDER attention ranking (unsaved 1, live 3), not the badge word alphabetically.",
+      "defect": null
+    },
+    {
+      "id": "01-home-state-badge",
+      "status": "pass",
+      "evidence": "Each row leads with an s-badge: three rows read 'Unsaved' as s-badge--warning, and the extension I created rendered 'Live' as s-badge--success while its pod was ready and flipped back to 'Unsaved' (warning) as soon as I changed a file in it. Only two of the six states existed in this instance, so Building, Published, Failed and Draft could not be seen.",
+      "defect": null
+    },
+    {
+      "id": "01-home-title",
+      "status": "pass",
+      "evidence": "The H1 on /dashboard/barn/extensions reads 'Extension Studio'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-cancel",
+      "status": "pass",
+      "evidence": "Typed a description (the Name field auto-filled 'w4bf-cancel-probe'), clicked Cancel: the app returned to /dashboard/barn/extensions and the table still held only base, demo and nodehealth - no extension of that name was created.",
+      "defect": null
+    },
+    {
+      "id": "02-new-card-intro",
+      "status": "pass",
+      "evidence": ".new-ext__lede under the title reads 'Describe what you want in your own words. The assistant writes the code, runs it against this Rancher, and shows you the result before anything is shared.'",
+      "defect": null
+    },
+    {
+      "id": "02-new-card-title",
+      "status": "pass",
+      "evidence": "Exactly one .new-ext__card on the route, centred and bordered, titled 'New extension'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-connect-github",
+      "status": "pass",
+      "evidence": "Clicked 'Connect GitHub' inside the git note: the EditorSettingsModal opened ('Connect GitHub ... No GitHub token is stored ... GitHub token'). Closing it left the form exactly as it was - description 'W4BF probe description text', outcome 'W4BF outcome text', placement still 'On a resource' and its follow-up resource still 'pod'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-draft-brief",
+      "status": "pass",
+      "evidence": "Filled description, outcome, placement (Not sure yet) and Name 'v4bf', pressed 'Draft the brief'. It created the extension for real (deployment/service/configmap barn-v4bf-extension in namespace barn) and routed to /dashboard/barn/extensions/v4bf/brief?prompt=...&outcome=...&placement=undecided. The brief rendered the typed request verbatim, and BRIEF.md in the pod held '## What you were handed' = the description and '## The problem' = the outcome.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-cost-report",
+      "status": "pass",
+      "evidence": "Clicked the chip: the description field became 'Add a cost report per namespace.' and the Name field followed with 'cost-report-per'. With existing text it appends rather than replaces ('Base text. a cost report per namespace'). Focus does not move to the textarea - document.activeElement stays on the chip button - which is the one detail in howToVerify that does not hold.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-fleet-drift",
+      "status": "pass",
+      "evidence": "Clicked the chip: description became 'Add a fleet drift dashboard.' and the suggested name 'fleet-drift-dashboard'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-label",
+      "status": "pass",
+      "evidence": "An SLabel reading 'Try' (rendered uppercase 'TRY') sits at the left of the chip row, before the three suggestion pills.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-longhorn",
+      "status": "pass",
+      "evidence": "Clicked the chip: description became 'Add a Longhorn volume health tab.' and the suggested name 'longhorn-volume-health'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-footer-note",
+      "status": "pass",
+      "evidence": "[data-testid=new-ext-hint] in the card footer, left of the buttons: 'Next: agree a one-page brief. It takes about a minute and becomes the reviewer's checklist. You are recorded in it as the person who asked, which is what the outcome sign-off later checks against.'",
+      "defect": null
+    },
+    {
+      "id": "02-new-git-note",
+      "status": "pass",
+      "evidence": "The grey .new-ext__git panel renders with the GitHub mark and 'No GitHub connection needed to start. You can connect one later...'. The claim holds: no GitHub token is configured in this Studio (the settings modal says 'No GitHub token is stored') and the create flow still completed end to end and produced a working extension.",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every a/button/[role=button] in <header> on /barn/extensions/new: the hamburger, the Home link, the local cluster chip and pin, the eight app links, notifications-center and nav_header_showUserMenu. `header [class*=apps], header [class*=grid]` matched 0.",
+      "defect": "Rancher's header has no grid switcher. Same root as 01-home-header-apps."
+    },
+    {
+      "id": "02-new-header-logo",
+      "status": "fail",
+      "evidence": "[data-testid=header__brand-img] has no ancestor <a> (closest('a') is null). Force-clicked it on /dashboard/barn/extensions/new: the URL was unchanged.",
+      "defect": "The header logo is not a link and carries no handler. Rancher shell chrome, not pkg/barn."
+    },
+    {
+      "id": "02-new-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header inventory: no kebab, and `header .icon-actions, header [class*=ellipsis]` matched 0.",
+      "defect": "Rancher's header has no overflow menu."
+    },
+    {
+      "id": "02-new-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell on the new-extension route: the .notification-dropdown opened.",
+      "defect": null
+    },
+    {
+      "id": "02-new-import-instead",
+      "status": "pass",
+      "evidence": "Clicked 'Import a repo instead': the same ImportExtensionModal that screen 01's 'Import from GitHub' opens appeared, headed 'Import an extension from GitHub'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-name",
+      "status": "pass",
+      "evidence": "Typing 'Add a cost report per namespace to the cluster page' put 'cost-report-per' in Name unprompted. Editing it to 'my-edited-name' stopped the suggestion overwriting it - retyping the description left the edited value alone. And the edited value is what gets built: I typed 'v4bf' over the suggested 'w4bf-audit-probe' and the extension created was named v4bf (pod barn-v4bf-extension, package pkg/v4bf).",
+      "defect": null
+    },
+    {
+      "id": "02-new-name-hint",
+      "status": "pass",
+      "evidence": "The hint under Name reads 'Suggested from your description - editable'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' from /barn/extensions/new: /dashboard/about loaded.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-book",
+      "status": "not-implemented",
+      "evidence": "Enumerated every rail icon on this route: pin, cluster-management, fleet, extension, harvester, gear, user, extension, globe. `.side-menu [class*=book], .side-menu [class*=docs]` matched 0.",
+      "defect": "No docs entry in Rancher's rail on this instance."
+    },
+    {
+      "id": "02-new-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Clicked the rail's one cluster chip from /barn/extensions/new: /dashboard/c/local/explorer#cluster-events loaded. Only 'local' exists here.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-extensions",
+      "status": "pass",
+      "evidence": "On /barn/extensions/new the 'Extension Studio' rail entry is the only one carrying active-me.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-gear",
+      "status": "pass",
+      "evidence": "Clicked the gear from this route: /dashboard/c/local/settings/management.cattle.io.setting loaded.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house from this route: /dashboard/home loaded.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-menu",
+      "status": "pass",
+      "evidence": "Rail went from 'side-menu menu-close' to 'side-menu menu-open' on clicking [data-testid=top-level-menu].",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-server",
+      "status": "pass",
+      "evidence": "Clicked the server icon: /dashboard/c/_/manager/provisioning.cattle.io.cluster loaded.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the person icon: the account menu opened with Preferences, Account & API Keys and Log Out.",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome",
+      "status": "pass",
+      "evidence": "Typed 'W4BF: today nobody can see restart counts without kubectl' into the outcome field and submitted. It reached the brief screen and BRIEF.md as '## The problem'. The pushback half is real machinery but cannot complete here: the brief's callout offers 'Ask it to argue with this', which reads the request against the problem in the pod, and the pod's claude has no credential, so it answers 'Not logged in - Please run /login' and the callout says so up front.",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome-label",
+      "status": "pass",
+      "evidence": "The section head renders 'What can someone not do today?' with the aside 'The question a ticket usually skips.' above the field.",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome-note",
+      "status": "pass",
+      "evidence": "The sparkle-marked note under the field reads 'Answer this and the assistant can tell you when your description is a solution rather than a problem - which is most of the time, and is where the rewrites come from.'",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt",
+      "status": "pass",
+      "evidence": "On load document.activeElement is the .new-ext__prompt-input textarea with a 3px focus outline. Typed several lines, submitted, and the text arrived in the brief's 'What you were handed' card and in BRIEF.md verbatim.",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt-label",
+      "status": "pass",
+      "evidence": "'What should it do?' renders as the .new-ext__label above the description field.",
+      "defect": null
+    },
+    {
+      "id": "02-new-target",
+      "status": "not-implemented",
+      "evidence": "'Build and preview against' reads 'local - v1.36.1+k3s1', and both halves are real readings of /v1/management.cattle.io.clusters/local. But it is <div class=\"new-ext__box new-ext__box--static\" data-testid=\"new-ext-target\">: clicking it opened nothing, and there is no select, listbox or vue-select toggle anywhere in .new-ext__details.",
+      "defect": "The design draws a cluster picker and the product ships a static readout. The hint under it says why: every extension pod this Studio creates lives in the local cluster, so a list of other clusters would list places the build cannot go. Honest, but the promised control does not exist - a design decision rather than a code fix."
+    },
+    {
+      "id": "02-new-target-hint",
+      "status": "pass",
+      "evidence": "The hint under the target reads 'Changes only ever run here until you publish. Not a choice: every extension pod this Studio creates lives in this cluster, so there is nowhere else to point it.'",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-cluster",
+      "status": "pass",
+      "evidence": "On load 'Inside a cluster' is the selected card: aria-pressed true, border rgb(62,140,79), background rgb(238,245,239). Clicking 'Top-level nav' moved all three of those onto that card and left this one plain; clicking back returned them.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-label",
+      "status": "pass",
+      "evidence": "'Where should it appear?' plus 'This decides the parent route - the single hardest thing to fix later.' render above the four option cards.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-resource",
+      "status": "pass",
+      "evidence": "Clicked 'On a resource': it became the only selected card, and a follow-up appeared - 'On which resource?' with [data-testid=new-ext-resource] defaulting to 'node' and the hint 'The Kubernetes type whose detail page carries the tab'. I set it to 'pod' and the value stuck.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-top-level",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=new-ext-placement-global]: it became the only card with aria-pressed true and the green border/tint, and clicking 'Inside a cluster' moved them back. The generated code is the global shape - the extension I created (as 'Not sure yet', which seeds the same top-level placement) has product.ts with inStore: 'management', showClusterSwitcher: false and route params { cluster: '_' }, read straight out of its ConfigMap. Whether it then appears in the running global menu is not observable until the extension is published, which I did not do.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-unsure",
+      "status": "pass",
+      "evidence": "Clicked 'Not sure yet': only that card selected. Submitting produced a brief whose 'Where it appears' reads 'Parent route: `undecided`' followed by 'Not decided. \"Not sure yet\" was chosen, so this is a question rather than an answer: pick one of c-cluster, root or resource-detail, change product.ts and routing/index.ts to match, and replace this paragraph with the choice and why. Seeded as a top-level entry in the meantime so the extension runs.' The seed's CLAUDE.md carries the matching instruction. So the decision is genuinely deferred to the assistant and the request is written where the assistant reads it - but at creation the brief names no chosen placement and no reason, because nothing has chosen yet, and in this environment the pod's claude has no credential to choose with.",
+      "defect": null
+    },
+    {
+      "id": "05-files-ask-about-file",
+      "status": "pass",
+      "evidence": "Opened product.ts and clicked [data-testid=files-ask-about-file]. The prompt really reached the pod: capturing the tmux pane in the extension's pod shows 'Read product.ts in this package and explain it to somebody who has not seen it: what it is for, what depends on it, and anything in it that looks wrong. Do not change any files yet.' The page then routes to the workspace with ?tab=terminal - the Terminal tab, not the Assistant tab, because in this product the pod's claude is the terminal. (It answers 'Not logged in - Please run /login' here, which is the known credential-less pod.)",
+      "defect": null
+    },
+    {
+      "id": "05-files-back-arrow",
+      "status": "pass",
+      "evidence": "Clicked the first button in .files__masthead (the chevron-left) on /barn/extensions/base/files: landed on /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-chip",
+      "status": "pass",
+      "evidence": "[data-testid=files-branch] read 'main'; `git branch` in the pod reports main as the checked-out branch. After I created a second branch and switched to it the chip read 'w4bf-probe'.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-select",
+      "status": "pass",
+      "evidence": "Created a second branch in the pod so this could actually be driven. Clicking the branch row opened a menu listing 'main - checked out' and 'w4bf-probe'; choosing w4bf-probe switched for real - the chip became 'w4bf-probe', the subtitle recounted to '2 branches in the pod', and the tree, editor and history all reloaded (the history lost the working-changes entry that belonged to main). Switching back to main restored it. The subtitle's second half is not the promise: it says outright 'sync with origin is not read here' rather than reporting sync state.",
+      "defect": null
+    },
+    {
+      "id": "05-files-code-scroll",
+      "status": "pass",
+      "evidence": "Opened CLAUDE.md (97 lines): .files__code has scrollHeight 2150 against clientHeight 443 and scrolls internally - set scrollTop 400 and it held. While it scrolled, the editor header, the tree column and the 'Where used' panel all stayed at viewport top 160.",
+      "defect": null
+    },
+    {
+      "id": "05-files-code-view",
+      "status": "pass",
+      "evidence": "Cross-checked against the pod. Home.vue rendered 46 numbered rows starting at 1, product.ts 32, package.json 20, CLAUDE.md 97 - `wc -l` in the pod gives exactly 46/32/20/97 - and the first three rendered lines of Home.vue ('<script>', 'export default {', \"  name: 'BaseHome',\") match the file byte for byte. Syntax colouring is real spans: files__tok--keyword, --string, --comment, --number.",
+      "defect": null
+    },
+    {
+      "id": "05-files-edit-file",
+      "status": "pass",
+      "evidence": "The pane is read-only until Edit. Clicked [data-testid=files-edit] on pages/Home.vue: the header swapped to Cancel/Save and a textarea [data-testid=files-edit-area] appeared holding the file. Appended '// W4BF-EDIT-MARKER', pressed Save, and the marker is in the pod's copy of the file (verified by `tail` inside the pod). The header then re-read '51 lines - uncommitted changes' where it had said '49 lines - committed', and a Revert button appeared.",
+      "defect": null
+    },
+    {
+      "id": "05-files-editor-header-path",
+      "status": "pass",
+      "evidence": "The header names the open file and its provenance, and both change per file rather than being fixed: 'pages/Home.vue - Last commit by barn, 2 days ago - 46 lines - committed', 'product.ts - ... 32 lines - uncommitted changes' (Revert offered), 'package.json - ... 20 lines - committed'. The line counts match `wc -l` in the pod and the committed/uncommitted words match `git status`.",
+      "defect": null
+    },
+    {
+      "id": "05-files-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every a/button/[role=button]/i/svg in <header> on this route: the hamburger, Home, the local cluster chip and pin, the eight app links, notifications-center and nav_header_showUserMenu. `header [class*=apps], header [class*=grid]` matched 0.",
+      "defect": "Same as 01-home-header-apps: Rancher's header has no app-collection grid."
+    },
+    {
+      "id": "05-files-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header inventory: no kebab in the top bar. `header .icon-actions, header [class*=ellipsis]` matched 0. The only three-dot on the screen is the workspace masthead's, which is a different feature and does work.",
+      "defect": "Rancher's header has no overflow kebab."
+    },
+    {
+      "id": "05-files-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell from /barn/extensions/base/files: the notification centre opened with live entries ('Done - Re-read the file tree for v4bf', 'Asked the assistant').",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-heading",
+      "status": "pass",
+      "evidence": "The history list is labelled: its panel head reads 'History' with '20 entries' beside it, and it sits directly above the entries. The design's wording is 'RECENT ACTIVITY'; the product says 'History'. Labelled, differently worded.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-metadata",
+      "status": "pass",
+      "evidence": "Every entry names its source and time, and they match the pod. The commit rows read '6d3c632 Reviewed: 2 files - barn - 18 minutes ago' and 'dc36f93 The seeded extension - barn - 32 minutes ago', and `git log --format='%h %an %s'` in that pod returns exactly '6d3c632 barn Reviewed: 2 files' and 'dc36f93 barn The seeded extension'. Snapshot rows are marked 'automatic' ('snapshot before overwriting Home.vue - automatic - 76 seconds ago'), commits carry the author name.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-open-entry",
+      "status": "pass",
+      "evidence": "Clicked the 'dc36f93 The seeded extension' entry: the editor pane switched to that commit - header 'dc36f93 The seeded extension - barn - 32 minutes ago' with a 'Back to index.ts' escape, body '12 files +383-0' listing .gitignore, BRIEF.md and the rest as that commit added them. dc36f93 is a real commit in the pod's git log.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-working-changes",
+      "status": "pass",
+      "evidence": "Clicked the top entry: the pane opened the uncommitted diff - 'working / Working changes / 1 file not yet committed - now', a 'Review them' button, and the diff itself ('pages/Home.vue +6 -0'). `git status --porcelain` in the pod at that moment returned exactly one modified file, so the count is live rather than decorative, and it changed with the tree (base showed '2 files not yet committed' and later 3).",
+      "defect": null
+    },
+    {
+      "id": "05-files-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked [aria-label='More file actions'] at the end of the masthead: a menu opened with Refresh the tree, Copy this file's path, Open the workspace, Review changes 3. Drove three of them - Refresh the tree stayed on the files route and re-read the tree (a 'Re-read the file tree' notification landed), Open the workspace went to /dashboard/barn/editor/<ext>, Review changes went to /dashboard/barn/extensions/<ext>/review.",
+      "defect": null
+    },
+    {
+      "id": "05-files-masthead-title",
+      "status": "pass",
+      "evidence": "The masthead reads '<name> / FILES'. Checked against an extension other than the seed: on /barn/extensions/v4bf/files it read 'v4bf FILES', so the name comes from the route rather than being hardcoded.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' in the rail from the files screen: /dashboard/about loaded.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Clicked the rail's cluster chip from the files screen: /dashboard/c/local/explorer#cluster-events loaded. Only 'local' exists on this instance.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house from the files screen: /dashboard/home loaded.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-menu",
+      "status": "pass",
+      "evidence": "The rail went from 'side-menu menu-close' to 'side-menu menu-open' on clicking the hamburger from this route.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-rail-icons",
+      "status": "pass",
+      "evidence": "Drove each from the files screen: server -> /dashboard/c/_/manager/provisioning.cattle.io.cluster, gear -> /dashboard/c/local/settings/management.cattle.io.setting, About -> /dashboard/about, home -> /dashboard/home, user icon -> the account menu. The Studio (puzzle) entry is the only one carrying active-me while the files screen is open. There is no book/docs icon in this Rancher's rail.",
+      "defect": null
+    },
+    {
+      "id": "05-files-open-live-preview",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=files-open-live-preview] with Home.vue open: a new browser tab opened on https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/home - the extension's own running dev server at the route Home.vue is registered for.",
+      "defect": null
+    },
+    {
+      "id": "05-files-open-reference",
+      "status": "pass",
+      "evidence": "With Home.vue open the references list held one row, 'routing/index.ts:3 IMPORTS IT' quoting the import line. Clicking it opened routing/index.ts in the editor (header 'routing/index.ts - Last commit by barn, 2 days ago - 16 lines - committed') and moved the tree's --current highlight onto index.ts. The references list then re-computed for the newly open file (CLAUDE.md:18, CLAUDE.md:20).",
+      "defect": null
+    },
+    {
+      "id": "05-files-panel-tabs",
+      "status": "pass",
+      "evidence": "Clicked Assistant, Files, Changes and Terminal in turn. Each became the only .s-tab--selected (the underline indicator moved with it) and the pane below changed - Files shows the tree, Assistant shows the chat with its CONTEXT block, Changes the change list, Terminal the pod terminal.",
+      "defect": null
+    },
+    {
+      "id": "05-files-preview-thumb",
+      "status": "pass",
+      "evidence": "With Home.vue open the panel offers 'Show the running extension' [data-testid=files-show-thumb], labelled with the cluster ('local') and the page route ('/base/c/local/home'). Pressing it loads a live iframe of the extension's own dev server (src .../barn-base-extension:8005/proxy/), so it is the real running page rather than a fixed image. It is loaded on demand rather than drawn as a standing miniature.",
+      "defect": null
+    },
+    {
+      "id": "05-files-publish",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=files-publish] on base: the publish confirmation opened - 'Publish base ... base is built in its pod from the working tree you have been reading, and this Rancher is pointed at the result ... Nothing is committed and nothing is pushed anywhere' with Cancel and 'Publish to this Rancher'. I cancelled rather than publishing, since a publish reinstalls the shared extension under other verifiers. The button is correctly disabled with title 'Nothing has changed since the last commit' on an extension with a clean tree.",
+      "defect": null
+    },
+    {
+      "id": "05-files-reference-reasons",
+      "status": "pass",
+      "evidence": "Each row carries a reason read off the matched line, and it varies with the line: 'IMPORTS IT' for routing/index.ts:3, 'REQUIRES IT AT RUNTIME' for index.ts:10 (plugin.metadata = require('./package.json')), 'DESCRIBES IT IN A TABLE' for the CLAUDE.md rows. The list changes entirely when a different file is opened.",
+      "defect": null
+    },
+    {
+      "id": "05-files-references-heading",
+      "status": "pass",
+      "evidence": "The list is headed 'REFERENCES TO <FILENAME>' (e.g. 'REFERENCES TO HOME.VUE') inside the 'Where used' panel, above the reference rows. The design's wording is 'Referenced by'.",
+      "defect": null
+    },
+    {
+      "id": "05-files-revert-file",
+      "status": "pass",
+      "evidence": "Drove it against a file I had dirtied myself. With pages/Home.vue at '55 lines - uncommitted changes', Revert opened a dialog naming the file and saying it goes back to its last commit; confirming put the pod's copy back to its committed contents (verified by `tail` in the pod - my three added markers were gone), the header returned to '49 lines - committed', and the tree's change mark cleared.",
+      "defect": null
+    },
+    {
+      "id": "05-files-review-changes",
+      "status": "pass",
+      "evidence": "Clicked 'Review 2 changes': /dashboard/barn/extensions/base/review loaded. The count in the label is live - it read 2 on one visit and 3 on a later one, matching `git status --porcelain` in the pod each time, and on an extension with one change it read 'Review 1 change'.",
+      "defect": null
+    },
+    {
+      "id": "05-files-state-badge",
+      "status": "pass",
+      "evidence": "Drove both states on one extension. With a clean tree (`git status --porcelain` empty) the masthead badge read 'Live'; appending a line to product.ts in the pod and reloading turned it to 'Unsaved', the masthead gained 'Review 1 change' and the tree row gained an EDITED mark.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tab-changes-count",
+      "status": "pass",
+      "evidence": "The Changes tab badge tracks the real count: it read 3 on base while `git status --porcelain` listed three entries, read 1 on an extension with one modified file, and disappeared entirely (tab label just 'Changes') when that tree was clean.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-change-marks",
+      "status": "pass",
+      "evidence": "On base the tree showed 'HARNESS.md NEW' and 'product.ts EDITED' and nothing else marked, which is exactly `git status --porcelain`'s 'A HARNESS.md' and 'M product.ts'. On another extension I dirtied one file in the pod and it gained an EDITED mark on reload; reverting it cleared the mark.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-expand-folder",
+      "status": "pass",
+      "evidence": "Clicked the 'pages' folder row: Home.vue disappeared from the tree. Clicked it again and Home.vue came back, with the rest of the tree unchanged both times.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-heading",
+      "status": "pass",
+      "evidence": "The tree column's panel head renders a folder icon and the title 'Files' above the branch row and the tree.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-select-file",
+      "status": "pass",
+      "evidence": "Clicked product.ts: the editor header, the provenance line and the code pane all switched to product.ts (32 lines, 'uncommitted changes'), and the --current highlight moved off the previously selected row onto it.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-sort",
+      "status": "pass",
+      "evidence": "Clicked the glyph at the right of the FILES heading: a menu opened with 'Name - folders first, then A to Z - current' and 'Changed first - uncommitted files at the top'. Choosing the second really reordered the tree - HARNESS.md (NEW) and product.ts (EDITED) moved above .gitignore/babel.config.js/BRIEF.md - and the control's label became 'Order the tree (Changed first)'.",
+      "defect": null
+    },
+    {
+      "id": "05-files-where-used-panel",
+      "status": "pass",
+      "evidence": "The right-hand panel is present, headed 'Where used', with a 'WHERE IT SURFACES' block and the references list. Its contents change per file: for Home.vue it says it is mounted at /base/c/local/home read out of routing/index.ts and offers the preview; for product.ts and package.json it says the file does not render a page of its own and explains why.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-add",
+      "status": "pass",
+      "evidence": "There is an add control: a ghost 'Add another' button with a plus at the foot of the criteria card. Pressed it, typed a fourth criterion, waited for the autosave and reloaded - four numbered rows came back and BRIEF.md's 'How we will know it worked' had gained '- [ ] W4BF criterion four added'.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-intro",
+      "status": "pass",
+      "evidence": "The note under the card heading reads 'These become the checklist the reviewer and the requester tick off. Phrase each one as something you could watch a person do.'",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-list",
+      "status": "pass",
+      "evidence": "Three criteria rendered in numbered bordered rows. Edited criterion 2 to 'W4BF criterion two EDITED', clicked away, reloaded: the edit was still there, and BRIEF.md in the pod carried the new wording on its own '- [ ]' line.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-row-menu",
+      "status": "pass",
+      "evidence": "Each row has its own three-dot trigger (aria-label 'Actions for criterion 1..4'). Opened criterion 3's: Move up, Move down, Delete this criterion. Chose Move up and the order really changed - criterion three moved above criterion two, and the reordered list persisted into BRIEF.md.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-agree",
+      "status": "pass",
+      "evidence": "Pressed 'Agree and start building': the app went to /dashboard/barn/editor/<ext> and BRIEF.md gained '_Agreed in the Extension Studio on 2026-08-23._' under the footer. Reopening the brief showed the status chip changed from 'Draft - not yet agreed' to 'Agreed 2026-08-23'. Everything else in the file - the criteria, a hand-written section, a '## Verification' block - was untouched by the write.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-answer-myself",
+      "status": "pass",
+      "evidence": "Pressed 'Answer it myself' on the blocking question: a textarea appeared ('What the answer is, so nobody has to ask again.') with Cancel and 'Save the answer'. Typed an answer and saved: the open-count chip went from '3 open' to '2 open', the card dropped out of the open list, and BRIEF.md gained '  Answer: W4BF answered: 24 hours' indented under that question. Still 2 open after a reload.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ask-requester",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button on a question card: the severity chip, 'Remove this question', 'Answer it myself' and 'Say why it matters' / 'Edit why it matters'. Nothing matching /requester|ask the/ anywhere on the page.",
+      "defect": "No per-question send control. The card says why, in [data-testid=brief-questions-for]: 'These are for Default Admin, who asked for this. Nothing here can send them: Rancher has no messaging between users and this Studio has no ticket to comment on, so the brief is where they wait and the answers go back into the same file.'"
+    },
+    {
+      "id": "10-brief-back",
+      "status": "pass",
+      "evidence": "Clicked the [aria-label=Back] chevron next to the extension name: left the brief for /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-editable-note",
+      "status": "pass",
+      "evidence": "The card note reads 'Drafted from what you typed and from what is already in this Rancher. Edit anything - this is your brief, not its.' The promise is honoured: I edited all four fields below it and every edit persisted through a reload into BRIEF.md.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-changes",
+      "status": "pass",
+      "evidence": "Typed 'W4BF CHANGES EDIT' into 'What changes for them', clicked away, reloaded: the value came back, and BRIEF.md's '## What changes for them' held it.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-not-doing",
+      "status": "pass",
+      "evidence": "Typed into 'What we are deliberately not doing', clicked away, reloaded: value preserved, and it is the section screen 13's scope check then reads - the terms I put there were the terms the drift card searched for.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-problem",
+      "status": "pass",
+      "evidence": "Typed 'W4BF PROBLEM EDIT' into 'The problem', clicked away, reloaded: preserved, and '## The problem' in BRIEF.md matched.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-who",
+      "status": "pass",
+      "evidence": "Typed into 'Who has it', waited for the autosave ('Saved 07:48 PM' in the masthead), reloaded: preserved, and '## Who has it' in BRIEF.md matched.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button and anchor in <header> on the brief route: the hamburger, Home, the local cluster chip and pin, the eight app links, notifications-center, nav_header_showUserMenu. `header [class*=apps], header [class*=grid]` matched 0.",
+      "defect": "No grid launcher in Rancher's header. Rancher chrome, not the Studio's."
+    },
+    {
+      "id": "10-brief-header-bell",
+      "status": "pass",
+      "evidence": "Clicked the bell from the brief route: the notification centre opened.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-header-logo",
+      "status": "blocked",
+      "evidence": "The page title is 'Rancher Prime' but the rendered header is community Rancher: the logo is img src .../rancher-logo.db10c962.svg and a scan of the whole page text for 'SUSE' and for 'Rancher Prime' both returned false. `kubectl get settings.management.cattle.io ui-pl` has no value and defaults to 'rancher'.",
+      "defect": "Not a Studio defect - the header belongs to Rancher. Switching to Prime branding recreates the Rancher container from an empty cluster, which would destroy every extension pod and every other verifier's work in flight, so I did not flip it. Re-check on a Prime instance."
+    },
+    {
+      "id": "10-brief-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header enumeration: no three-dot control. `header .icon-actions, header [class*=overflow]` matched 0 (the four .icon-actions on the page are the per-criterion menus inside the brief card).",
+      "defect": "No overflow menu in Rancher's header."
+    },
+    {
+      "id": "10-brief-insight",
+      "status": "fail",
+      "evidence": "The callout [data-testid=brief-insight] renders with its accent - background rgb(234,244,251), 3px left border rgb(61,152,211) - but it does not argue. It is headed 'Nobody has argued with this yet' and says the Studio cannot tell you whether the request names a solution because nothing here has read it, then offers 'Ask it to argue with this'. That path is real and now honest about why it cannot complete: [data-testid=brief-assistant-signed-out] renders beneath it saying '<ext>'s pod has no credential, so anything this screen sends it comes back \"Not logged in - Please run /login\" and no ## The challenge is ever written. Open the workspace terminal, run /login, and ask again.' That message is the third of three states - the code distinguishes not-asked (login null), could-not-ask (read:false) and read-and-empty, and only the last asserts anything - and it is the state that renders here, correctly, because the pod's claude really is logged out.",
+      "defect": "Nothing in the Studio weighs the request against the problem statement, so the callout asks for the argument rather than making it. It can carry one that the assistant writes into '## The challenge', but no pod in this environment has a credential, so on every real brief here it says nobody has argued rather than the design's 'this ticket asked for a solution, and here is why building it as written misses the point'."
+    },
+    {
+      "id": "10-brief-prior-art-dashboard",
+      "status": "not-implemented",
+      "evidence": "The card is a fixed-string grep over the source of the other extensions in this Studio. Ran it on a fresh brief and every hit was a source line in another extension's CLAUDE.md or BRIEF.md - no Rancher pages. A text scan of the loaded page for /Cluster dashboard/i returned false and `grep -rn \"Cluster dashboard\" pkg/barn` finds nothing.",
+      "defect": "No named entry for Rancher's existing cluster dashboard, and no source for the editorial half (what it does and does not cover). Nothing in the product can enumerate or describe Rancher's own screens."
+    },
+    {
+      "id": "10-brief-prior-art-intro",
+      "status": "pass",
+      "evidence": "The card note reads 'A word search over the source of every extension in this Studio', and the banner names the terms it will search for. The claim is honest: pressing the button ran a real grep in the other extensions' pods and returned real file:line hits (base CLAUDE.md:48, demo BRIEF.md:4, nodehealth BRIEF.md:10, ...) rather than fixtures.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-longhorn",
+      "status": "not-implemented",
+      "evidence": "`grep -rn \"longhorn\" pkg/barn` returns nothing and a scan of the loaded card for /longhorn/i returned false. The live card only ever lists grep hits grouped by extension; no longhorn-capacity extension is installed in this Studio.",
+      "defect": "No named entry for an installed extension drawing the same pattern, and no consistency note - the card is a word search and says so."
+    },
+    {
+      "id": "10-brief-prior-art-look",
+      "status": "pass",
+      "evidence": "Pressed 'Look at it' on the first hit (base CLAUDE.md:48): the app navigated to /dashboard/barn/extensions/base/files?file=CLAUDE.md and the files screen rendered with that file open. It opens the source the hit is in, which is what this card's hits are; the design's 'existing cluster dashboard' is not something this card can find.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-reuse",
+      "status": "pass",
+      "evidence": "Pressed 'Reuse this' on the base CLAUDE.md:48 hit: the button became 'Reusing this', a 'THIS BRIEF SAYS TO REUSE' block appeared listing 'base - CLAUDE.md:48', and it survived a reload because it is written into BRIEF.md under '## Prior art we are reusing' with the line 'Look at these before writing the same thing again, and say in the code where it came from.' - so it reaches the assistant, which reads that file first.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-blocking",
+      "status": "pass",
+      "evidence": "The blocking question renders as .brief__question--blocking: an error-toned 'Blocking' chip, an i.icon-alert, the question text and its why line, on a card with background rgb(253,236,236) and a 3px rgb(246,71,71) left border. The two 'Worth asking' cards beside it are grey (rgb(247,248,250)) with a 1px border, so it is visually distinct.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-worth-1",
+      "status": "pass",
+      "evidence": "'Worth asking' card rendered with a default-toned chip, an i.icon-search, the question and its evidence line in [data-testid=brief-question-why].",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-worth-2",
+      "status": "pass",
+      "evidence": "The second 'Worth asking' card rendered the same way with its own question and rationale line.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-questions-intro",
+      "status": "pass",
+      "evidence": "The card note reads 'The most useful thing on this screen. Ask before you build, not after. Every question here lives in BRIEF.md, so it survives this page and is read by whatever reads the brief next.' - and that is true: the questions I added were in the file.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the foot of the rail from the brief: /dashboard/about loaded.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-book",
+      "status": "not-implemented",
+      "evidence": "Enumerated every rail entry and icon class: cluster-management, fleet, extension, harvester, gear, user, extension, globe, pin. No book. `.side-menu [class*=book], .side-menu [class*=docs]` matched 0.",
+      "defect": "No docs entry in Rancher's rail on this instance. This is Rancher chrome, not the Studio's to add."
+    },
+    {
+      "id": "10-brief-rail-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail has one cluster chip on this instance; clicking it opened /dashboard/c/local/explorer. The design's LT1/CD2/AFT are three clusters that do not exist here.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-gear",
+      "status": "pass",
+      "evidence": "Clicked the gear: /dashboard/c/local/settings/management.cattle.io.setting loaded.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-home",
+      "status": "pass",
+      "evidence": "Clicked the house: /dashboard/home loaded.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-menu",
+      "status": "pass",
+      "evidence": "Rail className went from 'side-menu menu-close' to 'side-menu menu-open' on clicking the hamburger.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-selected",
+      "status": "pass",
+      "evidence": "On the brief route exactly one rail entry carries active-me: 'Extension Studio'.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-server",
+      "status": "pass",
+      "evidence": "Clicked the server icon: /dashboard/c/_/manager/provisioning.cattle.io.cluster loaded.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-user",
+      "status": "pass",
+      "evidence": "Clicked the person icon: the account menu opened (admin / Default Admin / Preferences / Account & API Keys / Log Out).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-roles",
+      "status": "pass",
+      "evidence": "Four chips render. On a brief whose '## Written for' listed two roles, exactly those two came up info-toned with a tick and the other two plain. Clicked 'Platform admin' on and 'Cluster operator' off; both changed tone and tick immediately, and after a reload the selection was still Support engineer + Platform admin, matching the rewritten '## Written for' list in BRIEF.md.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-scroll",
+      "status": "pass",
+      "evidence": "In a 1000px viewport .brief__scroll has scrollHeight 1472 against clientHeight 884. Set scrollTop to 400 and it held while .brief__masthead - which carries 'Agree and start building' - stayed at viewport top 55.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-send-questions",
+      "status": "not-implemented",
+      "evidence": "Scanned every button on the page for /question/: the only matches are the per-card 'Remove this question' and the '+' [aria-label='Add this question'] on the compose row. The design's masthead button exists only as a read-only chip in the card header ([data-testid=brief-open-count]), which does carry the live count - I watched it read '3 open', '2 open' and '3 open' as I answered and added questions - but it is a chip and it sends nothing.",
+      "defect": "The live-count half is delivered; the send half does not exist. Same root as 10-brief-ask-requester: nowhere to send to."
+    },
+    {
+      "id": "10-brief-skip",
+      "status": "pass",
+      "evidence": "Pressed 'Skip the brief': the app went straight to /dashboard/barn/editor/<ext> without the brief being agreed (the status chip was still 'Draft - not yet agreed' on the next visit).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-status-chip",
+      "status": "pass",
+      "evidence": "[data-testid=brief-status] read 'Draft - not yet agreed' with a clock icon before agreeing, and 'Agreed 2026-08-23' after I pressed 'Agree and start building'.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ticket",
+      "status": "fail",
+      "evidence": "The card is headed 'What you were handed'. Two of the design's three ticket facts have a source and render: on a brief with '## Who asked' the raised line reads 'Asked for by Default Admin - today - local://user-btc48', and the quoted request prints '## What you were handed' verbatim. The id now has its own line where the design draws it, [data-testid=brief-ticket-id]: 'There is no ticket id. Nothing behind this Studio issues one, so rather than invent a number the card records who asked and when, out of the brief itself.'",
+      "defect": "The ticket id has no source in the product and is deliberately not shown. Also, base's own brief predates both '## Who asked' and '## What you were handed', so opening it directly shows 'Nobody is recorded as having asked for this' and 'This brief has no ## What you were handed section' instead of the raiser, the age and the request."
+    },
+    {
+      "id": "10-brief-title",
+      "status": "pass",
+      "evidence": "The masthead shows the extension name on one line and 'Brief - step 1 of 2 before any code is written' (rendered uppercase) beneath it.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-attach-screenshot",
+      "status": "not-implemented",
+      "evidence": "document.querySelectorAll('.verify input[type=file]') returned 0 on the loaded screen, and a scan of every button under .verify found no attach control. `grep -rn 'type=\"file\"' pkg/barn --include=*.vue` finds exactly one, in components/studio/AssistantPanel.vue, which is a different screen.",
+      "defect": "No upload control and no attachment model. A verdict can carry a typed note, a route and a timestamp; it cannot carry a file."
+    },
+    {
+      "id": "13-verify-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron at the start of the masthead: left verification for /dashboard/barn/review, the review queue. The button is labelled 'Back to the queue'.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-blocked-note",
+      "status": "pass",
+      "evidence": "Drove both halves and the sentence is now exact. With one criterion answered No, [data-testid=verify-blocked-note] renders beside it reading: 'A No holds the outcome sign-off open until it is answered Yes; a \"Can't tell\" does not. That sign-off is one of the two answers the distribution gate needs, so a No holds distributing this to other Ranchers shut as well. It holds neither of the other two ways out: loading this extension into this Rancher, and pushing the source to GitHub for review, are both deliberately ungated and stay open while this says No.' The block is real: with that No the sign-off button was disabled with title '1 criterion is answered No...'; switching that same criterion to Can't tell removed the note, enabled the button and changed the footer line to 'Nothing is holding the sign-off open.' Signing off then wrote signoffs.outcome into the barn-review-<ext> ConfigMap, which is what review.ts's distribution gate reads.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-blocked-summary",
+      "status": "pass",
+      "evidence": "The footer line counts the failures and restates the rule: with one No it read '3 of 4 met, 1 not met. A No holds the sign-off open until it is answered Yes.'; changing that criterion to Can't tell made it '3 of 4 met, 1 could not be judged. Nothing is holding the sign-off open.'; with all four Yes it read 'Every criterion met. Signing off records that in the brief.'",
+      "defect": null
+    },
+    {
+      "id": "13-verify-capture-evidence",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button under .verify: Back to the queue, Open the brief, Yes/No/Can't tell and Show me per criterion, the preview's Back/Forward/Reload and width chip, Back to the workspace, Ask the assistant to check, Record the result, Send the whole list back, Sign off on the outcome. No capture control, and a scan of .verify's text for /Capture/i returned false.",
+      "defect": "No way to snapshot the preview. A provenance line does exist but it is written by pressing a verdict - it records the clock and the preview's route at that moment, which is not an artefact anybody can look at later."
+    },
+    {
+      "id": "13-verify-cluster-select",
+      "status": "not-implemented",
+      "evidence": "`.verify select, .verify [role=combobox], .verify .vs__dropdown-toggle` matched 0. The preview panel's only controls are Back, Forward, Reload, a path field, a width chip and the pop-out link.",
+      "defect": "No cluster chooser and no annotation about the current cluster. The preview is an iframe of the extension's own dev server inside its pod (.../barn-<ext>-extension:8005/proxy/), which has no notion of a target cluster."
+    },
+    {
+      "id": "13-verify-code-approved-chip",
+      "status": "pass",
+      "evidence": "Drove the gate rather than reading a fixture. Before any code review [data-testid=verify-code-gate] read 'Code not reviewed yet' and the footer gate row was 'Code review - not signed off' with an empty dot. I approved the code on screen 12 ([data-testid=rc-approve]); the verification screen then read 'Code approved by Default Admin' and the footer row became check-marked 'Code review - Default Admin - just now'. So it names the code reviewer and it is a real record, not a caption.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-badge",
+      "status": "pass",
+      "evidence": "Changed a verdict and watched the badge follow. Unanswered: the criterion number on rgb(242,243,245), class verify__badge--unanswered. Yes: verify__badge--pass, green rgb(62,140,79) with a tick. No: verify__badge--fail, red rgb(246,71,71). Can't tell: verify__badge--unsure, keeping the criterion number - but amber rgb(201,162,39), where the design calls for grey.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-failed-styling",
+      "status": "pass",
+      "evidence": "Setting a criterion to No put verify__criterion--fail on the card, tinted it, and revealed the whole block: the note textarea headed 'WHY CRITERION 2 IS NOT MET', the 'Send this back to the assistant' action and the publishing-blocked sentence. Setting it back to Yes collapsed all of it - the class became verify__criterion--pass and the textarea was gone from the DOM.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-text",
+      "status": "pass",
+      "evidence": "Four criterion cards rendered, numbered 1-4, one full sentence each, and they are the four criteria from the brief's 'How we will know it worked' in that order - I had written them, so I could match them line for line against BRIEF.md in the pod.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-evidence-explainer",
+      "status": "not-implemented",
+      "evidence": "A text scan of the whole .verify element for /travels with the verdict|outlives this review|take your word/ returned false, and there is no capture button for such a sentence to sit above. What the screen does say is different: the note hint says it is 'Recorded in BRIEF.md under this criterion when you record the result'.",
+      "defect": "The sentence is not in the product. Nothing explains that captured evidence travels with the verdict, because nothing is captured."
+    },
+    {
+      "id": "13-verify-evidence-meta",
+      "status": "pass",
+      "evidence": "Answering a criterion wrote a meta line onto it immediately: 'Checked 08:01 PM - admin - /home' - the clock, the signed-in user and the route the preview was on. Recording the result carried the route into BRIEF.md as '- **Met** at `/home`: ...' and, for the failed one, the reviewer's note as a quoted line beneath it.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-framing",
+      "status": "pass",
+      "evidence": "The accented success banner [data-testid=verify-framing] renders above the criteria: 'You are checking whether this does the job, not whether the code is any good' plus 'Reading the code is a separate step, on the review screen, and not this one. Answer each criterion against what you can see in the preview on the right. Nothing here changes the extension: the only thing you can change from this screen is the record of what you found.' It also restates the problem the brief named.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-header-actions",
+      "status": "fail",
+      "evidence": "One of the three. Enumerated `header button` on the verification route: the hamburger, Home, the local cluster chip and pin, the eight app links, notifications-center and nav_header_showUserMenu. The bell opens the notification centre. `header [class*=apps], header [class*=grid]` matched 0 and there is no three-dot control in the header.",
+      "defect": "Notifications is reachable; the overflow menu and the app collection do not exist in this Rancher's header. Rancher chrome, not the Studio."
+    },
+    {
+      "id": "13-verify-identity",
+      "status": "pass",
+      "evidence": "The masthead names the extension and version ('v4bf v0.1.0') and states the role on the line beneath: [data-testid=verify-role] reads 'VERIFICATION - OUTCOME SIGN-OFF - ADMIN'. Below it [data-testid=verify-requester] says whose sign-off it is: 'The brief records you as the person who asked for this, so the outcome sign-off is yours to give.'",
+      "defect": null
+    },
+    {
+      "id": "13-verify-nav-rail",
+      "status": "pass",
+      "evidence": "On /barn/extensions/<ext>/verification the rail renders and 'Extension Studio' is the only entry carrying active-me.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-note",
+      "status": "pass",
+      "evidence": "Typed 'W4BF note: the panel is empty on load.' into the note on a failed criterion, pressed 'Record the result', navigated away and back: the text was still in the box. It is visible to the author because it is in the repository - BRIEF.md gained '  > W4BF note: the panel is empty on load.' under that criterion's verdict line. The hint above the box says both the author and the assistant will read it, and 'Send this back to the assistant' does forward it verbatim.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-open-brief",
+      "status": "pass",
+      "evidence": "Clicked 'Open the brief': /dashboard/barn/extensions/<ext>/brief loaded.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-preview-context",
+      "status": "pass",
+      "evidence": "Before any 'Show me' the pane header reads 'The extension, running' with a live dot. Pressing 'Show me' on criterion 3 changed it to 'Criterion 3'; pressing it on criterion 1 changed it to 'Criterion 1'. So the header follows the criterion under examination.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-preview-popout",
+      "status": "pass",
+      "evidence": "Clicked the external-link control in the preview header: a new browser tab opened on the preview's own URL, https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-<ext>-extension:8005/proxy/home - the running extension standalone.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-progress-chip",
+      "status": "pass",
+      "evidence": "[data-testid=verify-progress] read 0/4, went to 1/4 on a Yes and 2/4 on a No, and stayed at 2/4 when I answered a third criterion 'Can't tell' - which is the rule the feature states. It fell back to 3/4 when I moved one of the four off an answered verdict.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-rendered-preview",
+      "status": "pass",
+      "evidence": "The pane is a real iframe, not an image: src is the extension's own dev server through the apiserver proxy (.../barn-base-extension:8005/proxy/), 485x555 in the panel, and fetching that URL from the page returned 200 with 2847 bytes of the dashboard's index HTML. Its footer also reports what it is showing against the change ('pages/Home.vue differs from the baseline. Point the preview at a page one of them renders and it is outlined here.').",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-accept",
+      "status": "pass",
+      "evidence": "Now implemented, and it moves the line rather than deleting it. With a brief whose non-goals were '- No zebrastripe rendering of any table' and '- No alerting of any kind', and a change adding a line containing 'zebrastripe' to pages/Home.vue, the card warned on that term and offered 'That is fine - add it to the brief' [data-testid=verify-accept-drift-zebrastripe]. Pressing it rewrote BRIEF.md, and the whole diff of the file is two hunks: the line left '## What we are deliberately not doing' and arrived under '## What changes for them' as '- No zebrastripe rendering of any table (accepted during verification on 2026-08-23 by admin)'. Nothing else moved - the criteria section, the '## Verification' block with its recorded verdicts, a hand-written '## Hand written by w4bf' section and '## Who asked' were all byte-identical afterwards. The warning cleared on the spot: the card re-read as the clear state for the remaining term. And unsaved work on the page survived - I had left one criterion on an unsaved \"Can't tell\" and typed an unsaved note into another before pressing it, and after the write the progress chip, all four verdicts and the note text were exactly as I had left them.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-drift",
+      "status": "pass",
+      "evidence": "The amber-bordered warning renders with the heading 'Scope', a '2 files changed' chip, and the paragraph 'This change adds lines that mention what the brief said it was deliberately not doing. A word match is not proof of anything - it is a place to look.' It is genuinely automatic and genuinely computed: it found the term I had planted in an added line of pages/Home.vue and named the file, and when no added line matched it switched to the success state naming the terms it had looked for. It also has an 'unstated' state for a brief with no non-goals and a 'nothing-changed' state for a tree with no added lines.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-remove",
+      "status": "pass",
+      "evidence": "Now implemented, and it explicitly does not touch the brief. Pressed 'Remove it' [data-testid=verify-remove-drift-alerting]: the toast read 'Asked the assistant to take \"alerting\" back out. It replies in the workspace terminal, and this card will still warn until the lines are gone.' Capturing the tmux pane in the extension's pod shows the prompt arrived in full, including the coincidence caveat ('If the match is a coincidence and nothing there does it, change nothing and say so - a word match is not proof. Do not edit BRIEF.md: the brief is the reviewer's to change.'). BRIEF.md before and after the press was byte-identical, and the warning stayed up. The assistant answers 'Not logged in - Please run /login', which is the known credential-less pod, not a defect in this control.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-send-criterion-back",
+      "status": "pass",
+      "evidence": "With criterion 2 answered No and a note typed, pressed 'Send this back to the assistant'. The toast read 'Sent to the assistant working on this extension. It replies in the workspace terminal.' and the pod's tmux pane holds the whole thing: the criterion text, 'It was checked at /home', the reviewer's note quoted verbatim, and 'Do not edit BRIEF.md - the verdicts are recorded by the reviewer.' The card gains no persistent 'sent' marker afterwards - only the transient loading state and the toast - so the 'marked as sent' half of the design is not drawn.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-send-list-back",
+      "status": "pass",
+      "evidence": "Now implemented, and it is honest about a failed write. Success path: pressing 'Send the whole list back' recorded the pass into BRIEF.md first (the '## Verification' block held all four verdicts with their routes and the failed one's note) and then put the same list to the pod's assistant - the tmux pane shows '(1) [Met] ... [checked at /home]; (2) [Not met] ... - the reviewer wrote: \"...\"; (3) ...; (4) ...' - with the toast 'All 4 verdicts are in BRIEF.md and the list has gone to the assistant... nothing has left the review queue.' Failed-write path: I made BRIEF.md unwritable to the uid the pod execs as (root-owned, mode 444) and pressed it again. It showed the error toast 'Could not record the verification', made no success claim, and sent nothing - the pod's pane gained no new prompt. That is save() returning false and gating the hand-off.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-show-me",
+      "status": "pass",
+      "evidence": "Pressed 'Show me' on criterion 3: the pinned preview's path field became /home and the pane header read 'Criterion 3'. Pressing it on criterion 1 moved the header to 'Criterion 1'. The preview iframe is the running extension, so it is driving the real thing rather than a mock.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-sign-off",
+      "status": "pass",
+      "evidence": "With one criterion answered No the button was disabled with title '1 criterion is answered No. A No holds the sign-off open until it is answered Yes.', and with unanswered criteria it said '<n> criteria have not been looked at yet.' With all four Yes it enabled; pressing it closed the gate for real - the footer row became check-marked 'Outcome sign-off - Default Admin - just now', the line read 'Signed off on 2026-08-23 by Default Admin. Changing a verdict takes the sign-off back.', and the barn-review-<ext> ConfigMap gained signoffs.outcome with verdict approved, principal local://user-btc48, name Default Admin, the timestamp and the commit sha - which is the record the distribution gate reads.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-signoff-status",
+      "status": "pass",
+      "evidence": "Both rows render with their own state, and both are read from the review record rather than drawn. Before either gate: 'Code review - not signed off' (empty dot) and 'Outcome sign-off - you - in progress' (empty dot). After approving the code on screen 12: the code row became check-marked 'Code review - Default Admin - just now'. After signing off: the outcome row became check-marked too. And the code row went stale correctly - after the sign-off was given against an older commit the outcome row read 'Default Admin approved an earlier commit, so it no longer covers this one'.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-verdict",
+      "status": "pass",
+      "evidence": "Clicked each of the three segments on a criterion. Exactly one stays selected (aria-pressed true on one, false on the other two) and the colours match: Yes fills rgb(62,140,79) green, No fills red, Can't tell stays neutral. The progress chip and the footer sentence moved with every change.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-verdict-cant-tell",
+      "status": "pass",
+      "evidence": "Checked all three of the stated consequences. The counter does not increment - it was 2/4 before and 2/4 after answering a third criterion 'Can't tell', and the footer switched from '1 not met' to '1 could not be judged'. It does not block: with the only No changed to Can't tell the blocked note disappeared and 'Sign off on the outcome' became enabled, footer reading 'Nothing is holding the sign-off open.' The badge does keep the plain criterion number rather than a tick or a cross. The one deviation is the colour: the badge is verify__badge--unsure, amber rgb(201,162,39), where the design calls for grey.",
+      "defect": null
+    }
+  ]
+}

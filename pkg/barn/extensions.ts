@@ -2248,12 +2248,21 @@ export interface Baseline {
  * only needs the sentence once. `none` is a pod with no repository yet, not an error.
  */
 export async function baselineRef(name: string): Promise<Baseline> {
+  // Joined with a newline, not with ' ; '. The loop spans two array elements, so a semicolon join
+  // put one straight after `do`, and the pod's dash answered `Syntax error: ";" unexpected` and
+  // exited 2. The `.catch` below then turned that into an empty string, so the function reported
+  // "this extension has no history yet" for every extension, always. Every screen measuring from
+  // a baseline quietly fell back to HEAD, and screen 04 went on offering to discard commits it
+  // could not reach. A newline is a statement separator that `do` accepts.
+  //
+  // The catch stays, because a pod with no repository yet is a real answer and not an error, but
+  // it is the reason this hid for as long as it did.
   const out = await inPackage(name, [
     BASELINE_SH,
     `for r in ${ BASELINE_OCI_REF } ${ BASELINE_LOCAL_REF } ; do`,
     'git rev-parse --verify -q "$r" >/dev/null && { echo "KIND=$r"; break; } ; done',
     'echo "SHA=$BARN_BASE"',
-  ].join(' ; ')).catch(() => '');
+  ].join('\n')).catch(() => '');
 
   const sha = (/SHA=(\S+)/.exec(out)?.[1] || '').trim();
   const ref = (/KIND=(\S+)/.exec(out)?.[1] || '').trim();
@@ -4373,9 +4382,12 @@ export async function devServerLog(name: string, lines = 400): Promise<string> {
     return '';
   }
 
+  // No Accept header. The pod log endpoint answers plain text, and asking for it explicitly is
+  // what breaks it: the apiserver behind Rancher's proxy replies 406 to `Accept: text/plain` and
+  // 200 to no header at all. That regressed the cover's no-regression clause for one wave, with
+  // "Show raw output" rendering an HTTP 406 where the log should be.
   const resp = await fetch(
     `${ EXT_BASE }/api/v1/namespaces/${ EXT_NS }/pods/${ pod }/log?tailLines=${ lines }`,
-    { headers: { Accept: 'text/plain' } },
   );
 
   if (!resp.ok) {

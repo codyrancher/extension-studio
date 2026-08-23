@@ -1,0 +1,767 @@
+{
+  "screen": "03-workspace + 08-failed",
+  "verdicts": [
+    {
+      "id": "03-workspace-activity-stream",
+      "status": "pass",
+      "evidence": "On /barn/editor the stream ([data-testid=barn-activity-stream]) held 50 entries built from the pod's own record (/app/.barn/provenance.jsonl, 25 turns). Sent \"w4-workspace probe 1787513612045\" from the composer: a user turn appeared in the stream at once, and 20s later it was the pod's copy that was showing - the caption read \"Sent from the workspace screen by Default Admin\", which only the pod's record carries, and the matching line is in provenance.jsonl with screen \"workspace\" and who \"Default Admin\". The stream was scrolled to the bottom (scrollHeight - scrollTop - clientHeight = under 60px) with the newest turn visible.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-ask",
+      "status": "pass",
+      "evidence": "Clicked into the field, typed \"line one\", Shift+Enter, \"line two\": the value became two lines and nothing was sent. The placeholder is 'Describe the next change - e.g. \"colour the bars by severity and add a 7-day toggle\"' and it is gone as soon as there is text. Sending the draft put it in the stream and in the pod's provenance log.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-autosave-status",
+      "status": "pass",
+      "evidence": "Both halves of the line are true now. The workspace does autosave: with the editor open I wrote W4-AUTOSAVE-1787516372511 into a file in the pod, and 10 seconds later a new tag barn-snap/1787516405029 \"autosave 2020 on Aug 23\" existed, whose tree really holds my edit (git show barn-snap/1787516405029:verify-w4-workspace.txt returns exactly that marker). Nobody took it by hand. It is rate limited from the newest snapshot in the pod rather than per tab: the gaps between consecutive autosave tags over an hour were 188, 181, 182, 181, 180, 184, 184 and 180 seconds - never under three minutes - while the two safety snapshots taken by an apply and a roll back sat between them at 47s and 62s, as they should. A second edit ten seconds after an autosave produced no new snapshot for at least 110 seconds; the readout just kept counting up. And the readout is a real clock on the newest snapshot: \"Snapshot saved 27h ago\" on arrival with one 27-hour-old tag in the pod, then \"Snapshot saved 9s / 2m / 3m ago\" as they were taken, with the tooltip naming the snapshot it is reporting. Finally, it says so when it fails: with .git/objects and .git/refs root-owned in the pod and the tree moving, the line changed to \"Autosave failed - last snapshot 4m ago\" and the tooltip to \"The tree has changed and it could not be snapshotted, so nothing since \\\"autosave 2020 on Aug 23\\\" is kept: the snapshot of base failed in the pod (exit 1): error: insufficient permission for adding an object to repository ...\". Ownership put back afterwards and normal autosaving resumed.",
+      "defect": "One gap, in a state that is worse than the one it handles: if git cannot be read at all (the whole .git root-owned, which is what \"chown -R root:root .git\" gives you), workingDiff() comes back empty through inPackage's non-strict path instead of throwing, so autoSnapshot never gets as far as createSnapshot, autoError is never set, and the line reads \"No snapshot yet\" with the tooltip still promising \"the tree is watched and one is taken automatically when it changes\". Nothing is being watched and nothing can be written. The narrower failure (refs/objects unwritable) is reported correctly, which is the case the message was written for."
+    },
+    {
+      "id": "03-workspace-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron at the start of the masthead (.studio-masthead button[aria-label=Back]): the URL became https://magic-closet-rancher/dashboard/barn/extensions and .studio-home__table rendered.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-branch-chip",
+      "status": "pass",
+      "evidence": "The chip reads \"main\"; git rev-parse --abbrev-ref HEAD in barn-base-extension is main. Opening it lists one branch, \"main\", marked \"current\" with a tick - so the chip is read from the pod rather than written in.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-changes-summary",
+      "status": "pass",
+      "evidence": "The banner read \"2 changes / Only you can see them. Nothing is asked of you until you publish.\" while git status --porcelain in the pod listed exactly two entries (HARNESS.md, product.ts). It tracked the tree through the session: 3 changes after I added a file, 5 while three of us had files in the tree, and the count always matched the Changes tab's badge and the phase chip.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-composer-keyboard",
+      "status": "pass",
+      "evidence": "Focused the field, pressed Shift+Enter mid-sentence: a newline went in and nothing was sent (turn count unchanged). Typed \"w4-enter-key 1787515681003\" and pressed Enter alone: the draft cleared and the text appeared in the stream, and the pod recorded it (provenance.jsonl, screen \"workspace\"). The hint under the composer reads \"Shift + Enter for a new line - the assistant never publishes on its own\".",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-add",
+      "status": "pass",
+      "evidence": "The 'Add' chip opened \"Add a file to the context\", listing the package's 13 real files read from the pod. Picking product.ts closed the picker, added a removable chip titled product.ts, and changed the hint to \"... - 1 path named in the message\". Decisive: the next message I sent was recorded in the pod as \"Context: product.ts. w4-context-check 1787515692450\", so the file really does reach the assistant.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-chip-cluster",
+      "status": "pass",
+      "evidence": "A chip reads \"cluster: local\" with a server icon. local is the cluster every extension pod is created in (EXT_CLUSTER in extensions.ts) and the masthead's own \"Preview on: local\" agrees, so the chip names the cluster the assistant is working against.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-chip-file",
+      "status": "pass",
+      "evidence": "No file chip is drawn until one is attached, which is honest. After adding product.ts through the picker a chip labelled product.ts appeared with the full path as its title and a remove control, and removing it took the path back out of the hint.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-label",
+      "status": "pass",
+      "evidence": "An SLabel reading \"Context\" sits at the head of the chip row, above the prompt field, followed by the standing chips (base, cluster: local) and Add.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Enumerated every control in <header>: the hamburger, two brand <img>s, the rail's own links, a button aria-label \"Open notification center\", a button aria-label \"Open user menu\" and the avatar. There is nothing at the far right but the bell and the avatar. grep -rniE 'app-collection|app collection|launcher' over pkg/barn returns nothing, and Rancher's shell has no such control on this version.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-header-logo",
+      "status": "fail",
+      "evidence": "Both brand images render (alt \"Main menu Rancher logo\" at x=5, .side-menu-logo-img alt \"Logo\" at x=85, src .../rancher-logo.db10c962.svg) and neither is a link: no ancestor <a>, computed cursor 'auto'.",
+      "defect": "The logo is an inert <img> in Rancher's own shell; nothing in pkg/barn touches it. The only way to the product home from the header is the hamburger's Home entry. The design draws the chameleon and wordmark as the link back to product home."
+    },
+    {
+      "id": "03-workspace-header-more",
+      "status": "fail",
+      "evidence": "No three-dot control in the top bar. The right-hand end of <header> holds exactly two controls, \"Open notification center\" and \"Open user menu\", plus the avatar image.",
+      "defect": "There is no header overflow menu on this screen, so the design's extra global actions have nowhere to live. The comparable list is on the workspace masthead's own three-dot instead."
+    },
+    {
+      "id": "03-workspace-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell ([aria-label=\"Open notification center\"]): a notifications panel opened headed \"Notifications / Mark all as read\" listing real entries from this session, e.g. \"Unticked files reverted - Today, 7:21:39 pm - verify-w4-review.txt put back to the last commit on the way out.\"",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked the three-dot at the end of the masthead ([data-testid=barn-masthead-overflow]): a menu opened with Files and history, Review changes, Verification, The brief, Re-read this extension, and Remove the local install.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-model-picker",
+      "status": "not-implemented",
+      "evidence": "There is no model chip in the composer. Read every element of .assistant-panel: tabs, session row (state, permission chip, session menu), stream, changes banner, Context row, the field, attach, Stop, Send, hint. grep -rni 'opus' over pkg/barn returns nothing and grep -rniE 'model-?picker|choose.*model' returns nothing; the only 'model' matches are v-model bindings.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-about",
+      "status": "pass",
+      "evidence": "Clicked About at the foot of the rail: landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "The rail draws one shortcut per cluster this Rancher has, and it has one: local. Clicked it and landed on /dashboard/c/local/explorer#cluster-events. There is no AFT cluster here for a third chip to be, so what is verified is the control the design draws, on the cluster that exists.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same control and same evidence as the AFT chip: the rail pins the clusters that exist and clicking local goes to /dashboard/c/local/explorer#cluster-events. No CD2 cluster exists in this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "Same control and same evidence as the AFT chip: clicking the one pinned cluster (local) lands in /dashboard/c/local/explorer#cluster-events. No LT1 cluster exists in this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked Cluster Management in the rail: /dashboard/c/_/manager/provisioning.cattle.io.cluster.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-docs",
+      "status": "not-implemented",
+      "evidence": "Opened the rail and enumerated all 11 entries: Home, local, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. No book glyph and no docs destination; grep over pkg/barn for a docs link finds nothing.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-extensions",
+      "status": "pass",
+      "evidence": "Exactly one rail option carries .active-menu-link while the workspace is open and it is Extension Studio (href /dashboard/barn/extensions). Clicking it from another screen returns to /dashboard/barn/extensions with the Studio's table.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house in the rail: /dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-menu-toggle",
+      "status": "pass",
+      "evidence": "Clicked the hamburger at the top of the rail: [data-testid=side-menu] went from \"side-menu menu-close\" to \"side-menu menu-open\" and the labelled entries rendered 300px wide. Clicked again and it went back to menu-close.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked Global Settings in the rail: /dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the person icon ([aria-label=\"Open user menu\"]): an account menu opened reading \"admin / Default Admin / Preferences / Account & API Keys / Log Out\".",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-permission-mode",
+      "status": "fail",
+      "evidence": "The chip is a readout, not a picker. It reads \"Edits apply without asking\" and its title is \"Read from the claude running in this pod: `claude --dangerously-skip-permissions` ...\". Clicking it opens nothing (it is a span inside the status row, no menu wrapper). The reading is true - the pod's pane shows \"bypass permissions on\" - but there is no menu of modes and nothing here can change what the assistant may do.",
+      "defect": "AssistantPanel.vue renders the mode as an SChip with no SMenu around it, deliberately: the mode is fixed by the arguments claude is started with in pod/claude-session.sh, which is re-seeded on every page load. The refusal is honest, but the design's promise - a chevron that opens a list of permission modes and changes the assistant's behaviour - is not met."
+    },
+    {
+      "id": "03-workspace-phase-chip",
+      "status": "pass",
+      "evidence": "The chip read \"Iterating - 2 changes\" while git status in the pod had two entries, and tracked to \"Iterating - 3 changes\" and \"- 5 changes\" as files came and went; the same number was on the Changes tab badge and in the changes banner each time. Its other states are readings too (\"Starting the pod\", \"Reading the extension\", \"Publishing n/m\", \"No changes\").",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-back",
+      "status": "pass",
+      "evidence": "Typed /base/c/_/home into the route field, then clicked the back chevron: the framed page went back to /home and the route field followed (frame contentWindow.location.pathname ended .../proxy/home).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-canvas",
+      "status": "pass",
+      "evidence": "The right pane frames the pod's own dev server (src /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/...) and it is a live app, not a picture. Proved it end to end: added pages/W4Probe.vue plus a route to the pod's package, pointed the preview at /base/c/_/w4probe (h1 \"W4-PROBE-V2\"), then edited the file in the pod to \"W4-PROBE-V3-LIVE\". Within 8-16 seconds the framed h1 read W4-PROBE-V3-LIVE with no reload, and the toolbar readout reset to \"Hot reload - just now\". Both files removed afterwards.",
+      "defect": "Worth knowing for anyone testing this on /base/c/_/home: the installed nodehealth UIPlugin was cloned from base and still declares PRODUCT_NAME 'base', so it registers the same route name (base-c-cluster-home) and its own copy of pages/Home.vue wins over the dev server's. Editing the base pod's Home.vue changes the compiled bundle (the probe string is in the served js/index.js) but not what that route renders. That is an environment collision rather than a Studio defect, but it makes the obvious test of this feature lie."
+    },
+    {
+      "id": "03-workspace-preview-chart",
+      "status": "not-implemented",
+      "evidence": "No chart anywhere in the preview. Queried the framed document on /home, /base/c/_/home and /base/c/_/w4probe for canvas and svg chart nodes: none. The base package's only page is an h1 and two paragraphs, and nothing in the Studio draws into the frame.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-chart-legend",
+      "status": "not-implemented",
+      "evidence": "There is no chart, so there is no legend. Same searches as preview-chart: no legend element and no series list in the framed document or in pkg/barn.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-existing-stats",
+      "status": "pass",
+      "evidence": "On /base/c/_/w4probe with one changed component outlined, exactly one element in the framed document carried [data-barn-changed] (div.w4-probe) and the rest of the page - Rancher's header, the whole side nav, the page chrome - rendered normally and carried no mark. The outline is put on the changed component only, so existing content is visibly not part of what the session added.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-forward",
+      "status": "pass",
+      "evidence": "After going back to /home, clicked the forward chevron: the frame returned to /base/c/_/home and the route field followed.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-live-state",
+      "status": "pass",
+      "evidence": "A green dot plus a relative time, and it is read rather than assumed. On a fresh frame it says \"Loaded - Ns ago\"; after I edited pages/W4Probe.vue in the pod it switched to \"Hot reload - just now\" and started counting again, at the same moment the framed page's content changed without a reload. Its title explains it is timed from the frame's own hot-update requests.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-new-content-marker",
+      "status": "pass",
+      "evidence": "A tinted band ([data-testid=barn-preview-new-marker]) sits above the frame and says which files it means. With only .md/.ts files changed it read \"Nothing on this page is drawn by what has changed - HARNESS.md, product.ts ... differ from the baseline, and no component is among them\". After I added pages/W4Probe.vue and pointed the preview at the page it renders, it read \"Outlined below: what the changed component draws - 1 block on this page is rendered by pages/W4Probe.vue, which differs from the baseline\", and the framed document had exactly one [data-barn-changed] element, div.w4-probe, whose __vueParentComponent.type.__file is pkg/base/pages/W4Probe.vue, with an injected rule [data-barn-changed]{outline:2px solid #3e8c4f;...}. Editing the file again kept the outline on the same element; reverting the file took the band and the outline away.",
+      "defect": "The band names the files but not the baseline: it says \"differ from the baseline\" instead of \"differ from the last commit\". baselineRef() in extensions.ts always fails - the script it sends is joined into \"... ; for r in A B ; do ; git rev-parse ...\" and the \"do ;\" is a shell syntax error, so the pod answers nothing, the kind falls back to 'none' and BASELINE_NOUNS['none'] is ''. Verified by running the composed script in the pod: \"/bin/sh: 1: Syntax error: \";\" unexpected\", exit 2. The same call feeds BuildFailure.findWayBack, where it silently removes the \"last version published\" rung of the roll-back ladder. Noted while writing this up: the working tree already carries a fix (join with a newline instead of ' ; '), but it is not in the installed bundle this wave was judged against."
+    },
+    {
+      "id": "03-workspace-preview-new-panel",
+      "status": "pass",
+      "evidence": "The preview draws this session's new work with an accent outline. I built one: pages/W4Probe.vue rendering <h1>W4-PROBE-V3-LIVE</h1>, added to the pod's package and its routing. In the preview the block it renders carried [data-barn-changed] with a 2px accent outline, and the marker above the frame named the file and said one block on the page comes from it. The design's specific \"Node condition trend / last 24 hours\" panel is content an agent would have to build, not product; the mechanism that draws the outline round whatever it built is here and works.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-open-external",
+      "status": "pass",
+      "evidence": "Clicked the external-link icon: a new browser tab opened on https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/c/local/explorer/apps.deployment/barn/barn-base-extension#pods - the same route the preview was on, hash included - and rendered the page. Closed it again.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-page-more",
+      "status": "pass",
+      "evidence": "Pointed the preview at a deployment detail page and clicked the framed page's own three-dot: its menu opened inside the frame with Execute Shell, Pause Orchestration, Redeploy, Rollback, Show Configuration, Edit Config, Add Sidecar, Edit YAML, Clone, Download YAML, Delete. It is the previewed app's own menu, so the preview is a live app.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-page-tabs",
+      "status": "pass",
+      "evidence": "On /c/local/explorer/apps.deployment/barn/barn-base-extension the framed page has its own tab bar (Pods (1), Services (1), Ingresses, Conditions (2), Recent Events, Related Resources). Clicked Conditions inside the frame: the frame's hash went #pods -> #conditions and .active moved to \"Conditions (2)\". Clicked Pods: back to #pods with .active on \"Pods (1)\". The design's \"Node health\" tab does not exist because no extension here builds one, so the mechanism was verified on the real tabs the page has.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-panel-collapse",
+      "status": "not-implemented",
+      "evidence": "There is no such panel and no chevron to press. The Studio draws only the marker band and an outline over the framed page; it adds no collapsible panel, and the framed pages have no \"Node condition trend\" panel of their own.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-reload",
+      "status": "pass",
+      "evidence": "Clicked the refresh icon: the framed window's performance.timeOrigin changed (1787513835953 -> 1787513842981), so it is a real reload, and the readout went back to \"Loaded - Ns ago\" counting from the new navigation.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-route",
+      "status": "pass",
+      "evidence": "The field is editable. Clicked into it, replaced the path with /base/c/_/home and pressed Enter: the frame navigated there (contentWindow.location.pathname ended .../proxy/base/c/_/home) and the popout link's href followed. It also tracks navigation done inside the frame - clicking a tab in the framed page moved the field to ...#pods / ...#conditions.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-target-chip",
+      "status": "pass",
+      "evidence": "The masthead chip reads \"Preview on: local\". The preview pod (barn-base-extension) runs in the local cluster, which is the only cluster this Rancher has; the chip's title explains that every extension pod is created there so this is a reading rather than a picker.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-viewport",
+      "status": "pass",
+      "evidence": "Clicked the \"Desktop\" chip: a menu opened with Desktop (marked Showing), Tablet 834px and Mobile 390px. Picking Tablet took the iframe from 970px wide to 834px and the chip to \"Tablet\"; picking Desktop put it back to 970px.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-publish",
+      "status": "blocked",
+      "evidence": "Not driven to completion. Publish installs a UIPlugin into the Rancher every other verifier and the browser sidecar are working in. What I did check: the masthead's primary button opens the publish flow - the modal came up headed \"Publish base\", listing the destinations, \"3 files - +8 -0\" read from the working tree, the files by name, and the version read from package.json in the pod - and Cancel closed it with nothing installed. The last half of the promise (the extension version is installed into Rancher) is untested on purpose.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-raw-output-toggle",
+      "status": "fail",
+      "evidence": "The strip does now expand in place: clicking [data-testid=barn-open-raw-output] flips aria-expanded false -> true, the label to \"Hide raw output\", and a panel opens under it with a Re-read button and the note \"The pod's own log, with the progress redraws and the terminal control codes taken out.\" Clicking again collapses it and the panel goes. What never arrives is the log: the body reads \"the dev server's log could not be read: HTTP 406\" and the footer says \"The last 0 of them\", on a pod whose log is 600+ lines of webpack output.",
+      "defect": "devServerLog() in extensions.ts fetches the pod-log subresource with { headers: { Accept: 'text/plain' } }. The Kubernetes apiserver rejects that: 406 NotAcceptable, \"only the following media types are accepted: application/json, application/yaml, application/vnd.kubernetes.protobuf\". Verified from the page: the same URL with no Accept header, or with Accept: */*, returns 200 text/plain with the log. Dropping the header fixes it. Until then the strip expands onto an error every time. Noted while writing this up: the working tree already carries that fix, but it is not in the installed bundle this wave was judged against."
+    },
+    {
+      "id": "03-workspace-review",
+      "status": "pass",
+      "evidence": "Clicked Review in the changes banner: the left panel switched to Changes (the tab took the selected state and its pane became the visible one) showing the real diff - \"Uncommitted changes / 3 files +8 -0 / HARNESS.md +3 -0 ... product.ts +4 -0 ...\" matching git diff in the pod.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-see-changes",
+      "status": "pass",
+      "evidence": "The masthead button is labelled from the real count (\"Review 3 changes\"). Clicking it moved the left panel to the Changes tab with the same diff of the session's changes.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-send",
+      "status": "pass",
+      "evidence": "Typed a marker and clicked Send: the draft cleared, a user turn appeared in the stream immediately, and the pod recorded the prompt (provenance.jsonl: prompt \"w4-workspace probe 1787513612045\", screen \"workspace\", who \"Default Admin\") - so the message reached the assistant, not just the panel.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-session-status",
+      "status": "pass",
+      "evidence": "The strip is a reading of the pod, and it is currently telling the truth about a bad state: it says \"The assistant is not signed in - run /login in the terminal\" with an amber dot, not a green one. Cross-checked in the pod: claude is running in tmux session mc-editor with no credential, and every recorded turn in provenance.jsonl has no end. The title explains what was looked for (no OAuth file, no API key, no account in .claude.json). It does not fall back to the Rancher user.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-state-badge",
+      "status": "pass",
+      "evidence": "The badge tracks the real state. With two uncommitted files in the pod it read \"Unsaved\", title \"The working tree in the pod has changes that are not committed.\" With a failure recorded it read \"Failed\" (s-badge--error), title \"The publish at 07:51 PM failed. The build itself failed. Nothing was installed ...\" and it went back to \"Unsaved\" the moment the roll back cleared the failure.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-duration",
+      "status": "not-implemented",
+      "evidence": "No step rows exist, so nothing shows a duration: .turn__step = 0, .turn__step-duration = 0 across all 50 stream entries. No turn note contains \"Took\" either, because every recorded turn in this pod is unfinished. The panel says why under the stream.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-expand",
+      "status": "not-implemented",
+      "evidence": "There are no step rows to expand: 0 .turn__step elements in the stream and no caller passes a steps array (grep -rn \"steps=\" over pkg/barn/components returns nothing). ActivityTurn.vue still has the markup for them; nothing in the pod records a step, so none is drawn.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-files",
+      "status": "not-implemented",
+      "evidence": "No step rows, so no step sub-line: .turn__step = 0. The per-turn file list the component can draw (.turn__files with an \"N more\" overflow) was empty on every turn here because no turn in this pod has ever finished, so there was nothing to render either way.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-progress",
+      "status": "not-implemented",
+      "evidence": "No in-flight step is drawn: 0 .turn__step and 0 .turn__status glyphs. Sent a prompt and watched: the new entry is a muted \"pending\" turn reading \"No end was recorded for this turn, so there is nothing yet to show for it\", with no spinner and no sub-progress. Nothing in the pod reports live progress.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-status",
+      "status": "not-implemented",
+      "evidence": "No status glyphs: 0 .turn__status elements across the stream, because there are no step rows for them to sit on.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-stop",
+      "status": "pass",
+      "evidence": "A ghost Stop sits beside Send ([data-testid=barn-stop-assistant]). Clicking it produced the toast \"Interrupt sent - Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.\" The wire is real: interruptAssistant runs \"tmux send-keys -t mc-editor Escape\" in the pod, and that session exists (tmux ls in the pod shows mc-editor with claude attached). The claim is scoped to the keystroke, which is all it can know.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-assistant",
+      "status": "pass",
+      "evidence": "Assistant is the tab selected on arrival (s-tab--selected) with the stream visible and the other three panes display:none. Switched to Files, Changes and Terminal and back: the selected state and the visible pane moved together each time and the stream came back with its scroll position.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-changes",
+      "status": "pass",
+      "evidence": "Clicking Changes moved the selected state to it and swapped the panel to the working-tree diff: \"Uncommitted changes / 2 files +7 -0 / HARNESS.md +3 -0 ... / product.ts +4 -0 ...\", which matched git diff in the pod. The tab carries a count pill.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-changes-count",
+      "status": "pass",
+      "evidence": "The pill read 2 while the panel listed exactly two files (HARNESS.md, product.ts) and git status in the pod had two entries; later in the session it read 3 and then 5 and the list and the pod agreed each time.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-files",
+      "status": "pass",
+      "evidence": "Clicking Files moved the underline and swapped the panel to the extension's tree and history: the branch row (\"Branch main\") and the real commit list (\"24b3922 Remove verify-05-files.md and undo the l10n edit (feature-audit scratch) - 12 hours ago\", e0948e9 under it), which is what git log in the pod says.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-terminal",
+      "status": "pass",
+      "evidence": "Clicking Terminal swapped the panel to an xterm and it is a live session in the pod, not a picture: clicked into it and typed W4TERMLIVE1787515939818, then read the pane from outside with \"tmux capture-pane -p -t mc-editor\" in barn-base-extension - the string was there, on claude's prompt line. Backspacing it out took it off the pane too. (A shell command cannot be run because the pane runs claude, not a shell.)",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-title",
+      "status": "pass",
+      "evidence": "The masthead reads \"base\" over the eyebrow \"Extension Studio\", and base is the extension the route names and the pod (barn-base-extension) the panes are wired to.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-turn-assistant",
+      "status": "not-implemented",
+      "evidence": "The assistant half of a turn never contains the assistant's prose. Every assistant entry is one of the fixed sentences AssistantPanel.outcomeEntry() produces - here always \"No end was recorded for this turn, so there is nothing yet to show for it\" - and no turn states a plan or a step count. The pod records only the prompt/tool/stop hook events; claude's reply is an ANSI stream in the pane and nothing captures it. The panel says so under the last turn.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-turn-user",
+      "status": "pass",
+      "evidence": "Sent \"w4-workspace probe 1787513612045\": it rendered as a user bubble with the meta line \"You - just now\", a person glyph, and the caption \"Sent from the workspace screen by Default Admin\". The relative time aged correctly (\"You - 24 seconds ago\" on the next read).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-undo",
+      "status": "pass",
+      "evidence": "Clicked Undo in the masthead: the toast read \"Undone - The last change to w4-review.generated.ts has been undone\", the file was gone from the pod's working tree afterwards, and the change count on the tab, the banner and the phase chip all dropped by one. It undoes the most recently modified changed file, which is what the code does and what the toast names.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-apply-fix",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Recorded a proposed fix against a file of my own (verify-w4-workspace.txt, before \"W4-FIX-BEFORE\", after \"W4-FIX-AFTER\"). The card drew the snippet and a primary \"Apply this fix\"; clicking it gave \"Fix applied - verify-w4-workspace.txt changed. Publish again to build it.\", the file in the pod read W4-FIX-AFTER, and a snapshot tagged \"before applying the suggested fix\" (barn-snap/1787515441910) had been taken first. The card added \"Applied to verify-w4-workspace.txt. The tree before it was snapshotted, so this is undoable from the Snapshots menu.\"",
+      "defect": null
+    },
+    {
+      "id": "08-failed-back",
+      "status": "pass",
+      "evidence": "Clicked the left arrow beside the extension name: from /barn/editor it lands on /dashboard/barn/extensions with the Studio table. The standalone /barn/extensions/base/build-failed route has the same arrow and it goes to the same place.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-branch-chip",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The chip renders \"main\" with a branch icon, and the pod's package is on main (git rev-parse --abbrev-ref HEAD).",
+      "defect": null
+    },
+    {
+      "id": "08-failed-canvas-apply-fix",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. With a fix recorded, the preview's explainer draws a primary \"Apply the suggested fix\" ([data-testid=barn-preview-apply-fix]). Clicked it against my own file: toast \"Fix applied - verify-w4-workspace.txt changed. Publish again to build it.\", the file in the pod went from W4-CANVASFIX-BEFORE to W4-CANVASFIX-AFTER, a snapshot \"before applying the suggested fix\" was taken first, and both this button and the card's \"Apply this fix\" disappeared together - one record, one function (applyProposedFix in publish-fix.ts), so the two buttons genuinely do the same thing.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-canvas-explainer",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The preview canvas draws [data-testid=barn-preview-explainer]: an alert glyph, the headline \"This is not the build you asked for\", and a paragraph \"The build itself failed. Nothing was installed, and this Rancher is still loading whatever it was loading before. What is framed below is the pod's dev server, which serves the working tree as it is now - the same tree the build failed on, compiled by a different build.\" The design's words are \"This page renders blank\"; this says the thing that is actually true here, and it sits above a live frame rather than replacing an empty one.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-canvas-show-working",
+      "status": "pass",
+      "evidence": "Checked both halves. On base, which has no UIPlugin in this Rancher, the button is not drawn and the reason is stated: \"No version of this extension is installed in this Rancher, so there is no working build to show. The last build that installed is the only one this product can render, because a build lives in the Rancher it was installed into and nowhere else.\" On nodehealth, which is installed at v0.1.0, the button is there: clicking it swapped the frame to /dashboard/home (this Rancher's own pages, where the installed build runs), the headline became \"This is v0.1.0, not the build that failed\", the toolbar readout became \"Last working build - v0.1.0\" with a blue dot, and a \"Back to the live preview\" button appeared which put the frame back on the pod's dev server.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-changes-summary",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The strip ([data-testid=barn-changes-summary]) reads \"The working tree still holds the change that failed\" over a line about the point it can go back to and a real count - e.g. \"Taken 43 seconds ago. A snapshot is a point somebody chose, not necessarily a build that worked. 4 changed files since.\" With a working-build ref present it switched to \"Recorded in the pod when that publish succeeded, 1 second ago. It is a ref in the extension's own repository ... 3 changed files since.\" Both counts matched git status in the pod.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-composer-hint",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The hint reads \"Shift + Enter for a new line - the assistant never publishes on its own\". Shift+Enter inserted a newline and sent nothing; Enter alone sent and the message appeared in the stream and in the pod's provenance log.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-composer-input",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The field is a multi-line textarea whose placeholder is exactly 'Describe the next change - e.g. \"colour the bars by severity and add a 7-day toggle\"'. It takes several lines and grows with them.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-add",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The plus chip opens the file picker over the package's real files, and choosing one adds a removable context chip. Proved it attaches for real: after adding product.ts, the prompt the pod recorded was \"Context: product.ts. w4-context-check 1787515692450\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-chip-cluster",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. A chip reads \"cluster: local\" with a server icon, and local is the cluster the extension pod runs in.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-chip-file",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. No file chip is drawn until one is attached; attaching product.ts produced a chip with a file icon labelled product.ts, titled with its path and removable.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-label",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The word \"Context\" precedes the chip row above the composer.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-failure-card",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. [data-testid=barn-failure-card] renders an alert glyph, the headline \"The publish did not finish\", the sub-line \"The build itself failed. Nothing was installed, and this Rancher is still loading whatever it was loading before.\" (which separates the half that worked from the half that did not), the message \"the extension did not build\", the matched error line \"ERROR in ./pages/Home.vue\" as code, and the note that the line was picked by pattern rather than understood, with a button to ask the assistant to read the log properly.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-fix-snippet",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. With a fix recorded the card drew [data-testid=barn-fix-snippet] holding the path and two lines, \"-W4-FIX-BEFORE\" and \"+W4-FIX-AFTER\", styled as removed and added. It is drawn before you accept it, and the fix is only ever read from the record rather than invented.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-apps",
+      "status": "not-implemented",
+      "evidence": "No grid icon in the header. Enumerated every control: hamburger, two brand images, the rail links, the notification bell, the user menu and the avatar. Nothing in pkg/barn adds one.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-bell",
+      "status": "pass",
+      "evidence": "Clicked the bell in the header: the notifications panel opened with real entries from this session (\"Notifications / Mark all as read / Unticked files reverted - Today, 7:21:39 pm ...\").",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-logo",
+      "status": "pass",
+      "evidence": "The header renders the product brand mark (img.side-menu-logo-img, alt \"Logo\", src .../img/rancher-logo.db10c962.svg) with a second copy at the head of the rail. It is the Rancher logo rather than the SUSE chameleon with the words SUSE and Rancher Prime: this instance runs the community build, Prime branding is a Rancher edition setting, and nothing in pkg/barn touches the header. The control the design points at is present and correct for this build.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-more",
+      "status": "not-implemented",
+      "evidence": "There is no three-dot control in the header on this screen; the only header controls are the bell and the user menu. The comparable list lives on the workspace masthead's own three-dot.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-masthead-more",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The three-dot at the right of the masthead opens Files and history, Review changes, Verification, The brief, Re-read this extension, Remove the local install.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-model-chip",
+      "status": "not-implemented",
+      "evidence": "There is no model chip in the composer bar. The bar holds the attach button, Stop and Send; the status row holds the session line, the permission chip and the session menu. grep -rni 'opus' over pkg/barn returns nothing.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-permission-chip",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. A chip with a padlock states the mode: \"Edits apply without asking\", titled \"Read from the claude running in this pod: `claude --dangerously-skip-permissions` ...\". The design's label is \"Ask before each file edit\"; this pod is not in that mode and the chip reports what it found rather than the mock's wording, which is the honest version of the same control. Cross-checked in the pane, which shows \"bypass permissions on\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-back",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Navigated inside the preview and clicked the left chevron: the frame went back a page and the route readout followed.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-external",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicked the external-link icon: a new tab opened on the same proxied route the preview was on, hash included, and rendered the page.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-forward",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. After going back, the right chevron returned the frame to the later route and the readout followed.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-refresh",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicking refresh gave the framed window a new performance.timeOrigin, so the document really reloaded, and the toolbar readout restarted.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-route",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The toolbar shows the path with a padlock and it follows navigation done inside the frame: clicking tabs in the framed page moved it to ...#pods and ...#conditions, and typing a path into it and pressing Enter navigates the frame.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-state",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The readout is the build state now, not the frame's: it reads \"Build failed - 07:51 PM\" with a red dot ([data-testid=barn-preview-state], .preview-panel__dot--error), and its title says \"The last publish failed at 07:51 PM, and nothing was installed. The frame below is still the pod's dev server ...\". The time is the clock time on the failure record, which is the only build time anything records. On nodehealth with the installed build on show it reads \"Last working build - v0.1.0\" instead.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-target-chip",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The masthead chip reads \"Preview on: local\" with a server icon, and the preview pod runs in local.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-publish",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicked the primary masthead Publish with the failure on screen: the publish flow started - the modal opened headed \"Publish base\", listing the destinations with what each costs, \"3 files - +8 -0\" read from the working tree, the changed files by name, and the version read from package.json in the pod. Cancelled there rather than installing into the shared Rancher.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-about",
+      "status": "pass",
+      "evidence": "Clicked About at the bottom of the rail: /dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-book",
+      "status": "not-implemented",
+      "evidence": "No book icon in the rail. Its eleven entries are Home, local, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. Nothing opens documentation.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail draws one cluster shortcut per cluster, and this Rancher has one: local. Clicking it went to /dashboard/c/local/explorer#cluster-events. LT1, CD2 and AFT are three invented clusters in the design and there is nothing here for the other two chips to be.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-gear",
+      "status": "pass",
+      "evidence": "Clicked Global Settings in the rail: /dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-home",
+      "status": "pass",
+      "evidence": "Clicked the home icon in the rail: /dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-menu",
+      "status": "pass",
+      "evidence": "Clicked the hamburger at the top of the rail: [data-testid=side-menu] went menu-close -> menu-open with the labelled entries showing, and back again on a second click.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-selected",
+      "status": "pass",
+      "evidence": "Exactly one rail option carries .active-menu-link and it is Extension Studio (href /dashboard/barn/extensions), drawn in the accent treatment against the plain entries.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-server",
+      "status": "pass",
+      "evidence": "Clicked Cluster Management in the rail: /dashboard/c/_/manager/provisioning.cattle.io.cluster.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-user",
+      "status": "pass",
+      "evidence": "Clicked the person icon at the bottom of the rail: the account menu opened with admin / Default Admin / Preferences / Account & API Keys / Log Out.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-raw-output",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The collapsed row reads \"Show raw output\" with a terminal glyph and \"4 lines\", which is the real line count of the seeded log. Clicking it flipped aria-expanded false -> true, the label to \"Hide raw output\", the trailing glyph from icon-chevron-down to icon-chevron-up, and revealed a pre holding the log verbatim. Clicking again collapsed it. The standalone /barn/extensions/base/build-failed route has its own copy of the row and it behaves the same (\"Show raw output 2 lines\" for a two-line log).",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rollback-inline",
+      "status": "pass",
+      "evidence": "Drove both outcomes against a file of my own. Refusal first: with .git/objects and .git/refs root-owned in the pod, clicking \"Roll back to ...\" gave \"The roll back did not happen - Nothing has been rolled back. The failed tree could not be snapshotted first, and this panel will not replace a tree it cannot put back: the snapshot of base failed in the pod (exit 1): error: insufficient permission for adding an object to repository database .git/objects ...\". Afterwards the file was byte-for-byte unchanged, the snapshot count was still 18, the failure card was still on screen, the badge still read Failed and the button was still offered. Then chowned back to 1000:1000, wrote refs/barn/working-build at a commit holding the tree, and the button relabelled itself \"Roll back to the last working build (9.9.9-w4)\". Changed my file to W4-ROLLBACK-MODIFIED and clicked: toast \"Rolled back to the last working build (9.9.9-w4) - The failed tree was snapshotted first, so nothing is lost.\", the file was back to W4-ROLLBACK-BEFORE, a new tag \"the failed build before rolling back\" existed and git show of my file at that tag returned W4-ROLLBACK-MODIFIED, the failure card was gone and the badge went back to Unsaved. The ref was removed afterwards.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rollback-masthead",
+      "status": "not-implemented",
+      "evidence": "The workspace masthead's controls are back, the name, the state badge, the branch menu, \"Preview on: local\", the phase chip, the publish status slot, the snapshots clock, Undo, \"Review N changes\", the extension picker, Publish, settings and the overflow. There is no roll-back button among them and the overflow's six items do not include one. The only roll back is the one in the failure panel's summary strip. The snapshots menu's \"Restore the tree to <snapshot>\" is a different action: it does not resolve the last working build.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-send",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Typed \"w4-failed-user-turn 1787515850321\" and clicked Send: the draft cleared and the message appeared in the stream as a user turn, with the pod's own caption on it.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-session-expand",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicked the chevron at the right of the status row ([data-testid=barn-session-menu]): a menu opened with Clear the composer, Open the terminal, \"Start a new conversation /clear\", Reattach the terminal, and \"Copy the session name mc-editor\". It is session settings rather than a permission-mode picker, which is consistent with there being no mode to pick.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-session-identity",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The row renders a dot and a sentence, and it reports the pod rather than the browser: \"The assistant is not signed in - run /login in the terminal\" with an amber dot, which is true of this pod. When there is a credential it names the account it read.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-show-file",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The seeded log names ./pages/Home.vue at 12:3, and the ghost button read \"Show me pages/Home.vue at line 12\". Clicking it opened the file inline, read out of the pod: 47 numbered lines with line 12 highlighted and reading '<div class=\"base-home\">', which is line 12 of the real file. The button then read \"Hide pages/Home.vue at line 12\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-snapshot-note",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The note under the preview actions renders and its wording tracks what is actually available: with only a snapshot to go back to it read \"Rolling back snapshots the failed tree first, so nothing you have done is lost - and if that snapshot cannot be taken, nothing is rolled back and this says why. What it rolls back to is only as good as the point above: no build of this extension has succeeded here yet ...\"; with a working build recorded it switched to the shorter form. Both halves of the claim are true: the successful roll back left tag \"the failed build before rolling back\" holding the failed content, and the roll back with git unwritable refused and changed nothing. A second note beside it says there is no \"undo my request\" and why.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-state-badge",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The masthead badge reads \"Failed\" (s-badge--error) with the title \"The publish at 07:51 PM failed. The build itself failed. Nothing was installed, and this Rancher is still loading whatever it was loading before.\" It is read from the failure record, not passed in, and it went back to \"Unsaved\" the moment the roll back cleared the record. The standalone /barn/extensions/base/build-failed route renders the same badge ([data-testid=barn-failed-badge]).",
+      "defect": null
+    },
+    {
+      "id": "08-failed-stop",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. A ghost Stop with a stop icon sits beside Send. Clicking it gave \"Interrupt sent - Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.\" The wire is tmux send-keys -t mc-editor Escape in the pod, and that session exists. It claims the keystroke was delivered and nothing more, which is all it can see.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-assistant",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Assistant is the selected tab on arrival with the conversation showing; switching away and back moves the selected treatment and the visible pane together.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-changes",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicking Changes swapped the panel to the diff and the badge matched: it read 3 while the panel listed HARNESS.md, product.ts and verify-w4-workspace.txt and git status in the pod had those three.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-files",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicking Files swapped the panel to the extension's tree and its real commit history read out of the pod.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-terminal",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicking Terminal swapped the panel to a live xterm on the build pod: text typed into it appeared in the pod's own tmux pane (verified with tmux capture-pane -t mc-editor from outside), and removing it took it off the pane.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-title",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. The masthead reads \"base\" over \"Extension Studio\", and base is the extension the failure and the pod belong to. The standalone route shows the same two lines.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-undo-last-change",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicked \"Undo the last change\" in the summary strip with my own file (verify-w4-workspace.txt, freshly touched so it was the most recently changed) in the tree: afterwards the file was gone from the pod - which is what an undo of a file the assistant created means - and the change count dropped. The masthead's Undo, which runs the same function, named the file it put back in its toast (\"The last change to w4-review.generated.ts has been undone\").",
+      "defect": null
+    },
+    {
+      "id": "08-failed-undo-request",
+      "status": "not-implemented",
+      "evidence": "There is no such button, and the panel says so where one would be: \"There is no \\\"undo my request\\\" here. Undo is scoped to one file, and nothing in this product records which edits came from which message, so an undo of a whole request cannot be offered honestly yet.\" Refusing out loud is the right call; recorded as not-implemented so the list stays honest about what the design asked for.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-user-turn",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Sent \"w4-failed-user-turn 1787515850321\" from the composer: it appeared in the stream as a user turn with a person glyph, the meta line \"You - just now\" and the caption \"Sent from the workspace screen by Default Admin\", which is read from the pod's own record of the prompt.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-viewport-chip",
+      "status": "pass",
+      "evidence": "Driven on /barn/editor with a failure recorded for base (sessionStorage barn.publish.failure, log 4 lines naming ./pages/Home.vue), which is what screen 08 is. Clicking the Desktop chip opened a list - Desktop (Showing), Tablet 834px, Mobile 390px - and picking Tablet took the preview iframe from 970px to 834px; picking Desktop put it back.",
+      "defect": null
+    }
+  ]
+}

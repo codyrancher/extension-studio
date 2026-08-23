@@ -1,0 +1,66 @@
+{
+  "screen": "w4-systemic",
+  "note": "The two systemic changes, verified against the installed bundle (UIPlugin barn 0.5.22, endpoint stamped t=1787510091072 = 18:34:51, built from sources whose newest mtime is 18:31). All driving was done on the `demo` extension and its pod, never on `base`, which another verifier is working in. demo was left at HEAD 22db7ed with a clean tree, no tags and no refs/barn - exactly as found. The barn-settings Secret is left empty (data and the gh-token annotation both removed).",
+  "verdicts": [
+    {
+      "id": "sys-podexec-write-file",
+      "status": "pass",
+      "evidence": "Made a genuine write failure: created VERIFY-W4.md in demo's package dir, chown root:root (execs run as uid 1000). Files screen -> open the file -> Edit -> Save produced an error toast reading 'Could not save VERIFY-W4.md / writing VERIFY-W4.md failed in the pod (exit 2): /bin/sh: 1: cannot create VERIFY-W4.md: Permission denied', and `cat` in the pod showed the file still held its old contents. Gave the file back to uid 1000 and saved again: 'Saved VERIFY-W4.md into the pod.' and the pod's copy was the new text. So the refusal is reported with the shell's own words, and the same path still succeeds when it can.",
+      "defect": null
+    },
+    {
+      "id": "sys-podexec-commit",
+      "status": "pass",
+      "evidence": "With VERIFY-W4.md root-owned and chmod 600 (so `git add -A` fails: 'error: open(\"VERIFY-W4.md\"): Permission denied ... fatal: updating files failed', exit 128 when run by hand as uid 1000), the editor's Files tab -> Commit rendered the red banner 'the commit failed in the pod (exit 1): error: open(\"VERIFY-W4.md\"): Permission denied error: unable to index file VERIFY-W4.md fatal: updating files failed'. HEAD in the pod was still 22db7ed afterwards, so nothing was committed and nothing claimed to be. The AsyncButton went back to 'Commit' rather than 'Committed'.",
+      "defect": null
+    },
+    {
+      "id": "sys-podexec-snapshot",
+      "status": "pass",
+      "evidence": "Same broken tree, editor masthead -> snapshots menu -> Take a snapshot -> Take it: error toast 'the snapshot of demo failed in the pod (exit 1): error: open(\"VERIFY-W4.md\"): Permission denied error: unable to index file VERIFY-W4.md fatal: updating files failed'. No tag was written (git tag -l empty). Repaired the ownership and took a snapshot again: success toast '\"19:43 on Aug 23\" holds the working tree as it is now (f7b246c)' and the tag barn-snap/1787514234424 was really there in the pod, so the strictness has not turned a working path into a failing one.",
+      "defect": null
+    },
+    {
+      "id": "sys-podexec-restore",
+      "status": "pass",
+      "evidence": "Took a snapshot through the UI holding verifyw4/note.md = 'snapshot marker w4', then made the restore genuinely fail: root rewrote the file and chown -R root:root + chmod 555 on the containing directory, so `git checkout <ref> -- .` cannot unlink the old file. Masthead -> snapshots menu -> the snapshot -> Restore the files: error toast 'restoring barn-snap/1787514466952 failed in the pod (exit 1): error: unable to unlink old verifyw4/note.md: Permission denied', and the file still said 'changed by root'. Gave the directory back to uid 1000 and restored again: 'Snapshot restored' and the file was back to 'snapshot marker w4'. Worth recording for whoever tests this next: a root-owned read-only FILE is not enough to break a checkout (git replaces it via the directory), it has to be the directory.",
+      "defect": null
+    },
+    {
+      "id": "sys-podexec-discard",
+      "status": "pass",
+      "evidence": "verifyw4/ owned by root at 555 with an untracked note.md inside, so `git clean` cannot unlink it (verified by hand: 'warning: failed to remove verifyw4/note.md: Permission denied', and the readback line printed LEFT:verifyw4/note.md). Files screen -> open verifyw4/note.md -> Revert -> confirm: error toast 'Could not revert verifyw4/note.md / the discard did not take: verifyw4/note.md is still changed in demo', and the file was still on disk with its contents. Gave the directory back to uid 1000 and reverted again: 'Removed verifyw4/note.md.' and the file was gone. Note the guard here is the readback, not the exit code (all three git calls are `|| true`) - it fires correctly.",
+      "defect": null
+    },
+    {
+      "id": "sys-podexec-baseline",
+      "status": "pass",
+      "evidence": "Not driven from the UI (see sys-publish-baseline-note): recordBaseline is only reachable through publishExtension. What was proved: the exact command list recordBaseline sends, run in demo's pod through the same setpriv/uid-1000 wrapper with the unreadable file in place, exits 1 and prints git's reason ('error: open(\"VERIFY-W4.md\"): Permission denied ... fatal: adding files failed'), so inPackageStrict throws a PodExecError - the identical mechanism observed reaching the screen four times above - and recordBaseline's catch turns it into {sha:'', error:<git's words>}. publishExtension then appends '[barn] the publish worked, but the baseline ref could not be written ...' to the log it returns, editor.vue sets publishLog = result.log, and PublishStatus renders the last 400 lines of it in its 'Build log' panel. The silence the change was about (an inPackage read of stdout under `.catch(() => '')`) is gone.",
+      "defect": null
+    },
+    {
+      "id": "sys-publish-baseline-note",
+      "status": "blocked",
+      "evidence": "Whether the publish dialog visibly shows the '[barn] the publish worked, but the baseline ref could not be written' note was not driven. Running it means a real publish: build-pkg in the pod (minutes of CPU on a machine several verifiers are sharing) and upsertUiPlugin installing a second UIPlugin into the one Rancher everybody is looking at - the nodehealth UIPlugin already throws 'Failed to load extension' into every page's console here, and adding another would land in other verifiers' probe-errors runs as if it were their defect. The code path is traced in sys-podexec-baseline; only the on-screen rendering of the note is open.",
+      "defect": null
+    },
+    {
+      "id": "sys-podexec-once-unchanged",
+      "status": "pass",
+      "evidence": "podExecOnce still swallows a legitimate non-zero exit. Loaded demo's Files screen, then deleted VERIFY-W4.md from the pod and clicked its row: readExtensionFile runs `cat VERIFY-W4.md 2>/dev/null`, which exits 1 (checked in the pod: 'cat exit=1', and `git rev-parse --verify -q nope` likewise exits 1 with empty stdout). The pane rendered '0 lines - never committed' with no toast, no banner and no uncaught exception, and the rest of the screen (tree, history, working changes) kept working. Source agrees: podExecResult's executor never calls reject on any path (settle() only resolves), and podExecOnce returns its .stdout, so no read path can start throwing.",
+      "defect": null
+    },
+    {
+      "id": "sys-token-write-only",
+      "status": "pass",
+      "evidence": "Stored ghp_verifyw4_notarealcredential through the import dialog's Connect (which calls saveSettings directly, so a placeholder is not refused; the settings page's Connect validates against api.github.com from the browser first and a fake token is rejected there before anything is written). Confirmed in the cluster that the Secret held exactly my value. Then captured EVERY response body from the Rancher origin and EVERY WebSocket frame in both directions while: the import dialog stored it, a repository was typed and inspected, the settings page loaded twice with the token in place, the files screen loaded, and Disconnect ran. 328 response bodies (10.7 MB) and 457 WebSocket frames: zero occurrences of the token, of its base64 form, or of the substring 'verifyw4'. document.documentElement.outerHTML: no. A depth-4 walk of window (400 top-level keys), the vuex state, localStorage and sessionStorage: no hits. POSITIVE CONTROL, because a clean sweep proves nothing if the sweep is blind: the same listeners, on the same page, immediately flagged the token's base64 when the page did the plain GET of the Secret that the old readSettings used to do (/k8s/clusters/local/api/v1/namespaces/barn/secrets/barn-settings) - so a leak of this shape would have been caught. The installed bundle backs it up: the only browser-side path to the Secret carries Accept: application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1 on the GET, on the PATCH and on the create POST, and there is no readToken or decodeSecret left in it. The pod side genuinely works rather than being dead code: with the placeholder stored, the settings card said 'GitHub rejected the token (Bad credentials)', which only a pod that read the Secret and called GitHub can say. One thing to be aware of rather than a defect: connectGithub validates a freshly pasted token by calling api.github.com from the browser with it in an Authorization header, and this browser has egress, so the token does leave the page at paste time. That is the credential the person just typed, not one coming back out of storage.",
+      "defect": null
+    },
+    {
+      "id": "sys-token-not-in-argv",
+      "status": "pass",
+      "evidence": "Sampled `ps -eo args` continuously in all three extension pods (499,948 lines) across the whole token exercise: zero occurrences of ghp_, of 'verifyw4', of 'x-access-token', or of BARN_GH_TOKEN with a value. The Secret reader appears in argv as `node -e 'const fs=require(\"fs\"),https=require(\"https\"); ...'` carrying only the Secret's name. For the git half, ran the product's clone command verbatim (copied from githubFiles, same setpriv wrapper, real Secret) against a public repo while sampling: git's argv was `git --config-env=http.extraheader=BARN_GH_HEADER clone --depth 1 https://github.com/... `, and neither it nor the git remote-https child carried the credential (8,082 sampled lines, 0 hits on the token and 0 on 'AUTHORIZATION'). The installed bundle has exactly two git call sites touching the credential, the import clone and the publish push, and both use --config-env=http.extraheader=BARN_GH_HEADER; there is no literal http.extraheader=AUTHORIZATION form anywhere in it.",
+      "defect": null
+    }
+  ]
+}
