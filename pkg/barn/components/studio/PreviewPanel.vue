@@ -104,7 +104,11 @@ export default {
     frameStyle() {
       const w = this.currentViewport.width;
 
-      return w ? { width: `${ w }px`, flex: '0 0 auto', margin: '0 auto' } : {};
+      // `maxWidth` so a 834px tablet in a 700px pane shrinks rather than running off the end
+      // of the canvas, which `flex-shrink: 0` on its own would let it do.
+      return w ? {
+        width: `${ w }px`, maxWidth: '100%', flex: '0 0 auto', margin: '0 auto'
+      } : {};
     },
 
     /** The viewport menu: the three widths, with the one in force marked. */
@@ -372,13 +376,19 @@ export default {
         :items="viewportItems"
         align="right"
         aria-label="Change the preview width"
-        data-testid="barn-preview-viewport"
         @select="setViewport"
       >
         <template #trigger>
+          <!--
+            The test id is on the chip, not on the SMenu: a `data-testid` on the component falls
+            through to its root element, which here is the wrapper div and not the button that
+            opens the menu - so a click on it would land on nothing. A click on the chip bubbles
+            to the trigger, which is what a person clicking the chip does too.
+          -->
           <SChip
             :label="currentViewport.label"
             :icon="currentViewport.icon"
+            data-testid="barn-preview-viewport"
           />
           <SIcon name="chevronDown" :size="13" />
         </template>

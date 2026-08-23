@@ -46,6 +46,44 @@ export const BUILD_FAILED_ROUTE = 'barn-build-failed';
  */
 export const EXTENSION_STARTING_ROUTE = 'barn-extension-starting';
 
+/** Every route this product owns lives under here. */
+const STUDIO_PATH_PREFIX = '/barn';
+
+/**
+ * Tell Rancher that all of `/barn/*` is this product, not just the one route the rail links to.
+ *
+ * The rail marks the section you are in with `active-menu-link`, and TopLevelMenu sets that
+ * when `getProductFromRoute($route)` equals the entry's product name. `getProductFromRoute`
+ * reads `meta.product` off the matched route, and none of the Studio's routes carried one - so
+ * the only highlight the Studio ever had was vue-router's own `router-link-exact-active` on
+ * `/barn/extensions`. Every other Studio screen - the workspace, the brief, the files, the
+ * review queue, a change, verification, a failed build - rendered with nothing in the rail
+ * marked current, which was reported from five of them independently.
+ *
+ * Stamped from here rather than written into each `addRoute` call in index.ts so there is one
+ * place that decides what belongs to this product, and a route added later is covered without
+ * anybody remembering to.
+ *
+ * In place rather than by replacing `meta`. A product's `init` runs a microtask after the
+ * plugin's routes have been handed to vue-router, which holds this same object by reference;
+ * assigning a fresh `meta` would update the plugin's copy and nothing the router resolves.
+ */
+function markStudioRoutes($plugin: IPlugin): void {
+  const registered: { route?: { path?: string; meta?: Record<string, unknown> } }[] = ($plugin as any).routes || [];
+
+  registered.forEach(({ route }) => {
+    if (!route?.path?.startsWith(STUDIO_PATH_PREFIX)) {
+      return;
+    }
+
+    if (!route.meta) {
+      route.meta = {};
+    }
+
+    route.meta.product = EDITOR_PRODUCT;
+  });
+}
+
 export function init($plugin: IPlugin, store: any) {
   const { product } = $plugin.DSL(store, EDITOR_PRODUCT);
 
@@ -54,7 +92,11 @@ export function init($plugin: IPlugin, store: any) {
   // type-checks and fails, which is the first thing that ever compiles this for
   // real.
   const options: Record<string, unknown> = {
-    icon:                'flask',
+    // The puzzle, which is what the design marks selected in the rail (53:1284) and what a
+    // person looking for extensions looks for. Rancher's own Extensions page carries the same
+    // icon one section further down; the labels tell them apart, and only one of them is ever
+    // the highlighted one.
+    icon:                'extension',
     inStore:             'management',
     // Nothing to switch between - the page is the whole product.
     showClusterSwitcher: false,
@@ -65,4 +107,9 @@ export function init($plugin: IPlugin, store: any) {
   };
 
   product(options);
+
+  // After the product is registered, never before: a route whose meta names a product Rancher
+  // does not know about is a fail-whale ("product not found") rather than an unhighlighted
+  // rail. Both calls are synchronous and in this order, so no navigation can land between them.
+  markStudioRoutes($plugin);
 }

@@ -91,23 +91,33 @@ function sortValue(row, key) {
     return row.version ? `0 ${ row.version }` : (row.ready ? '1' : '2');
 
   case 'when':
-    // The commit timestamp behind the relative string. 0 for a row that has not answered
-    // yet, which puts it last under the default (newest first).
-    return row.detail?.lastChange ? (Date.parse(row.detail.lastChange) || 0) : 0;
+    // The timestamp behind the relative string. 0 for a row that has not answered yet, which
+    // puts it last under the default (newest first).
+    return changedAt(row.detail);
 
   default:
     return '';
   }
 }
 
-function relative(iso) {
-  if (!iso) {
-    return '-';
-  }
+/**
+ * When this extension last changed, in milliseconds, or 0 if it has not said.
+ *
+ * The newer of the last commit and the newest uncommitted file, because both are changes and
+ * only one of them used to count. A row whose subtitle says "1 change waiting for your review"
+ * and whose Last change says "1 day ago" is describing two different events, and the older of
+ * the two was winning.
+ */
+function changedAt(detail) {
+  const committed = Date.parse(detail?.lastChange || '') || 0;
+  const touched = Date.parse(detail?.lastTouched || '') || 0;
 
-  const then = Date.parse(iso);
+  return Math.max(committed, touched);
+}
 
-  if (isNaN(then)) {
+/** "4 min ago", from a timestamp in milliseconds. 0 means the row has not answered yet. */
+function relative(then) {
+  if (!then) {
     return '-';
   }
 
@@ -290,8 +300,31 @@ export default {
       row.sourceLabel = github ? `${ github.repo }${ github.ref ? ` · ${ github.ref }` : '' }` : 'Created here · no repo yet';
       row.state = this.stateOf(row);
       row.subtitle = this.subtitleOf(row);
-      row.when = relative(detail?.lastChange);
+      row.when = relative(changedAt(detail));
+      row.whenHint = this.whenHint(detail);
       row.target = version ? `catalog · v${ version }` : (row.ready ? 'local (preview)' : '-');
+    },
+
+    /**
+     * Which of the two readings the Last change cell is showing, said outright on hover.
+     *
+     * The column blends a commit time and a working-tree mtime, and which one is on top
+     * changes what the number means - "edited but not committed" against "committed and left
+     * alone". Cheaper to say than to make somebody infer it from the badge.
+     */
+    whenHint(detail) {
+      const committed = Date.parse(detail?.lastChange || '') || 0;
+      const touched = Date.parse(detail?.lastTouched || '') || 0;
+
+      if (!committed && !touched) {
+        return '';
+      }
+
+      if (touched > committed) {
+        return 'An uncommitted file was edited then. The last commit is older.';
+      }
+
+      return 'The last commit. Nothing has been edited since.';
     },
 
     /**
@@ -336,6 +369,33 @@ export default {
 
     open(name) {
       this.$router.push({ name: EDITOR_ROUTE, params: { extension: name } });
+    },
+
+    /**
+     * The row's Review button, which is not the row itself.
+     *
+     * It used to call `open`, so the one control on the row that names a destination went to
+     * the same place as clicking anywhere else on it - the workspace. The menu's "Review
+     * changes" already went to the diff; this is the same push.
+     */
+    review(name) {
+      this.$router.push({ name: REVIEW_ROUTE, params: { extension: name } });
+    },
+
+    /**
+     * The "Extensions" crumb: Rancher's own extensions page, which is what it says.
+     *
+     * `{ name: 'home' }` is Rancher's home page and was what this pushed, so a crumb labelled
+     * Extensions landed on "Welcome to Rancher".
+     *
+     * The cluster is resolved the way the side menu resolves it, so the crumb and the rail's
+     * Extensions entry land on the same URL. `_` is Rancher's cluster-less cluster id
+     * (BLANK_CLUSTER) and is the fallback when nothing is loaded.
+     */
+    openRancherExtensions() {
+      const cluster = this.$store.getters['clusterId'] || this.$store.getters['defaultClusterId'] || '_';
+
+      this.$router.push({ name: 'c-cluster-uiplugins', params: { cluster } });
     },
 
     newExtension() {
@@ -508,7 +568,11 @@ export default {
     <!-- masthead (8:101) -->
     <div class="studio-home__masthead">
       <div class="studio-home__breadcrumb">
-        <a class="studio-home__crumb" @click="$router.push({ name: 'home' })">Extensions</a>
+        <a
+          class="studio-home__crumb"
+          data-testid="studio-crumb-extensions"
+          @click="openRancherExtensions"
+        >Extensions</a>
         <SIcon name="chevronRight" :size="12" />
         <span class="studio-home__crumb-current">Studio</span>
       </div>
@@ -517,7 +581,11 @@ export default {
         <h1 class="studio-home__title">
           Extension Studio
         </h1>
-        <span class="studio-home__count">{{ rows.length }}</span>
+        <span
+          class="studio-home__count"
+          data-testid="studio-count"
+          :title="search ? `${ filtered.length } of ${ rows.length } match “${ search }”` : `${ rows.length } extensions`"
+        >{{ filtered.length }}</span>
 
         <span class="studio-home__grow" />
 
@@ -621,7 +689,7 @@ export default {
           </div>
 
           <div class="studio-home__td" :style="{ width: '118px', flex: '0 0 118px' }">
-            <span class="studio-home__muted">{{ row.when || '-' }}</span>
+            <span class="studio-home__muted" :title="row.whenHint || null">{{ row.when || '-' }}</span>
           </div>
 
           <div
@@ -632,7 +700,8 @@ export default {
               v-if="row.state === 'unsaved'"
               variant="secondary"
               size="sm"
-              @click.stop="open(row.name)"
+              :data-testid="`studio-review-${ row.name }`"
+              @click.stop="review(row.name)"
             >
               Review
             </SButton>

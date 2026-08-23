@@ -9,8 +9,20 @@ are also the ones that fall between the per-screen implementers, so the orchestr
 Reported from `01-home-breadcrumb-extensions` and `07-publish-back`.
 
 `pages/extensions.vue:511` and the masthead back binding in `pages/editor.vue` both push
-`{ name: 'home' }`, which is Rancher's home page. The extension list is `STUDIO_ROUTE`
-(`barn-studio`, `/barn/extensions`). The crumb says "Extensions" and lands somewhere else.
+`{ name: 'home' }`, which is Rancher's home page.
+
+**Correction.** This entry originally said both should push `STUDIO_ROUTE`, and that was wrong for
+half of it. The two are not the same defect:
+
+- The **masthead back arrow** in `editor.vue` is on `/barn/editor` and should return to the
+  extension list, so `STUDIO_ROUTE` is right.
+- The **breadcrumb** in `extensions.vue` sits ON `/barn/extensions` and reads "Extensions > Studio",
+  so `STUDIO_ROUTE` would navigate to the page you are already standing on. It should go up to
+  Rancher's own Extensions page, `c-cluster-uiplugins`, which is what the feature's `promise`, its
+  `howToVerify` and the verifier's `defect` all say.
+
+Merging them into one entry here is what produced the wrong instruction. The implementer who owned
+`extensions.vue` noticed, did the right thing instead of what it was told, and said so.
 
 This is the same class of bug as the eleven dead navigation buttons found earlier: a route name
 that does not mean what the code assumes, failing quietly.

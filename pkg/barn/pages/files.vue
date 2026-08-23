@@ -15,7 +15,9 @@
 //
 // The history under the file is not a list of labels either: picking a commit puts that
 // commit's patch in the middle column, in the same DiffView the review screens use, with the
-// file it replaced named on the way back.
+// file it replaced named on the way back. It is also not just `git log`: an automatic snapshot
+// is a commit hung off HEAD rather than an ancestor of it, so a log walk cannot see one, and
+// half of what happened to the tree was missing from the list until listHistory merged them.
 import {
   SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu
 } from '../components/ui';
@@ -24,9 +26,10 @@ import DiffView from '../components/DiffView.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
   ensureRepo,
-  listExtensionFiles, readExtensionFile, listCommits, listBranches, countChanges,
-  findUsages, showCommit, DEFAULT_EXTENSION
+  listExtensionFiles, readExtensionFile, listHistory, listBranches, countChanges,
+  findUsages, showCommit, fileProvenance, DEFAULT_EXTENSION
 } from '../extensions';
+import { highlight } from '../highlight';
 import { EDITOR_ROUTE, STUDIO_ROUTE, REVIEW_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
@@ -96,8 +99,14 @@ export default {
       },
       current:  '',
       contents: '',
-      commits:  [],
+      history:  [],
       usages:   [],
+      // What git knows about the open file: who last committed it, how long ago, and whether
+      // what is on disk is that commit. Read per file rather than derived from the tree
+      // listing, because the tree listing is a `find` and knows none of it.
+      provenance: {
+        who: '', when: '', state: 'unknown',
+      },
       branch:   '',
       changes:  0,
       loading:  true,
@@ -132,6 +141,48 @@ export default {
 
     lines() {
       return this.contents === '' ? [] : this.contents.replace(/\n$/, '').split('\n');
+    },
+
+    /**
+     * The same lines, as coloured runs.
+     *
+     * One entry per line, in step with `lines`, so the gutter and the code cannot drift apart.
+     * The tokenising is done here rather than in the template because it walks the whole file
+     * and a template expression would re-run it on every keystroke in the filter box.
+     */
+    highlighted() {
+      return highlight(this.contents, this.current);
+    },
+
+    /**
+     * What the editor header says about the open file besides its name.
+     *
+     * Every part is read from the pod. A file git has never seen says so instead of borrowing
+     * the last commit's author, which is the failure mode this replaced: the line used to be
+     * the line count alone, and the design asks for who, when and whether it is committed.
+     */
+    provenanceLine() {
+      const parts = [];
+      const { who, when, state } = this.provenance;
+
+      if (who && when) {
+        parts.push(`Last commit by ${ who }, ${ when }`);
+      }
+
+      parts.push(`${ this.lines.length } lines`);
+
+      const said = {
+        committed: 'committed',
+        modified:  'uncommitted changes',
+        new:       'never committed',
+        deleted:   'missing from disk',
+      }[state];
+
+      if (said) {
+        parts.push(said);
+      }
+
+      return parts.join(' · ');
     },
 
     basename() {
@@ -202,16 +253,16 @@ export default {
 
       this.loading = true;
 
-      const [paths, commits, branches, changes] = await Promise.all([
+      const [paths, history, branches, changes] = await Promise.all([
         listExtensionFiles(this.extension).catch(() => []),
-        listCommits(this.extension, 20).catch(() => []),
+        listHistory(this.extension, 20).catch(() => []),
         listBranches(this.extension).catch(() => null),
         countChanges(this.extension).catch(() => 0),
       ]);
 
       this.allPaths = paths;
       this.tree = toTree(paths);
-      this.commits = commits;
+      this.history = history;
       this.branch = branches?.current || '';
       this.changes = changes;
       this.loading = false;
@@ -230,12 +281,26 @@ export default {
       if (!this.current) {
         this.contents = '';
         this.usages = [];
+        this.provenance = {
+          who: '', when: '', state: 'unknown',
+        };
 
         return;
       }
 
       this.reading = true;
-      this.contents = await readExtensionFile(this.extension, this.current).catch(() => '');
+      // Both halves of the middle column in one wait: the contents the pane renders and the
+      // provenance its header states. They are two execs, but they are two the reader would
+      // otherwise sit through one after the other.
+      const [contents, provenance] = await Promise.all([
+        readExtensionFile(this.extension, this.current).catch(() => ''),
+        fileProvenance(this.extension, this.current).catch(() => ({
+          who: '', when: '', state: 'unknown',
+        })),
+      ]);
+
+      this.contents = contents;
+      this.provenance = provenance;
       this.reading = false;
 
       this.searching = true;
@@ -258,8 +323,70 @@ export default {
       // `git show` writes its errors to the same stream as the patch, and DiffView renders
       // anything that is not a patch as no files at all - so a failure here is a diff with
       // nothing in it rather than an exception, and the empty state below says so.
-      this.patch = await showCommit(this.extension, c.sha).catch(() => '');
+      //
+      // `ref` rather than a sha, because half these rows are snapshots and a snapshot is
+      // reached by its tag. `git show` takes either.
+      this.patch = await showCommit(this.extension, c.ref).catch(() => '');
       this.loadingPatch = false;
+    },
+
+    /** How a history row names its source: a person's commit, or an automatic snapshot. */
+    entrySource(c) {
+      return c.kind === 'snapshot' ? 'automatic' : (c.who || 'unknown author');
+    },
+
+    /**
+     * Why a "where used" row matters, read off the line that matched.
+     *
+     * The search is a fixed-string grep, so what comes back is a line rather than a relation -
+     * and a rail of raw grep hits makes the reader do the parsing. These are the shapes that
+     * line actually takes in a Rancher extension, and anything that is none of them says
+     * "mentions it" rather than inventing a relationship the line does not show.
+     */
+    usageReason(u) {
+      const text = u.text || '';
+      // Only the part of the name that can be a component tag, and only used when there is
+      // something left of it - an empty stem would build `<\s*/?\s*\b`, which matches the
+      // opening angle bracket of every tag in the file.
+      const stem = this.basename.replace(/\.[^.]+$/, '').replace(/[^\w-]/g, '');
+
+      if (/^\s*import\s/.test(text) || /^\s*}?\s*from\s+['"]/.test(text)) {
+        return 'imports it';
+      }
+
+      if (/^\s*export\s.*\bfrom\b/.test(text)) {
+        return 're-exports it';
+      }
+
+      if (/\brequire\s*\(/.test(text)) {
+        return 'requires it at runtime';
+      }
+
+      if (stem && new RegExp(`<\\s*/?\\s*${ stem }\\b`).test(text)) {
+        return 'renders it as a component';
+      }
+
+      if (/\bcomponent\s*:/.test(text)) {
+        return 'points a route at it';
+      }
+
+      if (/^\s*components\s*:/.test(text)) {
+        return 'registers it as a component';
+      }
+
+      if (/^\s*\|/.test(text)) {
+        return 'describes it in a table';
+      }
+
+      if (/^\s*(\/\/|#|\*|<!--)/.test(text)) {
+        return 'mentions it in a comment';
+      }
+
+      if (u.path.endsWith('.md')) {
+        return 'documents it';
+      }
+
+      return 'mentions it';
     },
 
     backToFile() {
@@ -347,13 +474,19 @@ export default {
 
       <span class="files__grow" />
 
+      <!--
+        The count is the label, not a decoration beside it (22:873, "Review 3 changes"). It is
+        the same `changes` the badge two elements back reads, so a button that says a number
+        the badge disagrees with is not a state this can get into.
+      -->
       <SButton
         variant="secondary"
         size="sm"
         icon="compare"
+        data-testid="files-review-changes"
         @click="$router.push({ name: routes.REVIEW_ROUTE, params: { extension } })"
       >
-        Review changes
+        {{ changes ? `Review ${ changes } change${ changes === 1 ? '' : 's' }` : 'Review changes' }}
       </SButton>
       <SButton
         variant="primary"
@@ -431,10 +564,10 @@ export default {
           <SIcon :name="commit ? 'compare' : 'file'" :size="14" />
 
           <template v-if="commit">
-            <code class="files__sha">{{ commit.sha }}</code>
+            <code class="files__sha">{{ commit.kind === 'snapshot' ? 'snapshot' : commit.ref }}</code>
             <span class="files__panel-title">{{ commit.subject }}</span>
             <span class="files__grow" />
-            <span class="files__muted">{{ commit.who }} · {{ commit.when }}</span>
+            <span class="files__muted">{{ entrySource(commit) }} · {{ commit.when }}</span>
             <SButton
               variant="secondary"
               size="sm"
@@ -448,7 +581,9 @@ export default {
           <template v-else>
             <span class="files__panel-title">{{ current || 'No file open' }}</span>
             <span class="files__grow" />
-            <span class="files__muted">{{ lines.length }} lines</span>
+            <span v-if="current" class="files__muted" data-testid="files-provenance">
+              {{ provenanceLine }}
+            </span>
             <SButton
               variant="ghost"
               size="sm"
@@ -463,14 +598,14 @@ export default {
         <div class="files__code">
           <div v-if="loadingPatch" class="files__loading">
             <SIcon name="spinner" :size="20" class="files__spin" />
-            Reading {{ commit.sha }}
+            Reading {{ commit.ref }}
           </div>
 
           <SEmpty
             v-else-if="commit && !patch.trim()"
             icon="alert"
             title="No patch for this commit"
-            :message="`git show ${ commit.sha } came back with nothing. A merge with no changes of its own reads like this, and so does a pod that has stopped answering.`"
+            :message="`git show ${ commit.ref } came back with nothing. A merge with no changes of its own reads like this, and so does a pod that has stopped answering.`"
           />
 
           <DiffView
@@ -491,11 +626,20 @@ export default {
             Reading {{ current }}
           </div>
 
+          <!--
+            One row per line, each line a list of coloured runs. `v-for` over the runs rather
+            than v-html, because the file is somebody's source and putting it through
+            innerHTML is how a package that contains a script tag ends up executing it.
+          -->
           <table v-else class="files__lines">
             <tbody>
-              <tr v-for="(line, i) in lines" :key="i">
+              <tr v-for="(row, i) in highlighted" :key="i">
                 <td class="files__ln">{{ i + 1 }}</td>
-                <td class="files__code-line">{{ line }}</td>
+                <td class="files__code-line"><span
+                  v-for="(token, j) in row"
+                  :key="j"
+                  :class="token.c ? `files__tok files__tok--${ token.c }` : null"
+                >{{ token.t }}</span></td>
               </tr>
             </tbody>
           </table>
@@ -507,22 +651,28 @@ export default {
             <SIcon name="clock" :size="14" />
             <span class="files__panel-title">History</span>
             <span class="files__grow" />
-            <span class="files__muted">{{ commits.length }} commits</span>
+            <span class="files__muted">{{ history.length }} entries</span>
           </div>
           <div class="files__commits">
+            <!--
+              Commits and automatic snapshots in one order (22:964: "automatic · 12:06" over
+              "Ken Wimer · 7h ago"). A snapshot has no author because nobody wrote it, which is
+              the distinction the row is there to draw.
+            -->
             <div
-              v-for="c in commits"
-              :key="c.sha"
+              v-for="c in history"
+              :key="c.ref"
               class="files__commit"
-              :class="{ 'files__commit--current': commit && commit.sha === c.sha }"
+              :class="{ 'files__commit--current': commit && commit.ref === c.ref }"
+              data-testid="files-history-entry"
               @click="openCommit(c)"
             >
-              <code class="files__sha">{{ c.sha }}</code>
+              <code class="files__sha">{{ c.kind === 'snapshot' ? 'snapshot' : c.ref }}</code>
               <span class="files__commit-subject">{{ c.subject }}</span>
-              <span class="files__muted">{{ c.when }}</span>
+              <span class="files__commit-meta">{{ entrySource(c) }} · {{ c.when }}</span>
             </div>
-            <div v-if="!commits.length && !loading" class="files__muted files__pad">
-              No commits yet.
+            <div v-if="!history.length && !loading" class="files__muted files__pad">
+              No commits or snapshots yet.
             </div>
           </div>
         </div>
@@ -547,9 +697,13 @@ export default {
               v-for="(u, i) in usages"
               :key="i"
               class="files__usage"
+              data-testid="files-usage"
               @click="current = u.path"
             >
-              <span class="files__usage-path">{{ u.path }}:{{ u.line }}</span>
+              <span class="files__usage-head">
+                <span class="files__usage-path">{{ u.path }}:{{ u.line }}</span>
+                <span class="files__usage-reason">{{ usageReason(u) }}</span>
+              </span>
               <code class="files__usage-text">{{ u.text }}</code>
             </div>
 
@@ -560,7 +714,9 @@ export default {
 
           <p class="files__note">
             A fixed-string search of the package, not a symbol index - it finds imports and
-            string references, and will miss anything renamed on the way in.
+            string references, and will miss anything renamed on the way in. The relationship
+            on each row is read off the line that matched, and is "mentions it" when the line
+            does not show one.
           </p>
         </div>
       </div>
@@ -575,6 +731,22 @@ export default {
   height:         100%;
   min-height:     0;
   background:     var(--studio-surface);
+
+  /*
+   * The code pane's palette.
+   *
+   * Declared here rather than in design/studio.css because this is the only screen that
+   * colours source, and the trap the token file warns about applies: a custom property is
+   * substituted in the scope it is declared in, so these sit on the component's own root and
+   * the dark values are restated under `body.theme-dark`, the same selector studio.css uses.
+   * Hues are the studio's own - the link blue, the accent green, the warning amber - rather
+   * than an editor theme's, so the pane belongs to the product it is in.
+   */
+  --files-tok-comment: var(--studio-text-tertiary);
+  --files-tok-string:  #337041;
+  --files-tok-keyword: #8250B0;
+  --files-tok-number:  #A85B12;
+  --files-tok-meta:    var(--studio-blue-600);
 
   &__masthead {
     display:       flex;
@@ -771,6 +943,16 @@ export default {
     word-break:  break-word;
   }
 
+  &__tok {
+    // The runs are inline spans inside a pre-wrap cell, so they inherit the cell's wrapping
+    // and add nothing to the box. Colour is the only thing they carry.
+    &--comment { color: var(--files-tok-comment); font-style: italic; }
+    &--string  { color: var(--files-tok-string); }
+    &--keyword { color: var(--files-tok-keyword); }
+    &--number  { color: var(--files-tok-number); }
+    &--meta    { color: var(--files-tok-meta); }
+  }
+
   &__history {
     flex:       0 0 auto;
     max-height: 40%;
@@ -816,6 +998,14 @@ export default {
     white-space:   nowrap;
   }
 
+  // Who and when, held together so the row never wraps the author onto its own line.
+  &__commit-meta {
+    flex:        0 0 auto;
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-tertiary);
+    white-space: nowrap;
+  }
+
   &__used-body {
     display:        flex;
     flex-direction: column;
@@ -836,10 +1026,28 @@ export default {
     &:hover { border-color: var(--studio-border-strong); }
   }
 
+  &__usage-head {
+    display:     flex;
+    align-items: baseline;
+    gap:         var(--studio-space-8);
+  }
+
   &__usage-path {
+    flex:  1 1 auto;
+    min-width: 0;
     font:  var(--studio-caption-12);
     color: var(--studio-text-link);
     word-break: break-all;
+  }
+
+  // What the row is, in words. Right of the path because the path is what identifies it and
+  // the relationship is what makes it worth opening.
+  &__usage-reason {
+    flex:           0 0 auto;
+    font:           var(--studio-caption-11-caps);
+    letter-spacing: var(--studio-tracking-caps);
+    text-transform: uppercase;
+    color:          var(--studio-text-tertiary);
   }
 
   &__usage-text {
@@ -876,6 +1084,17 @@ export default {
   }
 
   &__spin { animation: files-spin 0.9s linear infinite; }
+}
+
+/*
+ * The dark values for the code palette. Same three hues, lifted off a near-black panel: the
+ * light ones are 4.5:1 on white and would be 2:1 here.
+ */
+body.theme-dark .files {
+  --files-tok-string:  #8FD49E;
+  --files-tok-keyword: #C79BE8;
+  --files-tok-number:  #E0BC4A;
+  --files-tok-meta:    #7FC3EA;
 }
 
 @keyframes files-spin {

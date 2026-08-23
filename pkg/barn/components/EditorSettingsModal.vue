@@ -50,6 +50,15 @@ export default {
     },
   },
 
+  watch: {
+    /** "Removed" is about what is stored, and typing a replacement is no longer about that. */
+    token(value) {
+      if (value) {
+        this.removed = false;
+      }
+    },
+  },
+
   async mounted() {
     try {
       // Any extension will do: the token is the one setting left here and it is the same for

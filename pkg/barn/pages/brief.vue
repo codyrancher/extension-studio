@@ -231,16 +231,38 @@ export default {
     },
   },
 
+  watch: {
+    // Any edit to anything the form owns. Armed only once the file has been read, so the
+    // prefill below and the load itself are not mistaken for typing and written straight back.
+    formKey() {
+      if (this.ready) {
+        this.queueSave();
+      }
+    },
+  },
+
   mounted() {
     // Prefill from what screen 02 collected. These are the person's own words moved into the
     // right boxes, not the assistant's guess at them - which is why they are editable and why
     // nothing is invented for the boxes there is no answer for.
+    this.request = this.handed;
     this.problem = this.outcome || this.handed;
     this.changes = this.handed;
 
     this.load().catch(() => {
       this.loading = false;
+      this.ready = true;
     });
+  },
+
+  beforeUnmount() {
+    clearTimeout(this.saveTimer);
+
+    // Leaving the screen with typing in it is the case this has to cover: the debounce has not
+    // fired yet and there is no other write path. Not awaited, because unmounting cannot wait.
+    if (this.dirty && !this.saving) {
+      this.saveDraft();
+    }
   },
 
   methods: {
@@ -268,7 +290,7 @@ export default {
 
         // Only overwrite a box the file actually spoke about. A brief written before a section
         // existed should not blank the box for it.
-        ['problem', 'who', 'changes', 'notDoing'].forEach((key) => {
+        ['request', 'problem', 'who', 'changes', 'notDoing'].forEach((key) => {
           if (sections[key] !== undefined) {
             this[key] = sections[key];
           }
@@ -276,30 +298,53 @@ export default {
 
         if (sections.criteria?.length) {
           this.criteria = sections.criteria;
+          this.ticked = new Set(sections.criteria.filter((_, i) => sections.criteriaTicked[i]));
         }
+
+        this.original = text;
+        this.exists = true;
+        this.agreedOn = sections.agreedOn || '';
       }
 
       this.loading = false;
+      // A tick later, so the assignments above have all settled before the watcher counts
+      // anything as typing.
+      this.$nextTick(() => {
+        this.ready = true;
+      });
     },
 
     /**
-     * Turn the markdown `briefMarkdown` writes back into the form that wrote it.
+     * Turn the markdown `briefDocument` writes back into the form that wrote it.
      *
      * Keyed on the headings that method emits, so the two stay together: change one and this
      * stops finding a section rather than silently reading the wrong one. `_not stated_` is what
      * it writes for a box left empty, so it reads back as empty rather than as that literal.
      */
     parseBrief(text) {
+      // Lower case, and matched lower case, because `briefDocument` decides what it owns the
+      // same way. A heading the two halves disagree about is a section read by neither and
+      // overwritten by one of them.
       const HEADINGS = {
-        '## The problem':                          'problem',
-        '## Who has it':                           'who',
-        '## What changes for them':                'changes',
-        '## What we are deliberately not doing':   'notDoing',
+        '## what you were handed':               'request',
+        '## the problem':                        'problem',
+        '## who has it':                         'who',
+        '## what changes for them':              'changes',
+        '## what we are deliberately not doing': 'notDoing',
       };
 
       const out = {};
       let key = null;
       let buffer = [];
+
+      // Who agreed this, and when, as `agree()` records it in the footer. Its absence is what
+      // makes a brief a draft, so it is read from the whole document rather than from a
+      // section a rewrite could move.
+      const agreed = /^_Agreed in the Extension Studio on ([0-9]{4}-[0-9]{2}-[0-9]{2})\._$/m.exec(text);
+
+      if (agreed) {
+        out.agreedOn = agreed[1];
+      }
 
       const flush = () => {
         // `criteria` is accumulated line by line into an array, not buffered as prose, so
@@ -320,11 +365,14 @@ export default {
 
         if (line.startsWith('## ') || line === '---') {
           flush();
-          key = HEADINGS[line] || null;
+          key = HEADINGS[line.toLowerCase()] || null;
           buffer = [];
 
-          if (line === '## How we will know it worked') {
+          if (line.toLowerCase() === '## how we will know it worked') {
             out.criteria = [];
+            // Whether each box is ticked, parallel to `criteria`. Screen 13 owns the tick, so
+            // this form has to be able to put it back on the line it rewrites.
+            out.criteriaTicked = [];
             key = 'criteria';
           }
           continue;
@@ -333,10 +381,11 @@ export default {
         if (key === 'criteria') {
           // The verdicts screen 13 records live on these same lines, as trailing bold text after
           // the criterion. Keep only the criterion itself, which is what this form owns.
-          const m = line.match(/^- \[[ xX]\]\s+(.*)$/);
+          const m = line.match(/^- \[([ xX])\]\s+(.*)$/);
 
           if (m) {
-            out.criteria.push(m[1].replace(/\s*-\s*\*\*.*$/, '').trim());
+            out.criteria.push(m[2].replace(/\s*-\s*\*\*.*$/, '').trim());
+            out.criteriaTicked.push(m[1] !== ' ');
           }
           continue;
         }
@@ -359,43 +408,232 @@ export default {
     },
 
     /**
-     * The brief as a document.
+     * The sections this form owns, in the order the document lays them out.
+     *
+     * The one list `parseBrief` is keyed against and `briefDocument` writes from, so the two
+     * halves of the round trip cannot drift apart: add a box to the form and it is read and
+     * written by the same edit.
+     */
+    ownedSections() {
+      const out = [
+        ['What you were handed', this.request.trim() || '_not stated_'],
+        ['The problem', this.problem.trim() || '_not stated_'],
+        ['Who has it', this.who.trim() || '_not stated_'],
+        ['What changes for them', this.changes.trim() || '_not stated_'],
+        ['What we are deliberately not doing', this.notDoing.trim() || '_not stated_'],
+        ['How we will know it worked', this.criteriaBody()],
+      ];
+
+      if (this.placement) {
+        out.push(['Where it appears', `Parent route: \`${ this.placement }\``]);
+      }
+
+      return out;
+    },
+
+    /**
+     * The checklist, with the ticks left where they were.
+     *
+     * A tick is screen 13's record that the criterion was met. This form rewrites the line to
+     * change its wording, so it has to put the box back as it found it - keyed on the text,
+     * because that is the key both other screens reconcile on. Re-wording a criterion drops its
+     * tick, which is right: it is not the same criterion any more.
+     */
+    criteriaBody() {
+      if (!this.filledCriteria.length) {
+        return '_not stated_';
+      }
+
+      return this.filledCriteria
+        .map((c) => `- [${ this.ticked.has(c) ? 'x' : ' ' }] ${ c }`)
+        .join('\n');
+    },
+
+    /**
+     * The brief as a document, with everything this form does not own left where it was.
      *
      * Markdown because it is going into a git repository next to the code it describes, and
      * because the thing that reads it first is a language model.
+     *
+     * The version this replaces built the whole file from the form, which meant that saving a
+     * brief deleted every section the form has no box for - and by the time anybody saves one,
+     * screen 13 has appended `## Verification` with a verdict per criterion, and a person may
+     * have added prose of their own. Sections are matched by heading: the ones this form owns
+     * get the form's contents, the rest are copied through untouched.
      */
-    briefMarkdown() {
-      const lines = [
-        `# ${ this.extension }`,
-        '',
-        '## The problem',
-        this.problem.trim() || '_not stated_',
-        '',
-        '## Who has it',
-        this.who.trim() || '_not stated_',
-        '',
-        '## What changes for them',
-        this.changes.trim() || '_not stated_',
-        '',
-        '## What we are deliberately not doing',
-        this.notDoing.trim() || '_not stated_',
-        '',
-        '## How we will know it worked',
-      ];
+    briefDocument(existing = '', agreed = this.agreedOn) {
+      const owned = this.ownedSections();
+      const bodies = new Map(owned.map(([title, body]) => [title.toLowerCase(), body]));
+      const head = [];
+      const blocks = [];
+      let current = null;
+      let inFooter = false;
+      // Which block the footer sat under in the file it came from, or -1 for a file with none.
+      let footerAfter = -1;
 
-      if (this.filledCriteria.length) {
-        this.filledCriteria.forEach((c) => lines.push(`- [ ] ${ c }`));
-      } else {
-        lines.push('_not stated_');
+      (existing || '').split('\n').forEach((raw) => {
+        const line = raw.replace(/\s+$/, '');
+        const heading = /^##\s+(\S.*)$/.exec(line);
+
+        if (heading) {
+          current = { title: heading[1].trim(), body: [] };
+          inFooter = false;
+          blocks.push(current);
+
+          return;
+        }
+
+        if (!current) {
+          head.push(line);
+
+          return;
+        }
+
+        // The `---` and the sentence under it are this form's own footer, wherever they sit.
+        // They are re-emitted below rather than carried, so the agreed line can be kept
+        // current instead of accumulating one per agreement - but they go back after the same
+        // section they were under, so saving does not reshuffle the document.
+        if (line.trim() === '---') {
+          inFooter = true;
+          footerAfter = blocks.length - 1;
+        }
+
+        if (!inFooter) {
+          current.body.push(line);
+        }
+      });
+
+      const inFile = new Set(blocks.map((b) => b.title.toLowerCase()));
+      const out = [];
+      const done = new Set();
+
+      const pushBlock = (lines) => {
+        while (out.length && !out[out.length - 1].trim()) {
+          out.pop();
+        }
+
+        if (out.length) {
+          out.push('');
+        }
+
+        out.push(...lines);
+      };
+
+      const pushOwned = (title) => {
+        done.add(title.toLowerCase());
+        pushBlock([`## ${ title }`, ...bodies.get(title.toLowerCase()).split('\n')]);
+      };
+
+      pushBlock(head.join('\n').trim() ? head : [`# ${ this.extension }`]);
+
+      let ownedEnd = out.length;
+      let footerAt = -1;
+
+      blocks.forEach((block, i) => {
+        const key = block.title.toLowerCase();
+
+        if (!bodies.has(key)) {
+          pushBlock([`## ${ block.title }`, ...block.body]);
+
+          if (i === footerAfter) {
+            footerAt = out.length;
+          }
+
+          return;
+        }
+
+        // Any owned section the file has never had goes in ahead of the first one it does
+        // have that comes after it, so the document keeps the order the form is in.
+        owned.forEach(([title]) => {
+          const t = title.toLowerCase();
+
+          if (t !== key && !done.has(t) && !inFile.has(t) && !this.after(owned, t, key)) {
+            pushOwned(title);
+          }
+        });
+
+        pushOwned(block.title);
+        ownedEnd = out.length;
+
+        if (i === footerAfter) {
+          footerAt = out.length;
+        }
+      });
+
+      owned.forEach(([title]) => {
+        if (!done.has(title.toLowerCase())) {
+          pushOwned(title);
+          ownedEnd = out.length;
+        }
+      });
+
+      // The footer goes back where it was - under the brief, above anything appended after it -
+      // rather than at the end of the file, where it would sit below screen 13's verdicts.
+      let at = footerAt < 0 ? ownedEnd : footerAt;
+
+      // The blank line the footer used to be separated by belongs to the footer, not to the
+      // section above it, or every save adds another one.
+      while (at > 0 && !out[at - 1].trim()) {
+        out.splice(at - 1, 1);
+        at--;
       }
 
-      if (this.placement) {
-        lines.push('', '## Where it appears', `Parent route: \`${ this.placement }\``);
+      out.splice(at, 0,
+        '', '---', '', 'Written in the Extension Studio before any code existed.',
+        ...(agreed ? ['', `_Agreed in the Extension Studio on ${ agreed }._`] : []));
+
+      return `${ out.join('\n').replace(/\n+$/, '') }\n`;
+    },
+
+    /** Whether `title` comes after `other` in the owned order. */
+    after(owned, title, other) {
+      const index = (t) => owned.findIndex(([name]) => name.toLowerCase() === t);
+
+      return index(title) > index(other);
+    },
+
+    /** Save what is typed, into the file, without agreeing anything. */
+    async saveDraft() {
+      if (this.loading || this.autosaving) {
+        return;
       }
 
-      lines.push('', '---', '', 'Written in the Extension Studio before any code existed.');
+      const key = this.formKey;
+      const text = this.briefDocument(this.original);
 
-      return lines.join('\n');
+      this.autosaving = true;
+      this.saveError = '';
+
+      try {
+        await writeExtensionFile(this.extension, 'BRIEF.md', text);
+        this.original = text;
+        this.exists = true;
+        this.savedAt = new Date();
+        // Anything typed while that write was in flight is still unsaved.
+        this.dirty = this.formKey !== key;
+
+        if (this.dirty) {
+          this.queueSave();
+        }
+      } catch (e) {
+        this.saveError = e?.message || String(e);
+      } finally {
+        this.autosaving = false;
+      }
+    },
+
+    /**
+     * Save shortly after the typing stops.
+     *
+     * The brief was write-only until this: the only write was `agree()`, which navigates away,
+     * so an edit to any box - or to a criterion, which two other screens read - was lost on the
+     * next reload with nothing on the screen suggesting it would be. The masthead says when the
+     * last save happened, so the promise the screen makes is one it keeps.
+     */
+    queueSave() {
+      this.dirty = true;
+      clearTimeout(this.saveTimer);
+      this.saveTimer = setTimeout(() => this.saveDraft(), 700);
     },
 
     async agree() {
@@ -404,9 +642,18 @@ export default {
       }
 
       this.saving = true;
+      clearTimeout(this.saveTimer);
+
+      const on = new Date().toISOString().slice(0, 10);
+      const text = this.briefDocument(this.original, on);
 
       try {
-        await writeExtensionFile(this.extension, 'BRIEF.md', this.briefMarkdown());
+        await writeExtensionFile(this.extension, 'BRIEF.md', text);
+        this.original = text;
+        this.agreedOn = on;
+        this.exists = true;
+        this.dirty = false;
+        this.savedAt = new Date();
 
         // The workspace picks the brief up and sends it to the assistant as the first
         // instruction of the session.
@@ -449,7 +696,7 @@ export default {
           'guessing would waste the build: empty states, defaults, whether to replace something',
           'or sit beside it. List them as questions. Do not write any code yet.',
           '---',
-          this.briefMarkdown(),
+          this.briefDocument(this.original),
         ].join(' '));
 
         this.asked = how;
@@ -531,7 +778,18 @@ export default {
         </div>
       </div>
 
-      <SChip label="Draft - not yet agreed" icon="clock" tone="warning" />
+      <SChip
+        data-testid="brief-status"
+        :label="status.label"
+        :icon="status.icon"
+        :tone="status.tone"
+      />
+
+      <span
+        class="brief__saved"
+        data-testid="brief-saved"
+        title="Every edit is written into BRIEF.md in the extension. Agreeing is what hands it to the assistant."
+      >{{ savedNote }}</span>
 
       <span class="brief__grow" />
 
@@ -561,20 +819,54 @@ export default {
               <h2 class="brief__card-title">
                 What you were handed
               </h2>
+              <!--
+                The design frames this card as a ticket, with an id, whoever raised it and how
+                long ago. There is no ticket system behind this Studio and no reporter to name,
+                so rather than dressing the one thing it does know in three it does not, the
+                card says where the words came from and stops there.
+              -->
+              <p class="brief__card-note">
+                The request as it was typed in the description step, kept with the brief. There
+                is no ticket system behind this Studio, so there is no id, no reporter and no
+                age to show you.
+              </p>
             </header>
             <div class="brief__card-body">
-              <div class="brief__ticket">
+              <div class="brief__ticket" data-testid="brief-request">
                 <SIcon name="book" :size="15" />
                 <p class="brief__ticket-text">
-                  {{ handed || 'Nothing was carried through from the description step.' }}
+                  {{ request || 'Nothing was carried through from the description step.' }}
                 </p>
               </div>
 
-              <div v-if="outcome" class="brief__insight">
-                <SIcon name="sparkle" :size="15" />
-                <p class="brief__insight-text">
-                  {{ outcome }}
-                </p>
+              <div v-if="outcome" class="brief__ticket">
+                <SIcon name="user" :size="15" />
+                <div class="brief__quote">
+                  <span class="brief__quote-lead">What you said a good outcome would be</span>
+                  <p class="brief__ticket-text">
+                    {{ outcome }}
+                  </p>
+                </div>
+              </div>
+
+              <!--
+                34:1013's accented callout, which the design has arguing that the request names a
+                solution rather than a problem. Nothing in this product reads the request: the
+                callout used to print the person's own words back at them under a sparkle, which
+                dressed an echo as an observation. So the claim goes and the offer stays - the
+                assistant will argue with the brief, in the terminal, if you ask it to.
+              -->
+              <div class="brief__insight" data-testid="brief-insight">
+                <SIcon name="info" :size="15" />
+                <div class="brief__quote">
+                  <span class="brief__insight-lead">Nobody has argued with this yet</span>
+                  <p class="brief__insight-text">
+                    A request often names a solution rather than the problem behind it, and this
+                    Studio cannot tell you which this one is: nothing here has read it. Ask what
+                    is unclear, on the right, puts the brief to the assistant working on
+                    {{ extension }} and it answers in that extension's terminal.
+                  </p>
+                </div>
               </div>
             </div>
           </section>
@@ -777,8 +1069,10 @@ export default {
           <div class="brief__footnote">
             <SLabel text="What happens next" />
             <p class="brief__footnote-text">
-              Agreeing writes <code>BRIEF.md</code> into the extension and hands it to the
-              assistant as the first thing it reads.
+              Every edit on this screen is written into <code>BRIEF.md</code> in the extension a
+              moment after you stop typing, and the masthead says when that last happened.
+              Agreeing is the separate thing: it records the agreement in the file and hands the
+              brief to the assistant as the first thing it reads.
             </p>
           </div>
         </div>
@@ -909,9 +1203,37 @@ export default {
     color:      var(--studio-text-tertiary);
   }
 
+  // 34:1013 is an accent bar down the left edge of the callout, which is what marks it as the
+  // assistant's voice rather than another quoted row.
   &__insight {
-    background: var(--studio-blue-050);
-    color:      var(--studio-info);
+    background:  var(--studio-blue-050);
+    color:       var(--studio-info);
+    border-left: 3px solid var(--studio-info);
+  }
+
+  &__quote {
+    display:        flex;
+    flex-direction: column;
+    gap:            2px;
+    flex:           1 1 auto;
+    min-width:      0;
+  }
+
+  &__quote-lead {
+    font:  var(--studio-caption-12-semi);
+    color: var(--studio-text-secondary);
+  }
+
+  &__insight-lead {
+    font:  var(--studio-body-13-semi);
+    color: var(--studio-text);
+  }
+
+  // The autosave readout, next to the chip it qualifies: the chip says what the brief is, this
+  // says whether what is on the screen has reached the file yet.
+  &__saved {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
   }
 
   &__ticket-text,

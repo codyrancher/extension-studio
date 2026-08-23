@@ -28,6 +28,7 @@ import NewExtensionModal from '../components/NewExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import PublishGithubModal from '../components/PublishGithubModal.vue';
+import PublishModal from '../components/PublishModal.vue';
 import InstallProgress from '../components/InstallProgress.vue';
 import EditorMasthead from '../components/EditorMasthead.vue';
 import { AssistantPanel, PreviewPanel, WorkingChanges } from '../components/studio';
@@ -129,7 +130,7 @@ export default {
 
   components: {
     PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions,
-    PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal,
+    PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal, PublishModal,
     InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton,
     SModal
   },
@@ -180,6 +181,10 @@ export default {
       importing: false,
       // Whether the "where to" question for a GitHub publish is open.
       publishingGithub: false,
+      // Whether the publish dialog - which destinations, and what is in the changeset - is up.
+      // Publish used to be an immediate action from the masthead: several minutes of build in a
+      // shared pod ending in a UIPlugin upserted into this Rancher, with nothing asked first.
+      choosingPublish: false,
       // Which modal sent us to settings, so closing settings can put that one back rather than
       // dropping somebody where they did not start. '' when settings was opened from the cog.
       settingsReturn: '',
@@ -570,16 +575,20 @@ export default {
      * somebody pressed F5.
      */
     async handleHandoff() {
-      const { publish, brief } = this.$route.query;
+      const publish = this.$route.query.publish;
+      const brief = this.$route.query.brief;
 
       if (!publish && !brief) {
         return;
       }
 
+      const query = { ...this.$route.query };
+
+      delete query.publish;
+      delete query.brief;
+
       await this.$router.replace({
-        name:   this.$route.name,
-        params: this.$route.params,
-        query:  { ...this.$route.query, publish: undefined, brief: undefined },
+        name: this.$route.name, params: this.$route.params, query
       }).catch(() => { /* the same route with fewer parameters is not a navigation failure */ });
 
       if (publish === 'local' || publish === 'github') {
@@ -699,6 +708,31 @@ export default {
       }
 
       this.publishTo(id);
+    },
+
+    /**
+     * What the publish dialog chose.
+     *
+     * Local first and GitHub second, which is the order the dialog draws them: the local build
+     * happens here, and GitHub still has a question of its own (which repository) that its own
+     * modal asks. Picking both therefore ends with that modal open over a finished local
+     * publish rather than with two long jobs racing each other in one pod.
+     */
+    async onPublishChosen(targets) {
+      this.choosingPublish = false;
+
+      if (targets.includes('local')) {
+        const ok = await this.publishTo('local');
+
+        // A failed local build is a reason to stop rather than to go on and push it.
+        if (!ok) {
+          return;
+        }
+      }
+
+      if (targets.includes('github')) {
+        this.publishingGithub = true;
+      }
     },
 
     /**
@@ -871,7 +905,7 @@ export default {
       :ready="!!rightUrl"
       @back="$router.push({ name: routes.STUDIO_ROUTE })"
       @files="onLeftTab('changes')"
-      @publish="publishTo('local')"
+      @publish="choosingPublish = true"
       @publish-select="onPublishSelect"
       @settings="showSettings = true"
       @refresh="onMastheadRefresh"
@@ -1052,6 +1086,13 @@ export default {
     <EditorSettingsModal
       v-if="showSettings"
       @close="closeSettings"
+    />
+
+    <PublishModal
+      v-if="choosingPublish"
+      :extension="extension"
+      @close="choosingPublish = false"
+      @publish="onPublishChosen"
     />
 
     <PublishGithubModal

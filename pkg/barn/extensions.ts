@@ -94,6 +94,21 @@ export const EXT_ROLE_BINDING = 'barn-extension-cluster-admin';
  */
 const SOURCE_ANNOTATION = 'barn.rancher.io/source';
 
+/**
+ * The data keys in a seed ConfigMap that were authored rather than seeded.
+ *
+ * Screen 02 writes the placement decision and the first draft of the brief into the seed at
+ * creation time, because at that moment there is no pod to write them into. Every later
+ * `ensureExtension(name)` re-seeds the ConfigMap from the bundle - that upsert is how a file
+ * added to the seed reaches an extension that already exists - and without this it would
+ * quietly put the stock product.ts back over the generated one, in the exact window before
+ * the pod has booted and taken its copy.
+ *
+ * So the keys are listed here, and a re-seed that was handed nothing new carries them across.
+ * A caller that does hand extras in is stating the current answer and replaces the list.
+ */
+const AUTHORED_ANNOTATION = 'barn.rancher.io/authored';
+
 /** ConfigMap keys cannot contain '/', so paths are flattened and boot.sh rebuilds them. */
 export const PATH_SEPARATOR = '__';
 
@@ -910,18 +925,39 @@ export function ensureExtension(name: string, source?: string, extras?: Record<s
     // directory is read off the tree rather than assumed to be the extension's name - an
     // imported repository keeps its own package name, and PACKAGE_DIR in the pod resolves the
     // same way, by looking.
+    const authored: string[] = [];
+
     if (extras && Object.keys(extras).length) {
       const prefix = Object.keys(files).map((k) => /^(pkg\/[^/]+\/)/.exec(k)?.[1]).find(Boolean);
 
       if (prefix) {
         for (const [relative, contents] of Object.entries(extras)) {
           files[prefix + relative] = contents;
+          authored.push(encodeSeedKey(prefix + relative));
         }
       }
     }
 
     const data = seedData(files);
-    const annotations = { [SOURCE_ANNOTATION]: from };
+    const annotations: Record<string, string> = { [SOURCE_ANNOTATION]: from };
+
+    if (authored.length) {
+      annotations[AUTHORED_ANNOTATION] = authored.join(',');
+    } else if (cm) {
+      // Nothing new was handed in, so whatever was authored before is still the answer. Carry
+      // the keys over from the ConfigMap as it stands, and the list with them.
+      const previous = (cm.metadata?.annotations?.[AUTHORED_ANNOTATION] || '').split(',').filter(Boolean);
+
+      previous.forEach((key: string) => {
+        if (cm.data?.[key] !== undefined) {
+          data[key] = cm.data[key];
+        }
+      });
+
+      if (previous.length) {
+        annotations[AUTHORED_ANNOTATION] = previous.join(',');
+      }
+    }
 
     if (cm) {
       await rancherFetch(`${ EXT_BASE }/v1/configmaps/${ EXT_NS }/${ object }`, {
@@ -1717,8 +1753,9 @@ export async function changedFiles(name: string): Promise<ChangedFile[]> {
 
     if (rest.length) {
       // `--no-index` names the pair it compared, so an untracked file arrives as
-      // `/dev/null => path`. The path is what every caller keys on.
-      const path = rest.join('\t').replace(/^\/dev\/null => /, '');
+      // `/dev/null => path`. The path is what every caller keys on, and the quotes git puts
+      // round an awkward one come off here the same way they come off the status line below.
+      const path = rest.join('\t').replace(/^\/dev\/null => /, '').replace(/^"|"$/g, '');
 
       stats[path] = { added: parseInt(added, 10) || 0, removed: parseInt(removed, 10) || 0 };
     }
@@ -1822,7 +1859,20 @@ export async function discardChanges(name: string, paths: string[] = []): Promis
 export interface ExtensionDetail {
   branch:     string;
   changes:    number;
+  /** The last commit, ISO 8601. '' when the repository has no history yet. */
   lastChange: string;
+  /**
+   * The newest modification time among the files git reports as changed, ISO 8601.
+   *
+   * A commit is not when an extension last changed, it is when somebody last decided a change
+   * was finished. A column headed "Last change" that only moves on commit reads "1 day ago"
+   * beside a subtitle announcing a change from four minutes ago, which is what the Studio's
+   * list was doing. Only the uncommitted files are stat'ed: a clean tree has nothing newer
+   * than its own last commit, and walking the package would mean walking node_modules.
+   *
+   * '' when nothing is uncommitted, or when the pod cannot be reached.
+   */
+  lastTouched: string;
 }
 
 export async function extensionDetail(name: string): Promise<ExtensionDetail> {
@@ -1830,6 +1880,10 @@ export async function extensionDetail(name: string): Promise<ExtensionDetail> {
     'echo "BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"',
     'echo "CHANGES=$(git status --porcelain 2>/dev/null | wc -l)"',
     'echo "LAST=$(git log -1 --format=%cI 2>/dev/null)"',
+    // `cut -c4-` drops porcelain's two status characters and the space, and the sed keeps the
+    // right-hand side of a rename. A path git had to quote fails `stat` and is skipped, which
+    // costs one file's mtime out of a set and never the reading.
+    `echo "TOUCHED=$(git status --porcelain 2>/dev/null | cut -c4- | sed 's/.* -> //' | tr '\\n' '\\0' | xargs -0 -r stat -c %Y 2>/dev/null | sort -n | tail -1)"`,
   ].join(' ; ')).catch(() => '');
 
   const read = (key: string): string => {
@@ -1838,10 +1892,13 @@ export async function extensionDetail(name: string): Promise<ExtensionDetail> {
     return (m?.[1] || '').trim();
   };
 
+  const touched = parseInt(read('TOUCHED'), 10);
+
   return {
-    branch:     read('BRANCH'),
-    changes:    parseInt(read('CHANGES'), 10) || 0,
-    lastChange: read('LAST'),
+    branch:      read('BRANCH'),
+    changes:     parseInt(read('CHANGES'), 10) || 0,
+    lastChange:  read('LAST'),
+    lastTouched: touched ? new Date(touched * 1000).toISOString() : '',
   };
 }
 
@@ -1901,92 +1958,6 @@ export async function clearDeferral(name: string): Promise<void> {
   await inPackage(name, [
     `git config --local --unset ${ DEFER_KEY } 2>/dev/null`,
     `git config --local --unset ${ DEFER_KEY }-note 2>/dev/null`,
-    'true',
-  ].join(' ; '));
-}
-
-/**
- * The decisions a reviewer takes on a change, kept where the deferral is kept.
- *
- * Same three reasons as the deferral: the repository's own `git config` is local to the clone
- * so it never travels to a remote, it is not a file so it never appears in the working tree the
- * review screens are counting, and it lives on the hostPath so it survives a pod restart.
- *
- * Two kinds so far, and the point of recording them at all is that a decision nobody can read
- * back is not a decision:
- *
- *   code-signoff      - the code gate on screen 12 was approved. Explicitly the code gate: it
- *                       says nothing about whether the change does the job, which is screen
- *                       13's question and is recorded in BRIEF.md's `## Verification` block.
- *   changes-requested - the reviewer sent it back, with the note they sent back with it. Open
- *                       until it is approved or the reviewer clears it, which is what lets the
- *                       button count the requests that are still outstanding.
- *
- * `by` is whoever the browser was signed in as, because the pod has no idea who is looking at
- * it. Empty when the page could not tell, and the screens say "not recorded" rather than
- * inventing a name.
- */
-export type ReviewDecisionKind = 'code-signoff' | 'changes-requested';
-
-export interface ReviewDecision {
-  kind: ReviewDecisionKind;
-  at:   string;
-  by:   string;
-  note: string;
-}
-
-function decisionKey(kind: ReviewDecisionKind): string {
-  return `barn.review.${ kind }`;
-}
-
-export async function recordReviewDecision(
-  name: string,
-  kind: ReviewDecisionKind,
-  { by = '', note = '' }: { by?: string; note?: string } = {}
-): Promise<ReviewDecision> {
-  const at = new Date().toISOString();
-  const key = decisionKey(kind);
-
-  await inPackage(name, [
-    `git config --local ${ key } ${ shellQuote(at) }`,
-    `git config --local ${ key }-by ${ shellQuote(by.slice(0, 120)) }`,
-    `git config --local ${ key }-note ${ shellQuote(note.replace(/\s+/g, ' ').slice(0, 400)) }`,
-  ].join(' ; '));
-
-  return {
-    kind, at, by, note
-  };
-}
-
-export async function readReviewDecision(name: string, kind: ReviewDecisionKind): Promise<ReviewDecision | null> {
-  const key = decisionKey(kind);
-  const out = await inPackage(name, [
-    `echo "AT:$(git config --local --get ${ key } 2>/dev/null)"`,
-    `echo "BY:$(git config --local --get ${ key }-by 2>/dev/null)"`,
-    `echo "NOTE:$(git config --local --get ${ key }-note 2>/dev/null)"`,
-  ].join(' ; ')).catch(() => '');
-
-  const at = (/^AT:(.*)$/m.exec(out)?.[1] || '').trim();
-
-  if (!at) {
-    return null;
-  }
-
-  return {
-    kind,
-    at,
-    by:   (/^BY:(.*)$/m.exec(out)?.[1] || '').trim(),
-    note: (/^NOTE:(.*)$/m.exec(out)?.[1] || '').trim(),
-  };
-}
-
-export async function clearReviewDecision(name: string, kind: ReviewDecisionKind): Promise<void> {
-  const key = decisionKey(kind);
-
-  await inPackage(name, [
-    `git config --local --unset ${ key } 2>/dev/null`,
-    `git config --local --unset ${ key }-by 2>/dev/null`,
-    `git config --local --unset ${ key }-note 2>/dev/null`,
     'true',
   ].join(' ; '));
 }
@@ -2132,7 +2103,10 @@ export async function listHistory(name: string, limit = 50): Promise<HistoryEntr
   const out = await inPackage(name, [
     `git log -n ${ limit } --format='%h%x1f%s%x1f%cr%x1f%an%x1f%ct' 2>/dev/null`,
     'echo "--snapshots--"',
-    `git for-each-ref --sort=-creatordate --format='%(refname:short)%x1f%(contents:subject)%x1f%(creatordate:relative)%x1f%(creatordate:unix)' refs/tags/${ SNAP_PREFIX } 2>/dev/null`,
+    // A tab rather than the unit separator the log half uses: `%x1f` is a `git log` format
+    // and `for-each-ref` prints it literally. A snapshot's subject cannot contain a tab -
+    // createSnapshot strips its label to `[\w .-]` before it becomes one.
+    `git for-each-ref --sort=-creatordate --format='%(refname:short)%09%(contents:subject)%09%(creatordate:relative)%09%(creatordate:unix)' refs/tags/${ SNAP_PREFIX } 2>/dev/null`,
   ].join(' ; ')).catch(() => '');
 
   const [logOut = '', snapOut = ''] = out.split('--snapshots--');
@@ -2146,7 +2120,7 @@ export async function listHistory(name: string, limit = 50): Promise<HistoryEntr
   });
 
   const snapshots: HistoryEntry[] = snapOut.split('\n').map((l) => l.trim()).filter(Boolean).map((line) => {
-    const [ref, subject = '', when = '', at = ''] = line.split('\x1f');
+    const [ref, subject = '', when = '', at = ''] = line.split('\t');
 
     return {
       ref, subject: subject || 'snapshot', when, who: '', kind: 'snapshot', at: parseInt(at, 10) || 0,

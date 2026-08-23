@@ -136,6 +136,14 @@ export default {
       fileFilter: '',
       // Set while a file is on its way into the pod.
       attaching:  false,
+      /**
+       * What the pod's claude has to work with, read rather than assumed.
+       *
+       * `null` until the first read comes back: "not signed in" and "not asked yet" are
+       * different things to say, and the strip says the second one while it is true.
+       */
+      login:      null,
+      loginTimer: null,
     };
   },
 
@@ -152,38 +160,57 @@ export default {
     },
 
     /**
-     * The design's "Connected as ken@suse.com". The real one is whoever is signed in to this
-     * Rancher, which is the account the pod's claude is acting for.
+     * What the strip says, and what colour its dot is.
      *
-     * `auth/principalId` is the getter the shell actually has - there is no `auth/principal` -
-     * and it holds something like `local://user-abc123`, so the readable half is what follows
-     * the scheme. `auth/user` and `auth/selfUser` carry a name when the store has fetched one,
-     * which it has not always done by the time this renders, so they are tried first and this
-     * falls back rather than waiting.
+     * The credential first, because that is the fact that decides whether anything typed here
+     * gets an answer. The row used to report the browser's websocket and this Rancher's
+     * signed-in user - it read "Connected as admin" in green while every turn in the pane came
+     * back "Not logged in - Please run /login", which is worse than the terminal line it was
+     * meant to replace.
+     *
+     * The websocket is the second question and is appended rather than substituted: with the
+     * composer going through tmux (see the page's sendToAssistant) a detached terminal no
+     * longer stops a message reaching the pod, it only means you cannot watch the reply arrive.
+     *
+     * `tone`: ok | warn | unknown. The dot is green only for the first.
      */
-    connectedAs() {
-      const g = this.$store?.getters || {};
-      const user = g['auth/user'] || g['auth/selfUser'];
-      const named = user?.loginName || user?.username || user?.name;
+    sessionState() {
+      const detached = this.connected ? '' : ' · the terminal is not attached';
 
-      if (named) {
-        return named;
+      if (!this.login) {
+        return {
+          tone:  'unknown',
+          label: `Reading the assistant session${ detached }`,
+          title: 'Asking the pod whether its claude has a credential to work with.',
+        };
       }
 
-      const id = g['auth/principalId'] || '';
-      const tail = String(id).split('://').pop();
+      if (!this.login.read) {
+        return {
+          tone:  'unknown',
+          label: `Cannot tell whether the assistant is signed in${ detached }`,
+          title: 'The pod did not answer when asked about its claude credentials, so this says nothing rather than guessing.',
+        };
+      }
 
-      return tail && tail !== id ? tail : '';
-    },
+      if (!this.login.signedIn) {
+        return {
+          tone:  'warn',
+          label: 'The assistant is not signed in · run /login in the terminal',
+          title: 'There is no credential in this pod: no OAuth credentials file, no API key in its environment and no account in .claude.json. Every prompt sent from here comes back "Not logged in".',
+        };
+      }
 
-    /**
-     * The whole sentence, because the fallback changes the grammar.
-     *
-     * With no name to show, "Connected as this Rancher" is wrong in a way that reads as a bug
-     * in the connection rather than a gap in what we know about the account.
-     */
-    connectedLabel() {
-      return this.connectedAs ? `Connected as ${ this.connectedAs }` : 'Connected to this Rancher';
+      // Deliberately not falling back to the dashboard's own user here. An API key names
+      // nobody, and filling that gap with whoever is signed in to Rancher is exactly the
+      // substitution that made this row wrong in the first place.
+      const who = this.login.account;
+
+      return {
+        tone:  detached ? 'warn' : 'ok',
+        label: `${ who ? `Assistant signed in as ${ who }` : 'The assistant is signed in' }${ detached }`,
+        title: 'Read from the credential the claude in this pod is running with.',
+      };
     },
 
     changesLabel() {
@@ -256,10 +283,17 @@ export default {
     // A minute, not a second: it shells into the pod to run `git status`, and the number it
     // reports does not move except when somebody edits something.
     this.countTimer = setInterval(() => this.refreshChanges(), 60000);
+
+    this.refreshLogin();
+    // Half a minute, because this one does change while somebody is looking at it: running
+    // /login in the pane below is exactly how it changes, and the strip that told you to do it
+    // should notice that you did.
+    this.loginTimer = setInterval(() => this.refreshLogin(), 30000);
   },
 
   beforeUnmount() {
     clearInterval(this.countTimer);
+    clearInterval(this.loginTimer);
   },
 
   watch: {
@@ -267,9 +301,30 @@ export default {
       this.refreshChanges();
     },
 
+    // Keep the newest turn in view, which is what a stream that grows while you watch has to
+    // do. On a new turn only: the relative times in the meta lines are recomputed every second,
+    // so the array's identity changes constantly and scrolling on every change of it would drag
+    // the view back down under anybody reading further up.
+    turns(next, prev) {
+      if (next.length === (prev || []).length) {
+        return;
+      }
+
+      // After the render, not with it - the element being scrolled to does not exist yet.
+      this.$nextTick(() => {
+        const stream = this.$refs.stream;
+
+        if (stream) {
+          stream.scrollTop = stream.scrollHeight;
+        }
+      });
+    },
+
     extension() {
       this.changes = 0;
       this.version = '';
+      this.login = null;
+      this.refreshLogin();
       // The paths belonged to the extension that was open; none of them means anything in the
       // next one's pod.
       this.context = [];
@@ -285,6 +340,11 @@ export default {
       this.version = await publishedVersion(this.extension).catch(() => '');
     },
 
+    async refreshLogin() {
+      this.login = await assistantLogin(this.extension)
+        .catch(() => ({ read: false, signedIn: false, account: '' }));
+    },
+
     submit() {
       const text = this.draft.trim();
 
@@ -294,8 +354,12 @@ export default {
 
       this.draft = '';
       this.$emit('send', this.withContext(text));
-      // The reply arrives in the terminal, so go and look at it.
-      this.$emit('update:tab', 'terminal');
+      // Stay on the stream. This used to jump to the terminal, on the argument that the reply
+      // arrives there - which was right when the stream had nothing in it and is wrong now that
+      // it has your turn: being thrown to another tab the instant you press Send is how you
+      // never see that the message was recorded at all. The strip under the last turn is the
+      // way to the terminal, and it says so.
+      this.$emit('update:tab', 'assistant');
     },
 
     /**
@@ -455,9 +519,13 @@ export default {
     <div class="assistant-panel__status">
       <span
         class="assistant-panel__dot"
-        :class="{ 'assistant-panel__dot--off': !connected }"
+        :class="`assistant-panel__dot--${ sessionState.tone }`"
       />
-      <span class="assistant-panel__who">{{ connectedLabel }}</span>
+      <span
+        class="assistant-panel__who"
+        :title="sessionState.title"
+        data-testid="barn-session-state"
+      >{{ sessionState.label }}</span>
       <span class="assistant-panel__grow" />
       <!--
         What the session does, rather than the design's "Ask before each file edit", which it
@@ -483,7 +551,12 @@ export default {
          to look at a file would end whatever claude was in the middle of. -->
     <div class="assistant-panel__body">
       <!-- activity stream (11:233) -->
-      <div v-show="tab === 'assistant'" class="assistant-panel__stream">
+      <div
+        v-show="tab === 'assistant'"
+        ref="stream"
+        class="assistant-panel__stream"
+        data-testid="barn-activity-stream"
+      >
         <template v-if="turns.length">
           <ActivityTurn
             v-for="(turn, i) in turns"
@@ -491,13 +564,41 @@ export default {
             v-bind="turn"
             @raw="$emit('update:tab', 'terminal')"
           />
+
+          <!--
+            The other half of the stream, said rather than invented. Every turn above is a
+            message this composer actually sent; the reply to it is a character stream in the
+            pane below and nothing here parses it into steps. Rather than draw an assistant
+            turn with made-up steps and made-up durations, the stream says what is missing and
+            the strip goes to where the answer really is.
+          -->
+          <div class="assistant-panel__gap">
+            <SIcon name="sparkle" :size="13" />
+            <span>
+              The assistant's replies are in the terminal. Its output is a character stream, not
+              typed events, so this view cannot yet show them as steps with durations.
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="assistant-panel__raw"
+            data-testid="barn-open-raw-output"
+            @click="$emit('update:tab', 'terminal')"
+          >
+            <SIcon name="terminal" :size="14" />
+            <span class="assistant-panel__raw-label">Open the raw output</span>
+            <span class="assistant-panel__grow" />
+            <span class="assistant-panel__raw-note">the terminal is still here</span>
+            <SIcon name="chevronRight" :size="13" />
+          </button>
         </template>
 
         <SEmpty
           v-else
           icon="sparkle"
-          title="The assistant runs in the terminal"
-          message="This view will show each turn as steps with durations once the CLI's output is parsed into events. Until then the terminal below is the whole session, and the composer sends to it."
+          title="Nothing sent in this session yet"
+          message="What you send from the composer appears here as a turn. The assistant's own replies stay in the terminal: its output is a character stream, not typed events, so this view cannot yet show them as steps with durations."
         >
           <SButton
             variant="secondary"
@@ -677,7 +778,9 @@ export default {
     background:    var(--studio-success);
     flex:          0 0 auto;
 
-    &--off { background: var(--studio-text-tertiary); }
+    &--ok      { background: var(--studio-success); }
+    &--warn    { background: var(--studio-warning); }
+    &--unknown { background: var(--studio-text-tertiary); }
   }
 
   &__who {
@@ -686,6 +789,40 @@ export default {
   }
 
   &__grow { flex: 1 1 auto; }
+
+  // The standing note under the last turn: what the stream is not showing, and why.
+  &__gap {
+    display:       flex;
+    align-items:   flex-start;
+    gap:           6px;
+    padding:       var(--studio-space-8) 10px;
+    background:    var(--studio-surface-subtle);
+    border:        1px dashed var(--studio-border);
+    border-radius: var(--studio-radius);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-tertiary);
+  }
+
+  // The design's collapsed raw-output strip (32:893). It opens the terminal rather than
+  // expanding inline, because the terminal is the raw output - there is no second copy of it.
+  &__raw {
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-8);
+    width:         100%;
+    padding:       9px var(--studio-space-12);
+    background:    var(--studio-surface-subtle);
+    border:        1px solid var(--studio-border);
+    border-radius: var(--studio-radius);
+    color:         var(--studio-text-secondary);
+    cursor:        pointer;
+    text-align:    left;
+
+    &:hover { border-color: var(--studio-border-strong); }
+  }
+
+  &__raw-label { font: var(--studio-caption-12-semi); }
+  &__raw-note  { font: var(--studio-caption-12); color: var(--studio-text-tertiary); }
 
   &__body {
     display:    flex;

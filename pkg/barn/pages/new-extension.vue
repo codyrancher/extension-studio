@@ -5,8 +5,23 @@
 //
 //   Real. The name (which is what the extension is actually created as, and is suggested from
 //   the description until somebody edits it), the template it starts from, "Import a repo
-//   instead", "Connect GitHub", and Draft the brief - which creates the extension and carries
-//   the description, the outcome and the placement into the brief.
+//   instead", "Connect GitHub", and Draft the brief - which creates the extension, writes what
+//   was typed here into its BRIEF.md, and writes the placement into its code.
+//
+//   Two of those used to be promises rather than facts, and both were the same mistake: the
+//   answer was collected and then had nowhere to go, because at the moment the button is
+//   pressed the pod that would take it is minutes from existing.
+//
+//     The placement changed no code. Every extension got the base seed's product.ts byte for
+//     byte whichever card was chosen, and the decision the screen calls "the single hardest
+//     thing to fix later" survived only as one line in BRIEF.md. It is now generated into the
+//     seed itself (extension-placement.ts), so the extension really is registered where the
+//     card said it would be.
+//
+//     The two textareas reached BRIEF.md only if the next screen's "Agree and start building"
+//     was pressed. Its "Skip the brief" button wrote nothing anywhere, so skipping threw away
+//     everything typed here. The brief is now drafted at creation time and seeded with the
+//     tree, which is also what screen 10 reads on mount - so skipping loses nothing.
 //
 //   Drawn but inert. "Build and preview against" is a field with one possible value: the pod
 //   runs in this cluster, and there is nowhere else for it to run. It is shown rather than
@@ -19,26 +34,12 @@ import ImportExtensionModal from '../components/ImportExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import { toastError } from '../toast';
 import { ensureExtension, normalizeExtensionName, BUILT_IN_SEEDS, DEFAULT_SEED } from '../extensions';
+import {
+  PLACEMENTS, placementById, placementFiles, normalizeResource
+} from '../extension-placement';
 import { STUDIO_ROUTE, BRIEF_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
-
-// The four placements the design offers. `route` is what each would mean in a Rancher
-// extension, and is carried into the brief so the assistant is told rather than guessing.
-const PLACEMENTS = [
-  {
-    id: 'cluster', label: 'Inside a cluster', note: 'Cluster nav, below Storage', route: 'c-cluster',
-  },
-  {
-    id: 'global', label: 'Top-level nav', note: 'Its own entry in the global menu', route: 'root',
-  },
-  {
-    id: 'resource', label: 'On a resource', note: 'A new tab on a resource detail page', route: 'resource-detail',
-  },
-  {
-    id: 'unsure', label: 'Not sure yet', note: 'Let the assistant pick and explain', route: '',
-  },
-];
 
 const EXAMPLES = [
   'a cost report per namespace',
@@ -60,6 +61,10 @@ export default {
       prompt:    '',
       outcome:   '',
       placement: 'cluster',
+      // Which resource's detail page the tab attaches to, asked only when "On a resource" is
+      // chosen. The design does not draw this question, but the placement it describes cannot
+      // be written without an answer to it - a tab has to be a tab on something.
+      resource:  'node',
       name:      '',
       // Whether the name has been typed rather than suggested. Once it has, the suggestion
       // stops overwriting it - a name that keeps changing under the cursor is maddening.
@@ -77,6 +82,11 @@ export default {
       return PLACEMENTS;
     },
 
+    /** True while the card that needs a follow-up question is the selected one. */
+    asksResource() {
+      return !!placementById(this.placement).asksResource;
+    },
+
     examples() {
       return EXAMPLES;
     },
@@ -86,6 +96,10 @@ export default {
     },
 
     canSubmit() {
+      if (this.asksResource && !normalizeResource(this.resource)) {
+        return false;
+      }
+
       return !!this.name.trim() && !!this.prompt.trim() && !this.creating;
     },
   },
@@ -134,6 +148,11 @@ export default {
      * this point - the brief, the workspace, the preview - is a view of a pod, and the pod
      * takes minutes to compile the first time. Starting it now means those minutes overlap
      * with the brief rather than following it.
+     *
+     * Which is also why the answers go in through the seed rather than through the pod. There
+     * is no pod yet to write a file into, and both things this form collects have to survive
+     * to the tree whatever the next screen does with them: the placement is code, and the two
+     * textareas are the brief, which the next screen has a button that skips.
      */
     async submit() {
       if (!this.canSubmit) {
@@ -144,18 +163,25 @@ export default {
       this.error = '';
 
       const name = normalizeExtensionName(this.name);
-      const placement = PLACEMENTS.find((p) => p.id === this.placement);
+      const spec = placementById(this.placement);
+      const plan = {
+        name,
+        placement: this.placement,
+        resource:  normalizeResource(this.resource),
+        prompt:    this.prompt.trim(),
+        outcome:   this.outcome.trim(),
+      };
 
       try {
-        await ensureExtension(name, this.seed);
+        await ensureExtension(name, this.seed, placementFiles(plan, this.seed));
 
         this.$router.push({
           name:   BRIEF_ROUTE,
           params: { extension: name },
           query:  {
-            prompt:    this.prompt.trim(),
-            outcome:   this.outcome.trim(),
-            placement: placement?.route || '',
+            prompt:    plan.prompt,
+            outcome:   plan.outcome,
+            placement: spec.route,
           },
         });
       } catch (e) {
@@ -263,6 +289,8 @@ export default {
               type="button"
               class="new-ext__option"
               :class="{ 'new-ext__option--selected': placement === opt.id }"
+              :aria-pressed="placement === opt.id"
+              :data-testid="`new-ext-placement-${ opt.id }`"
               @click="placement = opt.id"
             >
               <span class="new-ext__option-row">
@@ -271,6 +299,33 @@ export default {
               </span>
               <span class="new-ext__option-note">{{ opt.note }}</span>
             </button>
+          </div>
+
+          <!--
+            The follow-up the promise implies. A tab has to be a tab on something, and until
+            this was asked the answer was guessed at write time - which is the one thing this
+            product does not do.
+          -->
+          <div v-if="asksResource" class="new-ext__follow">
+            <div class="new-ext__box">
+              <span class="new-ext__box-label">On which resource?</span>
+              <!--
+                A plain input rather than SField: the test id has to sit on the control the
+                verifier types into, and SField has no way to pass one through to its own
+                input - an attribute given to it lands on its wrapper div instead.
+              -->
+              <input
+                v-model="resource"
+                class="new-ext__box-input"
+                placeholder="node"
+                aria-label="On which resource?"
+                data-testid="new-ext-resource"
+              >
+            </div>
+            <span class="new-ext__hint">
+              The Kubernetes type whose detail page carries the tab - node, pod,
+              apps.deployment
+            </span>
           </div>
         </div>
 
@@ -391,6 +446,16 @@ export default {
     font:   var(--studio-body-14);
     color:  var(--studio-text-secondary);
     margin: 0;
+  }
+
+  &__follow {
+    // The question only exists while one card is selected, so it sits under the row of cards
+    // rather than in the grid with them - it belongs to the answer above it.
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-4);
+    margin-top:     var(--studio-space-4);
+    max-width:      420px;
   }
 
   &__section {

@@ -108,6 +108,25 @@ const SCOPE_STOP = new Set([
 /** The heading the verdict list sits under, inside `## Verification`. */
 const CRITERIA_HEADING = '### criteria';
 
+/** The heading the reviewer's page-level notes sit under, inside `## Verification`. */
+const NOTES_HEADING = '### notes';
+
+/**
+ * A reviewer's note about one criterion, written under its verdict line.
+ *
+ * A blockquote because that is what markdown has for "somebody said this", and because it keeps
+ * the note attached to the line above it in every renderer rather than reading as a new item.
+ */
+const NOTE_LINE = /^>\s?(.*)$/;
+
+/** `Signed off by admin on 2026-08-23.`, as `verificationBlock` writes it. */
+const SIGNOFF_LINE = /^Outcome signed off(?:\s+by\s+(.+?))?\s+on\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\.$/;
+
+/** Today, as the brief records a date. */
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 /** Just the clock, for the provenance line under a criterion (39:1225). */
 function clock(at) {
   return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -139,6 +158,16 @@ export default {
       // What the change actually touched, for the scope card. Read once with the brief.
       changed:    [],
       diff:       '',
+      // The extension's own version, out of its package.json - the masthead has to say which
+      // build of the thing is being signed off, and this is the only place that knows.
+      version:    '',
+      // Who signed the outcome off and when, as recorded in the brief. Cleared the moment a
+      // verdict changes, because it was a sign-off on the answers as they stood.
+      signedOff:  null,
+      // Which criterion the preview was last driven to, so the pane can say what it is showing.
+      showing:    -1,
+      // The criterion a "Send this back" is in flight for, by index.
+      sending:    -1,
       VERDICTS,
     };
   },
@@ -162,6 +191,18 @@ export default {
 
     passed() {
       return this.criteria.filter((c) => c.verdict === 'pass').length;
+    },
+
+    /**
+     * How many criteria the reviewer has settled, which is what the progress chip counts.
+     *
+     * Yes and No both settle one: the reviewer looked and gave an answer. "Can't tell" does
+     * not, and neither does an untouched row - the design's own counter reads 3 of 4 with two
+     * Yes, one No and one "Can't tell". The chip used to count `passed`, so four criteria all
+     * answered No read 0 of 4: a progress counter that goes backwards as the work gets done.
+     */
+    settled() {
+      return this.passed + this.failed;
     },
 
     failed() {
@@ -195,12 +236,20 @@ export default {
     },
 
     verdictBadge() {
+      if (this.signedOff) {
+        return 'live';
+      }
+
       return {
         pass: 'live', fail: 'failed', partial: 'building', unsure: 'unsaved', none: 'draft',
       }[this.verdict];
     },
 
     verdictLabel() {
+      if (this.signedOff) {
+        return `Signed off ${ this.signedOff.on }`;
+      }
+
       return {
         pass:    'Every criterion checked',
         fail:    `${ this.failed } not met`,
@@ -208,6 +257,40 @@ export default {
         unsure:  `${ this.unsure } could not be judged`,
         none:    'No criteria',
       }[this.verdict];
+    },
+
+    /**
+     * Whether the outcome can be signed off.
+     *
+     * A "No" is the verdict that holds it open - that is the design's rule, and the only one
+     * this screen can enforce honestly. A criterion nobody has answered holds it open too: a
+     * sign-off on rows nobody opened is not a sign-off. A "Can't tell" does not, because it is
+     * an answer somebody gave, and a criterion nobody can judge is a fact about the criterion.
+     */
+    canSignOff() {
+      return !!this.criteria.length && !this.failed && !this.undecided && !this.saving;
+    },
+
+    /** Why the sign-off button is refusing, in the words the criteria are answered in. */
+    signOffBlocker() {
+      if (!this.criteria.length) {
+        return 'There are no acceptance criteria to sign off.';
+      }
+
+      if (this.failed) {
+        return `${ this.failed } criteri${ this.failed === 1 ? 'on is' : 'a are' } answered No. A No holds the sign-off open until it is answered Yes.`;
+      }
+
+      if (this.undecided) {
+        return `${ this.undecided } criteri${ this.undecided === 1 ? 'on has' : 'a have' } not been looked at yet.`;
+      }
+
+      return '';
+    },
+
+    /** What the preview pane is showing, said on the pane rather than left to be inferred. */
+    showingCriterion() {
+      return this.criteria[this.showing] || null;
     },
 
     /**
@@ -220,8 +303,12 @@ export default {
         return 'Nothing to sign off - this extension has no acceptance criteria.';
       }
 
+      if (this.signedOff) {
+        return `Signed off on ${ this.signedOff.on }${ this.signedOff.by ? ` by ${ this.signedOff.by }` : '' }. Changing a verdict takes the sign-off back.`;
+      }
+
       if (!this.failed && !this.unsure && !this.undecided) {
-        return 'Every criterion met. Recording this ticks them off in the brief.';
+        return 'Every criterion met. Signing off records that in the brief.';
       }
 
       // Every state that is true gets said, rather than the first branch that matches winning.
@@ -242,8 +329,17 @@ export default {
         parts.push(`${ this.undecided } still to look at`);
       }
 
-      // Only once there is nothing left to look at is a failure the thing being signed off.
-      const tail = this.failed && !this.undecided ? ' Recording this says so in the brief.' : '';
+      // What the counts mean for the gate. Only a No and an unanswered row hold it open, and
+      // this is the same rule the sign-off button enforces - the footer and the button cannot
+      // disagree, because both are `canSignOff`. The counts are in `parts` already, so the
+      // tail says what they mean rather than saying them again.
+      let tail = ' Nothing is holding the sign-off open.';
+
+      if (this.failed) {
+        tail = ' A No holds the sign-off open until it is answered Yes.';
+      } else if (this.undecided) {
+        tail = ' The sign-off waits on the ones nobody has looked at.';
+      }
 
       return `${ parts.join(', ') }.${ tail }`;
     },
@@ -385,10 +481,11 @@ export default {
 
       this.loading = true;
 
-      const [brief, changed, diff] = await Promise.all([
+      const [brief, changed, diff, pkg] = await Promise.all([
         readExtensionFile(this.extension, 'BRIEF.md').catch(() => ''),
         changedFiles(this.extension).catch(() => []),
         workingDiff(this.extension).catch(() => ''),
+        readExtensionFile(this.extension, 'package.json').catch(() => ''),
       ]);
 
       this.brief = brief;
@@ -396,6 +493,12 @@ export default {
       this.problem = this.sectionOf(this.brief, 'The problem');
       this.changed = changed;
       this.diff = diff;
+      // Everything the last save recorded, back on the screen. Without this the notes and the
+      // sign-off were write-only: they went into the file and the next visit showed an empty
+      // box, so recording again silently dropped them.
+      this.notes = this.recordedNotes(brief);
+      this.signedOff = this.recordedSignoff(brief);
+      this.version = this.versionOf(pkg);
       this.loading = false;
 
       if (await extensionReady(this.extension).catch(() => false)) {
@@ -416,10 +519,14 @@ export default {
 
       return this.criteriaLines(brief).map(({ text, ticked }) => {
         const queue = recorded.get(text) || [];
-        const wrote = queue.length ? queue.shift() : { verdict: '', route: '' };
+        const wrote = queue.length ? queue.shift() : { verdict: '', route: '', note: '' };
 
         return {
           text,
+          // What the reviewer said about this one. Attached to the criterion rather than to the
+          // page, because "it does not work" under a checklist of four is not a note anybody
+          // can act on.
+          note:    wrote.note || '',
           // The box wins on "met", because the box is the half a person edits by hand. An
           // unticked box takes whatever the block recorded - unless the block said met, in
           // which case somebody has since unticked it and the record is stale.
@@ -465,12 +572,23 @@ export default {
       // Only under `### Criteria`. Notes are free text in the same section and a person is
       // perfectly entitled to write a bulleted list in them.
       let inList = false;
+      let last = null;
 
       for (let i = range.at; i < range.end; i++) {
         const line = lines[i].trim();
 
         if (/^#{3,}\s/.test(line)) {
           inList = line.toLowerCase() === CRITERIA_HEADING;
+          last = null;
+          continue;
+        }
+
+        // A blockquote under a verdict line is that criterion's note, and may run to several
+        // lines. It belongs to the verdict above it, so it is only read while there is one.
+        const quoted = inList && last && NOTE_LINE.exec(line);
+
+        if (quoted) {
+          last.note = last.note ? `${ last.note }\n${ quoted[1] }` : quoted[1];
           continue;
         }
 
@@ -483,10 +601,68 @@ export default {
 
         const text = m[3].trim();
 
-        out.set(text, [...(out.get(text) || []), { verdict, route: (m[2] || '').trim() }]);
+        last = { verdict, route: (m[2] || '').trim(), note: '' };
+        out.set(text, [...(out.get(text) || []), last]);
       }
 
       return out;
+    },
+
+    /** The reviewer's page-level notes, as the last save wrote them. */
+    recordedNotes(brief) {
+      const lines = brief.split('\n');
+      const range = this.sectionRange(lines, 'Verification');
+
+      if (!range) {
+        return '';
+      }
+
+      const out = [];
+      let inNotes = false;
+
+      for (let i = range.at; i < range.end; i++) {
+        const line = lines[i];
+
+        if (/^#{3,}\s/.test(line.trim())) {
+          inNotes = line.trim().toLowerCase() === NOTES_HEADING;
+          continue;
+        }
+
+        if (inNotes) {
+          out.push(line);
+        }
+      }
+
+      return out.join('\n').trim();
+    },
+
+    /** Who closed the outcome gate, and when, or null while it is open. */
+    recordedSignoff(brief) {
+      const lines = brief.split('\n');
+      const range = this.sectionRange(lines, 'Verification');
+
+      if (!range) {
+        return null;
+      }
+
+      for (let i = range.at; i < range.end; i++) {
+        const m = SIGNOFF_LINE.exec(lines[i].trim());
+
+        if (m) {
+          return { by: (m[1] || '').trim(), on: m[2] };
+        }
+      }
+
+      return null;
+    },
+
+    /** The extension's version, for the masthead. Empty when its package.json cannot be read. */
+    versionOf(pkg) {
+      try {
+        return JSON.parse(pkg).version || '';
+      } catch {
+        return '';
+      }
     },
 
     /** A `##` heading, or the horizontal rule the brief template ends a block with. */
@@ -539,6 +715,9 @@ export default {
       // takes you back to. Taking the answer back takes the route with it: a route recorded
       // against no verdict is a claim that somebody checked something.
       criterion.route = off ? '' : this.route;
+      // A sign-off is a judgement on the answers as they stood. Change one and it is no longer
+      // a judgement on anything, so it goes - and the next save writes the file without it.
+      this.signedOff = null;
     },
 
     /** "Checked 12:41 · admin", or just the time when the shell has no name for the user. */
@@ -555,17 +734,77 @@ export default {
      * is written underneath. That means the record of whether this thing did its job lives in
      * the repository, in the file that said what the job was.
      */
-    async save() {
+    async save(message = 'Verification recorded') {
       this.saving = true;
 
       try {
         await writeExtensionFile(this.extension, 'BRIEF.md', this.record(this.brief));
-        toastSuccess(this.$store, 'Verification recorded', 'Written into BRIEF.md.');
+        toastSuccess(this.$store, message, 'Written into BRIEF.md.');
         await this.load();
       } catch (e) {
         toastError(this.$store, 'Could not record the verification', e?.message || String(e));
       } finally {
         this.saving = false;
+      }
+    },
+
+    /**
+     * Close the outcome gate.
+     *
+     * The judgement this screen exists to take, and it is about the problem rather than about
+     * the code: every criterion the brief set has been answered, and none of them was answered
+     * No. It is refused while one is, which is the design's rule and the only half of it this
+     * screen can keep - nothing in the publish path reads the brief, so signing off does not
+     * unblock a publish and the screen does not say that it does.
+     *
+     * It is recorded in the brief, beside the verdicts it was given for, so it survives a
+     * reload and anybody who opens the file can see who closed it and when.
+     */
+    async signOff() {
+      if (!this.canSignOff) {
+        return;
+      }
+
+      this.signedOff = { by: this.signedInAs, on: today() };
+
+      await this.save('Outcome signed off');
+    },
+
+    /**
+     * Put one failed criterion back to the assistant, with the reviewer's note.
+     *
+     * The one thing a reviewer can do about a No from here that is not bookkeeping. It goes to
+     * the claude working on this extension and it answers in that extension's terminal, which
+     * is what the card says - the screen does not draw a reply it has no way of receiving.
+     */
+    async sendBack(criterion, index) {
+      if (this.sending >= 0) {
+        return;
+      }
+
+      this.sending = index;
+
+      try {
+        const how = await askAssistant(this.extension, [
+          `Verification of the ${ this.extension } extension found this acceptance criterion not met:`,
+          `"${ criterion.text }".`,
+          criterion.route ? `It was checked at ${ criterion.route }.` : '',
+          criterion.note.trim() ? `The reviewer's note: "${ criterion.note.trim() }".` : '',
+          'Work out why it is not met and fix it. Do not edit BRIEF.md - the verdicts are',
+          'recorded by the reviewer.',
+        ].filter(Boolean).join(' '));
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? 'Sent to the assistant working on this extension. It replies in the workspace terminal.'
+            : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens.',
+          { title: 'Sent back' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not send it back' });
+      } finally {
+        this.sending = -1;
       }
     },
 
@@ -651,15 +890,29 @@ export default {
         '',
         counts.join(' '),
         '',
-        '### Criteria',
-        '',
-        ...this.criteria.map((c) => {
-          const word = VERDICT_WORDS[c.verdict] ?? VERDICT_WORDS[''];
-          const where = c.route ? ` at \`${ c.route }\`` : '';
-
-          return `- **${ word }**${ where }: ${ c.text }`;
-        }),
       ];
+
+      if (this.signedOff) {
+        block.push(
+          `Outcome signed off${ this.signedOff.by ? ` by ${ this.signedOff.by }` : '' } on ${ this.signedOff.on }.`,
+          ''
+        );
+      }
+
+      block.push('### Criteria', '');
+
+      this.criteria.forEach((c) => {
+        const word = VERDICT_WORDS[c.verdict] ?? VERDICT_WORDS[''];
+        const where = c.route ? ` at \`${ c.route }\`` : '';
+
+        block.push(`- **${ word }**${ where }: ${ c.text }`);
+
+        // The note goes under its own criterion as a blockquote, so it stays attached to the
+        // line it is about wherever the brief is read.
+        if (c.note?.trim()) {
+          c.note.trim().split('\n').forEach((line) => block.push(`  > ${ line }`));
+        }
+      });
 
       if (this.notes.trim()) {
         block.push('', '### Notes', '', ...this.notes.trim().split('\n'));
@@ -680,8 +933,12 @@ export default {
      * to take the preview back to the extension's own start page and say why - not to disable
      * the button and leave somebody wondering which of the two of them is broken.
      */
-    showMe(criterion) {
+    showMe(criterion, index) {
       const panel = this.$refs.preview;
+
+      // Which criterion the pane is answering, said on the pane. Set before the guard below,
+      // because a preview that is still compiling is still being asked about this one.
+      this.showing = index;
 
       if (!this.previewUrl || !panel) {
         toastError(
@@ -772,9 +1029,20 @@ export default {
       <div class="verify__name">
         <div class="verify__title">
           {{ extension }}
+          <!--
+            Which build is being signed off, out of the extension's own package.json. The
+            design puts it here and nothing on the screen used to read it.
+          -->
+          <span v-if="version" class="verify__version">v{{ version }}</span>
         </div>
-        <div class="verify__eyebrow">
-          Verification · does it actually do the job?
+        <!--
+          39:1186, the role line. The design has it name the reviewer as the person who raised
+          the ticket; there is no ticket and no per-reviewer role in this product, so it says
+          the job this screen is - the outcome sign-off - and who is signed in to do it, and
+          claims nothing about why they were asked.
+        -->
+        <div class="verify__eyebrow" data-testid="verify-role">
+          Verification · outcome sign-off{{ signedInAs ? ` · ${ signedInAs }` : '' }}
         </div>
       </div>
 
@@ -799,7 +1067,12 @@ export default {
           <SIcon name="list" :size="14" />
           <span class="verify__panel-title">How we said we would know</span>
           <span class="verify__grow" />
-          <SChip :label="`${ passed }/${ criteria.length }`" tone="subtle" />
+          <SChip
+            data-testid="verify-progress"
+            :label="`${ settled }/${ criteria.length }`"
+            tone="subtle"
+            title="Criteria you have settled. A Yes or a No settles one; a Can't tell does not."
+          />
         </div>
 
         <div class="verify__list-body">
@@ -819,11 +1092,26 @@ export default {
           </SEmpty>
 
           <template v-else>
-            <!-- what this pass is for, and what it is not (39:1212) -->
-            <SBanner v-if="problem" type="success" class="verify__framing">
-              <span class="verify__framing-lead">The problem this was for</span>
+            <!--
+              What this pass is for, and what it is not (39:1212).
+              The block used to be the brief's problem statement under a heading, which is
+              useful but is not what an accented block at the top of the screen is for: the
+              person reading it may never have reviewed anything before, and what they need
+              first is what their job is and what it is not.
+            -->
+            <SBanner type="success" class="verify__framing" data-testid="verify-framing">
+              <span class="verify__framing-lead">
+                You are checking whether this does the job, not whether the code is any good
+              </span>
               <p class="verify__framing-text">
-                {{ problem }}
+                Reading the code is a separate step, on the review screen, and not this one.
+                Answer each criterion
+                against what you can see in the preview on the right. Nothing here changes the
+                extension: the only thing you can change from this screen is the record of what
+                you found.
+              </p>
+              <p v-if="problem" class="verify__framing-text">
+                <strong>The problem this was for.</strong> {{ problem }}
               </p>
             </SBanner>
 
@@ -904,10 +1192,57 @@ export default {
                   :title="c.route
                     ? `Drive the preview to ${ c.route }`
                     : 'No route recorded yet - takes the preview back to the start'"
-                  @click="showMe(c)"
+                  @click="showMe(c, i)"
                 >
                   Show me
                 </SButton>
+
+                <!--
+                  39:1295: what a No opens up. The tint alone said a criterion had failed and
+                  gave the reviewer nowhere to say why, which is the half of a No that is worth
+                  anything to whoever has to fix it.
+                -->
+                <!--
+                  `|| c.note` so a note written under a No does not become invisible saved
+                  state the moment the verdict is changed to something else. It stays on the
+                  screen, in the file, and editable.
+                -->
+                <div v-if="c.verdict === 'fail' || c.note" class="verify__failed">
+                  <p v-if="c.verdict === 'fail'" class="verify__failed-rule">
+                    A No holds the outcome sign-off open until it is answered Yes; a "Can't
+                    tell" does not. It does not stop a publish - nothing in the publish path
+                    reads this brief.
+                  </p>
+
+                  <div class="verify__note">
+                    <SLabel :text="`Why criterion ${ i + 1 } is not met`" />
+                    <textarea
+                      v-model="c.note"
+                      class="verify__notes-input"
+                      rows="2"
+                      :data-testid="`verify-note-${ i }`"
+                      placeholder="What you did, what you saw instead, and where."
+                    />
+                    <p class="verify__note-hint">
+                      Recorded in <strong>BRIEF.md</strong> under this criterion when you record
+                      the result, so it is there for whoever opens the brief next. Sending it
+                      back puts it to the assistant as well.
+                    </p>
+                  </div>
+
+                  <div v-if="c.verdict === 'fail'" class="verify__failed-actions">
+                    <SButton
+                      variant="neutral"
+                      size="sm"
+                      icon="sparkle"
+                      :loading="sending === i"
+                      :data-testid="`verify-send-back-${ i }`"
+                      @click="sendBack(c, i)"
+                    >
+                      Send this back to the assistant
+                    </SButton>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -953,10 +1288,11 @@ export default {
             </div>
 
             <div class="verify__notes">
-              <SLabel text="Notes" />
+              <SLabel text="Notes on the whole pass" />
               <textarea
                 v-model="notes"
                 class="verify__notes-input"
+                data-testid="verify-notes"
                 rows="3"
                 placeholder="Anything the checklist does not cover - what you tried, what surprised you."
               />
@@ -974,8 +1310,25 @@ export default {
       <div class="verify__preview">
         <div class="verify__panel-head">
           <SIcon name="eye" :size="14" />
-          <span class="verify__panel-title">The extension, running</span>
+          <!--
+            39:1357: the pane says which criterion it is showing. Until "Show me" has been
+            pressed it is showing the extension and nothing in particular, and it says that
+            rather than naming a criterion nobody asked about.
+          -->
+          <span class="verify__panel-title" data-testid="verify-preview-context">
+            {{ showingCriterion ? `Criterion ${ showing + 1 }` : 'The extension, running' }}
+          </span>
+          <span
+            v-if="showingCriterion"
+            class="verify__showing"
+            :title="showingCriterion.text"
+          >{{ showingCriterion.text }}</span>
           <span class="verify__grow" />
+          <span
+            class="verify__dot"
+            :class="{ 'verify__dot--off': !previewUrl }"
+            :title="previewUrl ? 'The dev server is answering' : 'The dev server is still compiling'"
+          />
           <SButton
             variant="ghost"
             size="sm"
@@ -1020,13 +1373,31 @@ export default {
         Ask the assistant to check
       </SButton>
       <SButton
-        variant="primary"
-        icon="check"
+        variant="neutral"
+        icon="save"
+        data-testid="verify-record"
         :loading="saving"
         :disabled="!criteria.length"
-        @click="save"
+        @click="save()"
       >
         Record the result
+      </SButton>
+      <!--
+        39:1391's primary action, which is a judgement rather than a save: every criterion the
+        brief set has been answered and none of them was answered No. It is refused while one
+        is, and the title says which criteria are holding it - a disabled button that will not
+        say why is the same dead end as one that does nothing.
+      -->
+      <SButton
+        variant="primary"
+        icon="check"
+        data-testid="verify-sign-off"
+        :loading="saving"
+        :disabled="!canSignOff"
+        :title="signOffBlocker || 'Records in the brief that the outcome is signed off'"
+        @click="signOff"
+      >
+        Sign off on the outcome
       </SButton>
     </div>
   </div>
@@ -1110,7 +1481,36 @@ $verdicts-edge:   1px;
     flex:          0 0 auto;
   }
 
-  &__panel-title { font: var(--studio-heading-14); color: var(--studio-text); }
+  &__panel-title { font: var(--studio-heading-14); color: var(--studio-text); flex: 0 0 auto; }
+
+  // The criterion the preview is bound to, next to its number. Truncated rather than wrapped:
+  // the pane head is one line and the number carries the identity.
+  &__showing {
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+    min-width:     0;
+  }
+
+  // The design's live dot (39:1357), on the pane head where it says what is being checked.
+  &__dot {
+    width:         7px;
+    height:        7px;
+    flex:          0 0 auto;
+    border-radius: var(--studio-radius-pill);
+    background:    var(--studio-success);
+
+    &--off { background: var(--studio-text-tertiary); }
+  }
+
+  // The extension's version, beside its name in the masthead.
+  &__version {
+    font:         var(--studio-mono-12);
+    color:        var(--studio-text-tertiary);
+    margin-left:  var(--studio-space-6);
+  }
 
   &__list-body {
     display:        flex;
@@ -1159,6 +1559,9 @@ $verdicts-edge:   1px;
   &__criterion {
     display:        flex;
     align-items:    flex-start;
+    // Wrap, so what a No opens up sits under the whole row rather than being squeezed in
+    // beside the verdict control (39:1295 spans the row's full width).
+    flex-wrap:      wrap;
     gap:            var(--studio-space-12);
     padding:        13px var(--studio-space-16);
     border-bottom:  1px solid var(--studio-border-subtle);
@@ -1168,6 +1571,41 @@ $verdicts-edge:   1px;
     // Only the failing row is washed. A met criterion is marked by its badge going green;
     // tinting it as well makes a checklist that is mostly done unreadably loud.
     &--fail { background: var(--studio-error-bg); }
+  }
+
+  // 39:1295: the block a No opens. The rule it states, somewhere to say why, and the one thing
+  // that can be done about it from here.
+  &__failed {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-8);
+    flex:           1 0 100%;
+    min-width:      0;
+  }
+
+  &__failed-rule {
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
+    margin: 0;
+  }
+
+  &__note {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-4);
+  }
+
+  &__note-hint {
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-tertiary);
+    margin: 0;
+  }
+
+  &__failed-actions {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+    flex-wrap:   wrap;
   }
 
   // 39:1220: the criterion's number, and where the answer shows up.

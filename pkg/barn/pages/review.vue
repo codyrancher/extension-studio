@@ -5,17 +5,25 @@
 // selected, and a rail explaining it. Three panels and an action bar.
 //
 // Real: the file list (git status in the pod, with the same line counts screen 12 shows), each
-// file's diff, Discard all (checkout plus clean), Keep and continue building (back to the
-// workspace), Publish - which is the same publish the workspace's button runs - and the
-// explanation rail's question.
+// file's diff, Discard all (checkout plus clean), the tick box in front of every file, Keep and
+// continue building (back to the workspace), Publish - which is the same publish the workspace's
+// button runs - and the rail's reading of the diff.
+//
+// The tick box decides what survives. Unticking a file marks it for reverting, and leaving the
+// screen is what carries that out - which is what the design's caption under the list says in
+// words (14:424), and why the caption is not decoration: it is the whole warning. The intent is
+// kept in sessionStorage so a reload does not silently forget it, and every exit goes through
+// one route guard so the back arrow, the rail and the action bar all mean the same thing.
 //
 // The rail is worth being exact about. The design has the assistant explain each change in prose
-// beside its diff, and nothing writes that prose into this page: what the product has is one
-// claude per pod, in a conversation, in the workspace's terminal. So the rail does not pretend
-// to hold an explanation. It asks the real assistant about the file you are looking at and takes
-// you to where it answers, and it says that is what it is doing.
+// beside its diff (14:509, "What this change does": what was added, what was replaced, what was
+// not touched). Nothing writes that prose, so the rail derives those three from the diff on
+// screen - counts, hunks and the declarations the added and removed lines carry - and every
+// sentence in it is a reading of the patch rather than a guess at intent. Why the change was
+// made is not in a diff and the rail says so rather than inventing it: that question goes to the
+// one claude this extension has, in the workspace terminal, where it can be argued with.
 import {
-  SButton, SBadge, SChip, SIcon, SEmpty, SBanner
+  SButton, SBadge, SChip, SIcon, SEmpty, SBanner, SModal
 } from '../components/ui';
 import DiffView from '../components/DiffView.vue';
 import { toastSuccess, toastError } from '../toast';
@@ -27,11 +35,83 @@ import { EDITOR_ROUTE, STUDIO_ROUTE } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
+// Where the unticked paths are remembered between renders of this screen.
+//
+// sessionStorage rather than the pod, because losing it is safe in the only direction that
+// matters: the files are still there and still listed, and the worst case is that somebody has
+// to untick a box again. Persisting it at all is what stops a reload quietly re-ticking every
+// box while the action bar's promise ("2 of 3 files will be kept") is still on the screen.
+const UNKEPT_KEY = 'barn.review.unkept';
+
+/**
+ * What a line of a diff declares, in words, or '' for a line that declares nothing.
+ *
+ * Read off the text of the added and removed lines themselves, which is the only honest source
+ * a page has: it is what is in the patch, not what the patch was for. Two dialects, because a
+ * `#` opens a heading in markdown and a comment nearly everywhere else.
+ */
+const CODE_DECLARATIONS = [
+  [/^\s*export\s+default\b/, () => 'the default export'],
+  [/^\s*(?:export\s+)?(?:async\s+)?function\s+([\w$]+)/, (m) => `${ m[1] }()`],
+  [/^\s*(?:export\s+)?(?:abstract\s+)?class\s+([\w$]+)/, (m) => `class ${ m[1] }`],
+  [/^\s*(?:export\s+)?interface\s+([\w$]+)/, (m) => `interface ${ m[1] }`],
+  [/^\s*(?:export\s+)?type\s+([\w$]+)\s*=/, (m) => `type ${ m[1] }`],
+  [/^\s*(?:export\s+)?(?:const|let|var)\s+([\w$]+)\s*=/, (m) => m[1]],
+  [/^\s*import\s+.*\sfrom\s+['"]([^'"]+)['"]/, (m) => `an import of ${ m[1] }`],
+  [/^\s*<(template|script|style)\b/, (m) => `the <${ m[1] }> block`],
+];
+
+const TEXT_DECLARATIONS = [
+  [/^\s*(#{1,6})\s+(.{1,60})$/, (m) => `the heading "${ m[2].trim() }"`],
+  [/^\s*-\s+\[[ xX]\]\s+(.{1,60})$/, (m) => `the checklist item "${ m[1].trim() }"`],
+];
+
+function declarationsIn(lines, path) {
+  const rules = /\.(md|markdown|txt)$/i.test(path) ? TEXT_DECLARATIONS : CODE_DECLARATIONS;
+  const out = [];
+
+  lines.forEach((line) => {
+    for (const [pattern, say] of rules) {
+      const m = pattern.exec(line);
+
+      if (m) {
+        const said = say(m);
+
+        if (said && !out.includes(said)) {
+          out.push(said);
+        }
+
+        return;
+      }
+    }
+  });
+
+  return out;
+}
+
+/** `a`, `a and b`, `a, b and c`, `a, b, c and 4 more`. */
+function list(items, cap = 3) {
+  const shown = items.slice(0, cap);
+  const rest = items.length - shown.length;
+
+  if (rest > 0) {
+    shown.push(`${ rest } more`);
+  }
+
+  if (shown.length < 2) {
+    return shown[0] || '';
+  }
+
+  return `${ shown.slice(0, -1).join(', ') } and ${ shown[shown.length - 1] }`;
+}
+
+const plural = (n, word) => `${ n } ${ word }${ n === 1 ? '' : 's' }`;
+
 export default {
   name: 'BarnReview',
 
   components: {
-    SButton, SBadge, SChip, SIcon, SEmpty, SBanner, DiffView
+    SButton, SBadge, SChip, SIcon, SEmpty, SBanner, SModal, DiffView
   },
 
   mixins: [fullBleed],
@@ -49,6 +129,9 @@ export default {
       // The paths still ticked in the file list (14:395). Everything is kept until somebody
       // says otherwise, which is what makes the default row of the action bar honest.
       kept:     [],
+      // Whether the "are you sure" in front of publishing is up. The action bar's label ends in
+      // an ellipsis (14:548) and an ellipsis is a promise: this is the step it promises.
+      confirmingPublish: false,
     };
   },
 
@@ -101,8 +184,153 @@ export default {
       return this.unkept.length && this.unkept.length < this.count ? `Discard ${ this.unkept.length }` : 'Discard all';
     },
 
+    /**
+     * The size of the whole change: files, lines in, lines out (14:389, "3 changed files +128 -4").
+     *
+     * The same numbers the rows carry, added up, so the header and the list can never disagree.
+     * Untracked files count too - `changedFiles` measures them against /dev/null - which is what
+     * makes this the size of the change rather than the size of the tracked half of it.
+     */
+    totals() {
+      return this.files.reduce(
+        (sum, f) => ({ added: sum.added + (f.added || 0), removed: sum.removed + (f.removed || 0) }),
+        { added: 0, removed: 0 }
+      );
+    },
+
+    totalsLabel() {
+      const parts = [];
+
+      if (this.totals.added) {
+        parts.push(`+${ this.totals.added }`);
+      }
+
+      if (this.totals.removed) {
+        parts.push(`-${ this.totals.removed }`);
+      }
+
+      return parts.join(' ');
+    },
+
     selectedFile() {
       return this.files.find((f) => f.path === this.selected) || null;
+    },
+
+    /**
+     * What the patch on screen actually says, as numbers.
+     *
+     * Parsed from the unified diff rather than from `changedFiles`, so it describes the file
+     * being looked at and stays right while the diff is being re-read.
+     */
+    patchFacts() {
+      const facts = {
+        added: 0, removed: 0, hunks: 0, isNew: false, isDeleted: false, addedLines: [], removedLines: [],
+      };
+
+      this.patch.split('\n').forEach((line) => {
+        if (line.startsWith('@@')) {
+          facts.hunks++;
+
+          return;
+        }
+
+        if (line.startsWith('new file mode')) {
+          facts.isNew = true;
+
+          return;
+        }
+
+        if (line.startsWith('deleted file mode')) {
+          facts.isDeleted = true;
+
+          return;
+        }
+
+        // The header lines start with the same characters the content lines do, so they are
+        // taken out before anything is counted.
+        if (/^(diff |index |--- |\+\+\+ |similarity |rename |old mode|new mode|Binary )/.test(line)) {
+          return;
+        }
+
+        if (line.startsWith('+')) {
+          facts.added++;
+          facts.addedLines.push(line.slice(1));
+        } else if (line.startsWith('-')) {
+          facts.removed++;
+          facts.removedLines.push(line.slice(1));
+        }
+      });
+
+      return facts;
+    },
+
+    /**
+     * The three headed paragraphs the design asks for (14:518, 14:521, 14:524), derived.
+     *
+     * Every sentence here is a reading of the patch: how much arrived, how much went, what the
+     * lines declare, and what the change does not reach. Nothing in it claims to know why, which
+     * is the one thing a diff cannot tell anybody - see the banner above it.
+     */
+    explanation() {
+      const file = this.selectedFile;
+
+      if (!file || !this.patch.trim()) {
+        return [];
+      }
+
+      const f = this.patchFacts;
+      const path = file.path;
+      const added = declarationsIn(f.addedLines, path);
+      const removed = declarationsIn(f.removedLines, path).filter((d) => !added.includes(d));
+      const others = this.files.filter((o) => o.path !== path).map((o) => o.path);
+
+      const arrived = [];
+
+      if (f.isNew) {
+        arrived.push(`${ path } is new. The whole file is ${ plural(f.added, 'line') } of it.`);
+      } else if (f.added) {
+        arrived.push(`${ plural(f.added, 'line') } added, in ${ plural(f.hunks, 'place') } in the file.`);
+      } else {
+        arrived.push('Nothing was added. This change only takes lines out.');
+      }
+
+      if (added.length) {
+        arrived.push(`The new lines bring in ${ list(added) }.`);
+      }
+
+      const replaced = [];
+
+      if (f.isDeleted) {
+        replaced.push(`${ path } is gone: all ${ plural(f.removed, 'line') } of it.`);
+      } else if (!f.removed) {
+        replaced.push('Nothing. Every line in this change is new, so no existing line was rewritten or dropped.');
+      } else {
+        replaced.push(`${ plural(f.removed, 'line') } taken out.`);
+
+        if (f.added) {
+          replaced.push('Git counts a rewritten line as one out and one in, so some of those are edits rather than deletions.');
+        }
+      }
+
+      if (removed.length) {
+        replaced.push(`What is no longer there: ${ list(removed) }.`);
+      }
+
+      const untouched = [];
+
+      if (!f.isNew && !f.isDeleted) {
+        untouched.push(`Outside those ${ plural(f.hunks, 'place') }, ${ path } is unchanged.`);
+      }
+
+      untouched.push(others.length
+        ? `${ plural(others.length, 'other file') } changed in this working tree - ${ list(others) } - and this panel is about ${ path } only.`
+        : 'Nothing else in the working tree has changed.');
+
+      return [
+        { title: 'What was added', body: arrived.join(' ') },
+        { title: 'What was replaced', body: replaced.join(' ') },
+        { title: 'What is not touched', body: untouched.join(' ') },
+      ];
     },
 
     /**
@@ -133,6 +361,22 @@ export default {
     this.load();
   },
 
+  /**
+   * Leaving is what carries out the ticks.
+   *
+   * One guard rather than a handler per button, because "when you leave this screen" has to
+   * mean every way out of it - the action bar, the back arrow, the nav rail, the browser's own
+   * back button - or the caption under the list is only true some of the time.
+   *
+   * It never blocks the navigation. A discard that fails says so in a toast and the files stay;
+   * refusing to let somebody off the screen because git had a bad moment would be worse than
+   * the thing it was protecting.
+   */
+  async beforeRouteLeave(to, from, next) {
+    await this.revertUnkept();
+    next();
+  },
+
   methods: {
     async load() {
       // A freshly created extension has no repository yet, and every reading on this screen
@@ -150,10 +394,14 @@ export default {
       this.files = files;
       this.branch = branches?.current || '';
       this.loading = false;
-      // Every file that is still here is kept. A box cleared before a reload was either acted
-      // on, in which case the file is gone, or it was not, in which case the reload is the
-      // moment to stop implying somebody still means to throw it away.
-      this.kept = files.map((f) => f.path);
+      // Everything is kept except what somebody unticked and has not left the screen on yet.
+      // Read back rather than reset, because a reload that silently re-ticks every box throws
+      // away a decision while the caption explaining that decision is still on the screen.
+      // Anything remembered that is no longer in the tree is dropped: it was acted on.
+      const remembered = this.readUnkept();
+
+      this.kept = files.map((f) => f.path).filter((p) => !remembered.includes(p));
+      this.writeUnkept();
 
       if (files.length && !files.find((f) => f.path === this.selected)) {
         this.selected = files[0].path;
@@ -175,9 +423,69 @@ export default {
       this.diffing = false;
     },
 
-    /** Tick or clear one file's box. Clearing it is what marks the file for discarding. */
+    /** Tick or clear one file's box. Clearing it is what marks the file for reverting. */
     toggleKeep(file) {
       this.kept = this.kept.includes(file.path) ? this.kept.filter((p) => p !== file.path) : [...this.kept, file.path];
+      this.writeUnkept();
+    },
+
+    /** The unticked paths this screen was left with last time, for this extension. */
+    readUnkept() {
+      try {
+        const stored = JSON.parse(window.sessionStorage.getItem(`${ UNKEPT_KEY }.${ this.extension }`) || '[]');
+
+        return Array.isArray(stored) ? stored.filter((p) => typeof p === 'string') : [];
+      } catch {
+        return [];
+      }
+    },
+
+    writeUnkept() {
+      try {
+        const key = `${ UNKEPT_KEY }.${ this.extension }`;
+
+        if (this.unkept.length) {
+          window.sessionStorage.setItem(key, JSON.stringify(this.unkept));
+        } else {
+          window.sessionStorage.removeItem(key);
+        }
+      } catch {
+        // A browser that refuses storage still gets the ticks, just not across a reload.
+      }
+    },
+
+    /**
+     * Carry out the ticks: revert everything whose box was cleared.
+     *
+     * The same `discardChanges` the Discard button runs, on the same paths, so unticking and
+     * leaving is not a second way of throwing work away with different rules. It is announced
+     * either way - this is somebody's work disappearing, and it should never be the case that
+     * a file went and nothing said so.
+     */
+    async revertUnkept() {
+      const paths = this.unkept;
+
+      if (!paths.length) {
+        return;
+      }
+
+      try {
+        await discardChanges(this.extension, paths);
+        this.files = this.files.filter((f) => !paths.includes(f.path));
+        this.kept = this.files.map((f) => f.path);
+        this.writeUnkept();
+        toastSuccess(
+          this.$store,
+          `${ paths.length === 1 ? paths[0] : `${ paths.length } unticked files` } put back to the last commit on the way out.`,
+          { title: 'Unticked files reverted' }
+        );
+      } catch (e) {
+        toastError(
+          this.$store,
+          `${ this.extension } still has ${ plural(paths.length, 'unticked file') }: ${ e?.message || String(e) }`,
+          { title: 'Could not revert the unticked files' }
+        );
+      }
     },
 
     async discardSelected() {
@@ -194,14 +502,19 @@ export default {
 
       try {
         await discardChanges(this.extension, all ? [] : paths);
+        // The boxes have been acted on, so the intent they carried is spent. Without this the
+        // route guard would discard the same paths again on the way out.
+        this.files = all ? [] : this.files.filter((f) => !paths.includes(f.path));
+        this.kept = this.files.map((f) => f.path);
+        this.writeUnkept();
         toastSuccess(
           this.$store,
-          'Changes discarded',
-          all ? `${ this.extension } is back to its last commit.` : `${ paths.length } file${ paths.length === 1 ? '' : 's' } put back to the last commit.`
+          all ? `${ this.extension } is back to its last commit.` : `${ plural(paths.length, 'file') } put back to the last commit.`,
+          { title: 'Changes discarded' }
         );
         await this.load();
       } catch (e) {
-        toastError(this.$store, 'Could not discard the changes', e?.message || String(e));
+        toastError(this.$store, e?.message || String(e), { title: 'Could not discard the changes' });
       } finally {
         this.discarding = false;
       }
@@ -211,10 +524,31 @@ export default {
       this.$router.push({ name: EDITOR_ROUTE, params: { extension: this.extension } });
     },
 
+    /**
+     * Publish, after asking.
+     *
+     * The ellipsis on the action bar's label is the design's only signal that this opens
+     * something (14:548), and a button whose label promises a step it does not take is the
+     * class of defect this screen exists to catch. So both ways in - the masthead's and the
+     * action bar's - stop here first, because publishing installs into the Rancher everybody
+     * signed into this cluster is looking at, and because leaving reverts the unticked files.
+     */
     publish() {
-      // The publish flow lives on the workspace, which owns the split button and the status
-      // strip that reports it. Sending them there with the intent is better than a second
-      // implementation of the same three steps.
+      this.confirmingPublish = true;
+    },
+
+    /**
+     * Hand the publish to the workspace.
+     *
+     * `?publish=local` is the instruction, and `local` is the publish target the workspace's
+     * own button uses - the same word `publishTo` takes, so the workspace does not need a
+     * second vocabulary to understand a request from here. The publish flow itself lives over
+     * there, which owns the split button and the status strip that reports progress; a second
+     * implementation of the same three steps on this screen would be a second thing to keep
+     * right.
+     */
+    startPublish() {
+      this.confirmingPublish = false;
       this.$router.push({
         name:   EDITOR_ROUTE,
         params: { extension: this.extension },
@@ -321,7 +655,14 @@ export default {
       <SButton variant="ghost" size="sm" icon="sparkle" @click="backToAssistant">
         Back to assistant
       </SButton>
-      <SButton variant="primary" size="sm" icon="rocket" @click="publish">
+      <SButton
+        variant="primary"
+        size="sm"
+        icon="rocket"
+        data-testid="review-publish-masthead"
+        :disabled="!count"
+        @click="publish"
+      >
         Publish
       </SButton>
     </div>
@@ -330,10 +671,18 @@ export default {
     <div class="review__body">
       <!-- changed files (14:388) -->
       <div class="review__files">
+        <!-- 14:389: the count and the size of the whole change, side by side -->
         <div class="review__panel-head">
           <SIcon name="compare" :size="14" />
           <span class="review__panel-title">Changed files</span>
-          <span class="review__count">{{ count }}</span>
+          <span class="review__count" data-testid="review-file-count">{{ count }}</span>
+          <span class="review__grow" />
+          <span
+            v-if="totalsLabel"
+            class="review__totals"
+            data-testid="review-totals"
+            :title="`${ totals.added } lines added and ${ totals.removed } removed across ${ count } file${ count === 1 ? '' : 's' }`"
+          >{{ totalsLabel }}</span>
         </div>
 
         <div class="review__file-list">
@@ -351,6 +700,8 @@ export default {
             <input
               type="checkbox"
               class="review__file-box"
+              data-testid="review-keep-box"
+              :data-path="file.path"
               :checked="kept.includes(file.path)"
               :aria-label="`Keep ${ file.path }`"
               @change="toggleKeep(file)"
@@ -372,7 +723,15 @@ export default {
           </div>
         </div>
 
+        <!--
+          14:424. This caption is the whole warning on the tick boxes, so it says what unticking
+          does rather than describing the working tree in general.
+        -->
         <div class="review__note">
+          <span class="review__note-text" data-testid="review-unticked-note">
+            Unticked files are reverted when you leave this screen. Nothing here has reached the
+            repository yet.
+          </span>
           <span class="review__note-text">
             Everything here is in the pod's working tree. Publishing builds from it; discarding
             puts it back to the last commit.
@@ -421,42 +780,44 @@ export default {
       <div class="review__explain">
         <div class="review__panel-head">
           <SIcon name="sparkle" :size="14" />
-          <span class="review__panel-title">Why this changed</span>
+          <span class="review__panel-title">What this change does</span>
         </div>
 
         <div class="review__explain-body">
-          <SBanner type="info">
-            The assistant explains a change in the workspace terminal, not on this rail - it is a
-            conversation, and half of what makes it useful is being able to argue with it. Asking
-            about <strong>{{ selected || 'the selected file' }}</strong> puts the question to the
-            session already editing this extension and takes you to the workspace, where it
-            answers in the Terminal tab.
-          </SBanner>
-
-          <div v-if="selectedFile" class="review__explain-facts">
-            <div class="review__fact">
-              <span class="review__fact-label">File</span>
-              <span class="review__fact-value">{{ selectedFile.path }}</span>
-            </div>
-            <div class="review__fact">
-              <span class="review__fact-label">Change</span>
-              <span class="review__fact-value">{{ selectedFile.status }}</span>
-            </div>
-            <div class="review__fact">
-              <span class="review__fact-label">Branch</span>
-              <span class="review__fact-value">{{ branch || 'unknown' }}</span>
-            </div>
+          <!-- 14:517, three times: a heading and the paragraph under it (14:518 / 14:519) -->
+          <div
+            v-for="part in explanation"
+            :key="part.title"
+            class="review__fact"
+            data-testid="review-explain-part"
+          >
+            <span class="review__fact-label">{{ part.title }}</span>
+            <span class="review__fact-value">{{ part.body }}</span>
           </div>
+
+          <div v-if="!explanation.length" class="review__fact">
+            <span class="review__fact-label">Nothing selected</span>
+            <span class="review__fact-value">
+              Open a file in the list and this reads its diff back to you.
+            </span>
+          </div>
+
+          <SBanner type="info">
+            All of that is read off the diff. <strong>Why</strong> it was made is not in a diff,
+            so this rail does not guess at it: that question goes to the one assistant this
+            extension has, in the workspace terminal, where you can argue with the answer.
+          </SBanner>
 
           <SButton
             variant="ghost"
             size="sm"
             icon="book"
+            data-testid="review-ask-assistant"
             :disabled="!selectedFile"
             :loading="asking"
             @click="askAboutFile"
           >
-            Ask about this file
+            Ask why {{ selected ? 'this file changed' : 'about this file' }}
           </SButton>
         </div>
       </div>
@@ -471,24 +832,65 @@ export default {
       <SButton
         variant="ghost"
         icon="trash"
+        data-testid="review-discard"
         :disabled="!count"
         :loading="discarding"
         @click="discardSelected"
       >
         {{ discardLabel }}
       </SButton>
-      <SButton variant="neutral" @click="backToAssistant">
+      <SButton variant="neutral" data-testid="review-keep-continue" @click="backToAssistant">
         Keep and continue building
       </SButton>
       <SButton
         variant="primary"
         icon="rocket"
+        data-testid="review-publish-action-bar"
         :disabled="!count"
         @click="publish"
       >
         Publish…
       </SButton>
     </div>
+
+    <!-- the step the ellipsis promises -->
+    <SModal
+      v-if="confirmingPublish"
+      title="Publish this extension?"
+      icon="rocket"
+      :width="520"
+      @close="confirmingPublish = false"
+    >
+      <p class="review__say">
+        <strong>{{ extension }}</strong> is built in its pod from the working tree you have just
+        been reading, and this Rancher is pointed at the result. Everybody signed into this
+        cluster gets the new build the next time they load a page.
+      </p>
+      <p v-if="unkept.length" class="review__say">
+        {{ unkept.length === 1 ? 'One file is unticked' : `${ unkept.length } files are unticked` }},
+        so leaving this screen reverts {{ unkept.length === 1 ? 'it' : 'them' }} first and the
+        build will not contain {{ unkept.length === 1 ? 'that change' : 'those changes' }}:
+        <strong>{{ unkept.join(', ') }}</strong>.
+      </p>
+      <p class="review__say">
+        Nothing is committed and nothing is pushed anywhere. The workspace runs it and reports
+        each step on its status strip.
+      </p>
+
+      <template #footer>
+        <SButton variant="neutral" @click="confirmingPublish = false">
+          Cancel
+        </SButton>
+        <SButton
+          variant="primary"
+          icon="rocket"
+          data-testid="review-publish-confirm"
+          @click="startPublish"
+        >
+          Publish to this Rancher
+        </SButton>
+      </template>
+    </SModal>
   </div>
 </template>
 
@@ -762,29 +1164,42 @@ export default {
     padding:        14px var(--studio-space-16);
   }
 
-  &__explain-facts {
-    display:        flex;
-    flex-direction: column;
-    gap:            var(--studio-space-8);
-  }
-
   &__fact {
     display:        flex;
     flex-direction: column;
     gap:            var(--studio-space-4);
   }
 
+  // 14:518: the paragraph's heading. Sentence case at Body/13 SemiBold rather than the caps
+  // label the facts used to be, because these are sentences about the change now and a caps
+  // label over a paragraph reads as a form field.
   &__fact-label {
-    font:           var(--studio-caption-11-caps);
-    letter-spacing: var(--studio-tracking-caps);
-    text-transform: uppercase;
-    color:          var(--studio-text-tertiary);
+    font:  var(--studio-body-13-semi);
+    color: var(--studio-text);
   }
 
   &__fact-value {
-    font:      var(--studio-body-13);
-    color:     var(--studio-text);
-    word-break: break-all;
+    font:  var(--studio-body-13);
+    color: var(--studio-text-secondary);
+    // Not break-all: these are sentences, and break-all hyphenates them mid-word. Long paths
+    // inside them still have to give way somewhere, which is what anywhere does.
+    overflow-wrap: anywhere;
+  }
+
+  &__totals {
+    flex:                 0 0 auto;
+    font:                 var(--studio-caption-12);
+    color:                var(--studio-text-tertiary);
+    font-variant-numeric: tabular-nums;
+    white-space:          nowrap;
+  }
+
+  &__say {
+    margin: 0 0 var(--studio-space-12);
+    font:   var(--studio-body-13);
+    color:  var(--studio-text-secondary);
+
+    &:last-child { margin-bottom: 0; }
   }
 
   &__actions {

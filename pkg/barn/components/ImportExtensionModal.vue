@@ -72,8 +72,18 @@ export default {
       return !!this.repo.trim() && !this.parsed;
     },
 
-    /** Only says anything when the typed text and the repository are not the same string. */
+    /**
+     * What the field made of what is in it, and before anything is, why it is a field.
+     *
+     * The design picks the repository off a list of the ones you can reach. Nothing here
+     * fetches that list, so rather than leave an empty box implying one is coming, the hint
+     * says the listing is not there and names the two things the box does take.
+     */
     repoHint() {
+      if (!this.repo.trim()) {
+        return 'Studio does not list your repositories. Name the one you want, or paste its URL.';
+      }
+
       return this.repoPath && this.repoPath !== this.repo.trim() ? `Reads as ${ this.repoPath }.` : '';
     },
 

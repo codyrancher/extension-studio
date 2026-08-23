@@ -9,11 +9,14 @@
 // The three controls that used to live on a bar of their own under it - the publish status
 // strip, the extension picker and the settings cog - come in through slots rather than this
 // component knowing what any of them are.
-import { SBadge, SChip, SButton, SMenu, SModal, SField } from './ui';
+import {
+  SBadge, SChip, SButton, SIcon, SMenu, SModal, SField
+} from './ui';
 import PublishSplit from './PublishSplit.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
-  listBranches, countChanges, createSnapshot, listSnapshots, restoreSnapshot, undoLastChange, EXT_NS
+  listBranches, countChanges, createSnapshot, listSnapshots, restoreSnapshot, undoLastChange,
+  checkoutBranch, publishedVersion, EXT_NS
 } from '../extensions';
 import {
   FILES_ROUTE, REVIEW_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
@@ -27,6 +30,13 @@ const OVERFLOW_ROUTES = {
   brief:        BRIEF_ROUTE,
 };
 
+/** Snapshot tags are `barn-snap/<epoch ms>`, which is where the exact time comes from. */
+function snapshotTakenAt(snapshot) {
+  const stamp = parseInt(String(snapshot?.ref || '').split('/').pop(), 10);
+
+  return Number.isFinite(stamp) && stamp > 0 ? stamp : 0;
+}
+
 /** A default name for a snapshot: the time it was taken, which is the one fact about it. */
 function defaultSnapshotLabel() {
   const now = new Date();
@@ -39,7 +49,7 @@ export default {
   name: 'EditorMasthead',
 
   components: {
-    SBadge, SChip, SButton, SMenu, SModal, SField, PublishSplit
+    SBadge, SChip, SButton, SIcon, SMenu, SModal, SField, PublishSplit
   },
 
   props: {
@@ -82,7 +92,13 @@ export default {
   data() {
     return {
       branch:    '',
+      branches:  [],
       changes:   0,
+      // The version this Rancher is currently loading, for the phase chip's "since v0.1.0".
+      version:   '',
+      // Re-read on a timer so "Snapshot saved 12s ago" counts up rather than freezing.
+      now:       Date.now(),
+      nowTimer:  null,
       // Whether the working tree has been counted even once. Until it has, "no changes" would
       // be a claim about a number nobody has read - and the chip would say the tree was clean
       // for the second before the count came back, on a tree that is not.
@@ -97,7 +113,7 @@ export default {
       snapLabel:   '',
       // The snapshot the confirm dialog is about, or null.
       restoring:   null,
-      // One at a time: all three of these shell into the pod.
+      // One at a time: all four of these shell into the pod.
       busy:        false,
     };
   },
@@ -107,6 +123,10 @@ export default {
     // the pod runs in the cluster this extension is installed into.
     previewOn() {
       return 'local';
+    },
+
+    previewOnTitle() {
+      return 'Every extension pod is created in this cluster (see EXT_CLUSTER in extensions.ts), so the preview is served from it. There is nowhere else to run one, which is why this is not a picker.';
     },
 
     namespace() {
@@ -148,13 +168,100 @@ export default {
 
       if (this.changes > 0) {
         return {
-          label: 'Iterating', icon: 'refresh', tone: 'info'
+          label: `Iterating · ${ this.changeCount }`, icon: 'refresh', tone: 'info'
         };
       }
 
       return {
         label: 'No changes', icon: 'check', tone: 'success'
       };
+    },
+
+    /**
+     * The design's "14 changes since v0.1.0", which is two readings rather than a caption.
+     *
+     * The count is `git status --porcelain | wc -l` in the pod and the version is off the
+     * UIPlugin this Rancher is loading, so "since" means since the last thing that was
+     * published rather than since some remembered moment. With nothing published yet there is
+     * no "since" to state and the count stands on its own.
+     */
+    changeCount() {
+      const n = this.changes;
+      const what = `${ n } change${ n === 1 ? '' : 's' }`;
+
+      return this.version ? `${ what } since v${ this.version }` : what;
+    },
+
+    /**
+     * The design's "Review 3 changes". Nothing to count is nothing to say.
+     *
+     * The count without the version, unlike the phase chip's: the two sit a few centimetres
+     * apart and "since v0.1.0" twice on one bar is noise, not information.
+     */
+    reviewLabel() {
+      const n = this.changes;
+
+      return n > 0 ? `Review ${ n } change${ n === 1 ? '' : 's' }` : 'See what changed';
+    },
+
+    /**
+     * The design's "Snapshot saved 12s ago", from the newest snapshot there is.
+     *
+     * Manual, and the readout does not pretend otherwise: nothing in this product autosaves, so
+     * this reports when somebody last took one rather than implying a timer. The exact moment
+     * comes off the tag - snapshots are tagged `barn-snap/<epoch ms>` - so it can count in
+     * seconds, which git's own relative date cannot.
+     */
+    lastSnapshot() {
+      if (!this.snapshotsRead) {
+        return { label: 'Reading the snapshots', title: '' };
+      }
+
+      const at = snapshotTakenAt(this.snapshots[0]);
+
+      if (!at) {
+        return {
+          label: 'No snapshot yet',
+          title: 'Nothing in the Studio autosaves. Take a snapshot from this menu and the tree as it is now is kept in the pod\'s git repository.',
+        };
+      }
+
+      const secs = Math.max(0, Math.round((this.now - at) / 1000));
+      let when = `${ secs }s ago`;
+
+      if (secs >= 3600) {
+        when = `${ Math.round(secs / 3600) }h ago`;
+      } else if (secs >= 60) {
+        when = `${ Math.round(secs / 60) }m ago`;
+      }
+
+      return {
+        label: `Snapshot saved ${ when }`,
+        title: `"${ this.snapshots[0].label }" - taken by hand from this menu. Nothing here autosaves.`,
+      };
+    },
+
+    /**
+     * The branch menu: every branch in the pod's repository, the current one marked.
+     *
+     * A switch is a real `git checkout` in the pod, so it is the one chip on this bar that
+     * changes something. Uncommitted work blocks it and git says so; the toast passes that on
+     * rather than swallowing it, because a branch that silently did not change is worse than a
+     * refusal.
+     */
+    branchItems() {
+      if (!this.branches.length) {
+        return [{
+          id: 'none', label: this.read ? 'No branches yet' : 'Reading the branches', disabled: true,
+        }];
+      }
+
+      return this.branches.map((name) => ({
+        id:    `switch:${ name }`,
+        label: name,
+        icon:  name === this.branch ? 'check' : 'branch',
+        note:  name === this.branch ? 'current' : '',
+      }));
     },
 
     /**
@@ -206,6 +313,8 @@ export default {
     extension() {
       // A different pod: what is on screen is the last one's until this one has been read.
       this.read = false;
+      this.branches = [];
+      this.version = '';
       this.snapshots = [];
       this.snapshotsRead = false;
       this.refresh();
@@ -215,10 +324,14 @@ export default {
   async mounted() {
     await this.refresh();
     this.pollTimer = setInterval(() => this.refresh(), 60000);
+    this.nowTimer = setInterval(() => {
+      this.now = Date.now();
+    }, 1000);
   },
 
   beforeUnmount() {
     clearInterval(this.pollTimer);
+    clearInterval(this.nowTimer);
   },
 
   methods: {
@@ -227,8 +340,13 @@ export default {
       const branches = await listBranches(this.extension).catch(() => null);
 
       this.branch = branches?.current || '';
+      this.branches = branches?.branches || [];
       this.changes = await countChanges(this.extension).catch(() => 0);
+      this.version = await publishedVersion(this.extension).catch(() => '');
       this.read = true;
+      // The bar carries "Snapshot saved Ns ago", so the snapshots are no longer only the
+      // menu's business - they have to be read before anybody opens it.
+      await this.loadSnapshots();
     },
 
     /**
@@ -237,9 +355,56 @@ export default {
      * On opening the menu rather than on a timer: it is another exec into the pod, and the
      * list only changes when somebody on this page changes it.
      */
+    /** Just the branches, for the menu: the rest of `refresh` is not worth an exec on a click. */
+    async loadBranches() {
+      const branches = await listBranches(this.extension).catch(() => null);
+
+      this.branch = branches?.current || this.branch;
+      this.branches = branches?.branches || this.branches;
+    },
+
     async loadSnapshots() {
       this.snapshots = await listSnapshots(this.extension).catch(() => []);
       this.snapshotsRead = true;
+    },
+
+    /**
+     * Switch the pod's repository to another branch.
+     *
+     * The one control on this bar that writes: `git checkout` in the pod, and then a re-read,
+     * because the change count and the working tree belong to whichever branch is out.
+     */
+    async onBranchSelect(id) {
+      if (this.busy || !id.startsWith('switch:')) {
+        return;
+      }
+
+      const branch = id.slice('switch:'.length);
+
+      if (branch === this.branch) {
+        return;
+      }
+
+      this.busy = true;
+
+      try {
+        const out = await checkoutBranch(this.extension, branch);
+
+        await this.refresh();
+
+        if (this.branch === branch) {
+          toastSuccess(this.$store, `The pod's package is on ${ branch }. The preview rebuilds from whatever is on it.`, { title: 'Branch switched' });
+          this.$emit('changed');
+        } else {
+          // git refuses a checkout that would lose uncommitted work, and its reason is the
+          // useful part - a chip that quietly stayed on the old branch would not be.
+          toastError(this.$store, out.trim().split('\n').slice(0, 4).join(' ') || `git would not switch to ${ branch }.`, { title: 'Still on ' + this.branch });
+        }
+      } catch (e) {
+        toastError(this.$store, e.message || String(e));
+      } finally {
+        this.busy = false;
+      }
     },
 
     onSnapshotSelect(id) {
@@ -388,11 +553,36 @@ export default {
     <!-- Real: whether the pod's working tree has anything uncommitted in it. -->
     <SBadge :status="state" />
 
-    <!-- Real: the branch the pod's package repository is on. -->
-    <SChip v-if="branch" :label="branch" icon="branch" />
+    <!--
+      Real: the branch the pod's package repository is on, and the list it can be switched to.
+      Choosing one runs `git checkout` in the pod.
+    -->
+    <SMenu
+      v-if="branch"
+      class="studio-masthead__chip-menu"
+      :items="branchItems"
+      align="left"
+      aria-label="Branch"
+      @open="loadBranches"
+      @select="onBranchSelect"
+    >
+      <template #trigger>
+        <!-- On the chip, not the component: see the note on the preview's viewport menu. -->
+        <SChip
+          :label="branch"
+          icon="branch"
+          data-testid="barn-branch-menu"
+        />
+        <SIcon name="chevronDown" :size="13" />
+      </template>
+    </SMenu>
 
     <!-- Real: the cluster the preview is served from. -->
-    <SChip :label="`Preview on: ${ previewOn }`" icon="server" />
+    <SChip
+      :label="`Preview on: ${ previewOn }`"
+      icon="server"
+      :title="previewOnTitle"
+    />
 
     <!--
       Real: which of the four states the extension is in. Informational rather than clickable -
@@ -410,17 +600,31 @@ export default {
     <!-- What the last publish did and said, when there was one. -->
     <slot name="status" />
 
-    <!-- Real: a snapshot is a commit object holding the whole tree, tagged so it survives. -->
+    <!--
+      Real: a snapshot is a commit object holding the whole tree, tagged so it survives.
+
+      The trigger carries the design's "Snapshot saved 12s ago" (9:202) rather than the word
+      "Snapshots", because the reading and the menu are about the same thing and the bar has no
+      room to say it twice. Manual rather than automatic, and the tooltip says so: it reports
+      the newest snapshot in the pod, not a timer nobody set.
+    -->
     <SMenu
       class="studio-masthead__menu"
       :items="snapshotItems"
-      icon="clock"
-      label="Snapshots"
       aria-label="Snapshots"
       data-testid="barn-snapshots-menu"
+      :title="lastSnapshot.title"
       @open="loadSnapshots"
       @select="onSnapshotSelect"
-    />
+    >
+      <template #trigger>
+        <SIcon name="clock" :size="16" />
+        <span
+          class="studio-masthead__saved"
+          data-testid="barn-snapshot-age"
+        >{{ lastSnapshot.label }}</span>
+      </template>
+    </SMenu>
 
     <!-- Real: puts the most recently edited file back to its last committed state. -->
     <SButton
@@ -439,9 +643,10 @@ export default {
       variant="secondary"
       size="sm"
       icon="compare"
+      data-testid="barn-review-changes"
       @click="$emit('files')"
     >
-      See what changed
+      {{ reviewLabel }}
     </SButton>
 
     <!-- Which extension this editor is pointed at. -->
@@ -563,6 +768,11 @@ export default {
   display:       flex;
   align-items:   center;
   gap:           var(--studio-space-10);
+  // The bar now carries the phase chip's change count, the branch menu and the snapshot time
+  // as well as everything it did before, which is more than a narrow window fits. Wrapping is
+  // the safety valve: at the design's width it changes nothing, and below it the controls go
+  // onto a second row rather than off the end of the page where they cannot be reached.
+  flex-wrap:     wrap;
   padding:       var(--studio-space-10) var(--studio-space-16);
   border-bottom: 1px solid var(--studio-border);
   background:    var(--studio-surface);
@@ -588,6 +798,18 @@ export default {
   }
 
   &__grow { flex: 1 1 auto; }
+
+  // A chip used as a menu trigger: the chip draws the box, so the button adds only the hit
+  // area around it.
+  &__chip-menu :deep(.s-menu__trigger) {
+    padding: 2px var(--studio-space-4);
+    gap:     var(--studio-space-4);
+  }
+
+  &__saved {
+    font:        var(--studio-caption-12);
+    white-space: nowrap;
+  }
 
   // The snapshot menu sits in a row of ghost buttons, so its trigger is one of them.
   &__menu :deep(.s-menu__trigger) {

@@ -997,7 +997,6 @@
         ".queue__card",
         ".queue__card-body",
         ".queue__row-title",
-        ".queue__col--part",
         ".queue__col--risk",
         ".queue__col--who",
         ".queue__label",
@@ -1065,12 +1064,6 @@
         ".queue__row-title": {
           "font": "16/600",
           "from": "36:1079 Heading/16 SemiBold"
-        },
-        ".queue__col--part": {
-          "size": "150x*",
-          "gap": 5,
-          "dir": "column",
-          "from": "36:1087 layout_LH97PI"
         },
         ".queue__col--risk": {
           "size": "200x*",
