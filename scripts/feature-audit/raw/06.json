@@ -1,0 +1,324 @@
+{
+  "screens": [
+    {
+      "screen": "06-import",
+      "figmaFrame": "15:358",
+      "features": [
+        {
+          "id": "06-import-launch",
+          "name": "Open the import wizard from the Studio masthead",
+          "kind": "button",
+          "figmaNode": "15:414",
+          "label": "Import from GitHub",
+          "promise": "A neutral button beside \"New extension\" in the Studio masthead opens the three-step \"Import an extension from GitHub\" dialog over the list.",
+          "howToVerify": "Go to /dashboard/barn/extensions, click the \"Import from GitHub\" button in the title row, and confirm a modal titled \"Import an extension from GitHub\" opens over the list.",
+          "inferred": false,
+          "notes": "The frame draws the button and the open dialog together, so the causal link (this button opens this dialog) is read from the pairing, not from a drawn interaction."
+        },
+        {
+          "id": "06-import-list-behind",
+          "name": "Studio list stays behind the dialog",
+          "kind": "display",
+          "figmaNode": "15:387",
+          "label": null,
+          "promise": "The full Studio list (masthead, filter, six extension rows, sortable headers) stays rendered behind the dialog, so the user keeps their place.",
+          "howToVerify": "With the import modal open, confirm the extension table is still painted behind the scrim and that the page has not navigated away (URL unchanged).",
+          "inferred": false,
+          "notes": "The list controls drawn here (Filter box 15:411, New extension 15:417, column sorts 56:1099-56:1111, per-row Review button 15:738) are the screen 01 surface and are audited there; they are not repeated as 06 features."
+        },
+        {
+          "id": "06-import-scrim",
+          "name": "Modal scrim dims the page",
+          "kind": "display",
+          "figmaNode": "15:531",
+          "label": null,
+          "promise": "A full-viewport scrim at rgba(20,20,26,0.42) covers the 1440x900 page while the dialog is open, marking everything behind it as out of reach.",
+          "howToVerify": "Open the import modal and confirm a dimmed overlay covers the whole viewport and that controls behind it do not respond to clicks.",
+          "inferred": false,
+          "notes": "Whether clicking the scrim dismisses the dialog is not drawn; only Cancel and the close icon are drawn as exits."
+        },
+        {
+          "id": "06-import-dialog-header",
+          "name": "Dialog title and clone reassurance",
+          "kind": "display",
+          "figmaNode": "15:533",
+          "label": "Import an extension from GitHub / The repository is cloned into your workspace. Nothing is pushed back until you publish.",
+          "promise": "The dialog names itself and promises the import is one-way: the repo is cloned into the workspace and nothing is pushed back until the user publishes.",
+          "howToVerify": "Open the import modal and confirm both the 20px heading and the caption under it read exactly as drawn.",
+          "inferred": false,
+          "notes": ""
+        },
+        {
+          "id": "06-import-close",
+          "name": "Close the dialog with the X",
+          "kind": "button",
+          "figmaNode": "15:537",
+          "label": null,
+          "promise": "An 18px close icon at the top right of the dialog dismisses the wizard without importing.",
+          "howToVerify": "Open the import modal, click the X in the header, and confirm the modal closes and no extension was created.",
+          "inferred": false,
+          "notes": "Icon only, componentId 5:95 (icon/close); no visible text label."
+        },
+        {
+          "id": "06-import-step-markers",
+          "name": "Three numbered steps with completion state",
+          "kind": "display",
+          "figmaNode": "15:540",
+          "label": "1 (check) / 2 / 3",
+          "promise": "The wizard is three stacked steps, each with a 22px round marker: step 1 is a solid green (#3E8C4F) check because GitHub is already connected, steps 2 and 3 are blue (#3D98D3) numbered markers because both are open for input.",
+          "howToVerify": "Open the import modal on an account that already has GitHub connected and confirm three steps are shown, step 1 marked complete and steps 2 and 3 both interactive.",
+          "inferred": false,
+          "notes": "Step 1's marker is an IMAGE-SVG with a green fill (15:541) where steps 2 and 3 are FRAMEs holding the digits 2 (15:556) and 3 (15:594); read as check vs number. Steps are stacked and all visible at once, they are not paged one at a time."
+        },
+        {
+          "id": "06-import-connected-account",
+          "name": "See which GitHub account is connected, its scopes and expiry",
+          "kind": "display",
+          "figmaNode": "15:546",
+          "label": "kwwii / repo · read:org · expires in 58 days",
+          "promise": "Step 1 shows the connected GitHub identity, the token scopes it holds (repo, read:org) and how long it has left before it expires.",
+          "howToVerify": "Connect a GitHub token, open the import modal, and confirm step 1 reads \"GitHub connected\" with the account handle, the granted scopes and a relative expiry.",
+          "inferred": false,
+          "notes": "Heading text is \"GitHub connected\" (15:545)."
+        },
+        {
+          "id": "06-import-change-connection",
+          "name": "Change the connected GitHub account",
+          "kind": "button",
+          "figmaNode": "15:552",
+          "label": "Change",
+          "promise": "A ghost \"Change\" button on the connected row lets the user swap the GitHub connection without leaving the dialog.",
+          "howToVerify": "Open the import modal with GitHub connected, click \"Change\", and confirm step 1 returns to the connect state (Authorise / paste a token) with steps 2 and 3 re-locked.",
+          "inferred": true,
+          "notes": "The target of Change is inferred: the design draws the button but not what it opens. The 06a first-run step 1 is the obvious destination."
+        },
+        {
+          "id": "06-import-repo-search",
+          "name": "Search your repositories by name",
+          "kind": "input",
+          "figmaNode": "15:559",
+          "label": "cost",
+          "promise": "A search field with a magnifier icon at the top of step 2 filters the repository list as the user types; the drawn state has \"cost\" typed and the list below shows only matching repos.",
+          "howToVerify": "Open the import modal, type a fragment such as \"cost\" into the step 2 search box, and confirm the list below narrows to repositories whose owner/name contains it.",
+          "inferred": false,
+          "notes": "Drawn focused: 2px #3D98D3 border (stroke_0RNWI7). The text \"cost\" is in body colour #141419, so it is a typed value rather than a placeholder. No placeholder text is drawn for the empty state."
+        },
+        {
+          "id": "06-import-repo-pick",
+          "name": "Pick a repository from the list",
+          "kind": "select",
+          "figmaNode": "15:564",
+          "label": "suse/cluster-cost-report / suse/cost-explorer-ext / kwwii/rancher-cost-lab",
+          "promise": "The user clicks one row in the repository list to choose the repo to import; the chosen row is filled #EAF4FB and gets a check icon at its right edge, and only one row is chosen at a time.",
+          "howToVerify": "Open the import modal, click a row in the step 2 list, and confirm it becomes highlighted with a check while any previously chosen row clears, and that step 3's Name field updates to the chosen repo.",
+          "inferred": false,
+          "notes": "Single-select is inferred from exactly one row (15:565) carrying the check (15:573) and highlight; no checkboxes are drawn. Rows are 9px/12px tall list items inside a bordered card."
+        },
+        {
+          "id": "06-import-repo-meta",
+          "name": "See visibility and last-updated per repository",
+          "kind": "display",
+          "figmaNode": "15:565",
+          "label": "private / public · Updated 3 days ago / Updated last month / Updated in April",
+          "promise": "Each repository row shows a lock icon plus \"private\" or a book icon plus \"public\", and a relative last-updated time on the right, so the user can tell repos apart before choosing.",
+          "howToVerify": "Open the import modal and confirm each row in the step 2 list carries a visibility icon, a visibility word and a relative updated time.",
+          "inferred": false,
+          "notes": "Lock is componentId 5:168, book is 5:176."
+        },
+        {
+          "id": "06-import-paste-url",
+          "name": "Paste a repository URL instead of picking from the list",
+          "kind": "link",
+          "figmaNode": "15:591",
+          "label": "Not listed? Paste a repository URL instead",
+          "promise": "A link under the repository list gives an escape hatch for repos the listing does not show: paste a repository URL directly.",
+          "howToVerify": "Open the import modal, click \"Not listed? Paste a repository URL instead\", and confirm a field appears that accepts a full repository URL and satisfies step 2.",
+          "inferred": false,
+          "notes": "Drawn as link-coloured text (#3D98D3) with no box. What it reveals is not drawn, so the resulting URL field is inferred."
+        },
+        {
+          "id": "06-import-branch",
+          "name": "Choose the branch to import",
+          "kind": "select",
+          "figmaNode": "15:598",
+          "label": "Branch / main",
+          "promise": "A labelled control in step 3 with a chevron picks the branch, pre-filled with \"main\", and the hint under it says that value is \"the repository's default\".",
+          "howToVerify": "Open the import modal, choose a repo, open the Branch control, and confirm it lists that repository's branches with the default pre-selected.",
+          "inferred": false,
+          "notes": "Drawn as a stacked label-over-value box with a chevronDown (15:603), so it reads as a select rather than a free-text field. Hint text: \"the repository's default\" (15:605)."
+        },
+        {
+          "id": "06-import-name",
+          "name": "Set the name the extension gets in Studio",
+          "kind": "select",
+          "figmaNode": "15:606",
+          "label": "Name in Studio / cluster-cost-report",
+          "promise": "A second step 3 control sets the name the imported extension carries inside Studio, pre-filled from the repository name, with the hint \"taken from the repository\".",
+          "howToVerify": "Open the import modal, choose a repo, and confirm the Name in Studio control is pre-filled with the repo name and can be changed to something else before importing.",
+          "inferred": false,
+          "notes": "Ambiguous: it is drawn with the same chevronDown (15:611) as Branch, which reads as a select, but a name is normally typed. Treat the chevron as a drawing artefact unless the design intends a suggested-names menu. No validation or name-taken message is drawn."
+        },
+        {
+          "id": "06-import-precheck",
+          "name": "Pre-import compatibility check",
+          "kind": "display",
+          "figmaNode": "15:614",
+          "label": "This looks like a Rancher extension / Found package.json, index.ts and a pkg/ directory. Built against Rancher 2.12 — this Rancher is 2.15, so the assistant will flag anything that has moved.",
+          "promise": "Before importing, Studio inspects the chosen repo and branch and reports in a green panel whether it looks like a Rancher extension, which marker files it found, and the Rancher version skew between the repo and this Rancher.",
+          "howToVerify": "Open the import modal, choose a repo and branch, and confirm a check panel appears naming the files found and comparing the repo's target Rancher version to the running one; then choose a repo that is not an extension and confirm the panel changes.",
+          "inferred": false,
+          "notes": "Only the passing state is drawn (green #EBF4EC with a check icon 15:616). A failing state and its effect on the Import button are not drawn. In this frame Import is fully enabled while the check passes, so nothing here proves the check gates Import."
+        },
+        {
+          "id": "06-import-cancel",
+          "name": "Cancel the import",
+          "kind": "button",
+          "figmaNode": "15:622",
+          "label": "Cancel",
+          "promise": "A ghost Cancel button in the footer abandons the wizard; nothing is cloned and the user is returned to the Studio list.",
+          "howToVerify": "Open the import modal, fill in step 2 and 3, click Cancel, and confirm the modal closes and no new extension appears in the list.",
+          "inferred": false,
+          "notes": "Whether Cancel warns about discarding entered values is not drawn."
+        },
+        {
+          "id": "06-import-submit",
+          "name": "Import the chosen repository",
+          "kind": "button",
+          "figmaNode": "15:624",
+          "label": "Import",
+          "promise": "The green primary Import button (with a download icon) clones the chosen repo and branch into the workspace under the chosen name; it is fully enabled once a repo is chosen and the pre-import check has run.",
+          "howToVerify": "Open the import modal, choose a repo and branch, click Import, and confirm the extension is cloned and appears in the Studio list with a GitHub source of owner/repo and the chosen branch.",
+          "inferred": false,
+          "notes": "Drawn at full opacity with the solid #3E8C4F fill, in contrast with 06a where the same button is at 0.4 opacity. That contrast is what says Import is gated on step 1 being complete. No busy/progress state is drawn."
+        }
+      ]
+    },
+    {
+      "screen": "06a-import-first",
+      "figmaFrame": "15:630",
+      "features": [
+        {
+          "id": "06a-import-first-header",
+          "name": "Same dialog title on first run",
+          "kind": "display",
+          "figmaNode": "15:632",
+          "label": "Import an extension from GitHub / The repository is cloned into your workspace. Nothing is pushed back until you publish.",
+          "promise": "The first-run dialog is the same dialog, same 680px width, same title and same one-way clone reassurance: connecting GitHub does not become a separate screen.",
+          "howToVerify": "With no GitHub token configured, click \"Import from GitHub\" on the Studio list and confirm the same modal title and caption appear rather than a redirect to a settings page.",
+          "inferred": false,
+          "notes": "This artboard (760x620) draws the dialog alone with no page or scrim behind it; the surrounding Studio list and scrim from 06 are assumed unchanged."
+        },
+        {
+          "id": "06a-import-first-close",
+          "name": "Close the first-run dialog with the X",
+          "kind": "button",
+          "figmaNode": "15:636",
+          "label": null,
+          "promise": "The close icon dismisses the wizard from the unconnected state too, without connecting anything.",
+          "howToVerify": "Open the import modal with no GitHub connection, click the X, and confirm it closes and no token was stored.",
+          "inferred": false,
+          "notes": "componentId 5:95 (icon/close)."
+        },
+        {
+          "id": "06a-import-first-connect-copy",
+          "name": "Why GitHub access is needed and how long it takes",
+          "kind": "display",
+          "figmaNode": "15:644",
+          "label": "Studio needs read access to list your repositories and clone one. This takes about fifteen seconds and you stay on this screen.",
+          "promise": "Step 1 explains what the access is for (list repositories, clone one), how long it takes (about fifteen seconds) and promises the user is not navigated away.",
+          "howToVerify": "Open the import modal with no GitHub connection and confirm step 1 is headed \"Connect GitHub\" with this explanatory paragraph.",
+          "inferred": false,
+          "notes": "Heading text is \"Connect GitHub\" (15:643)."
+        },
+        {
+          "id": "06a-import-first-authorise",
+          "name": "Authorise with GitHub from inside the dialog",
+          "kind": "button",
+          "figmaNode": "15:646",
+          "label": "Authorise with GitHub",
+          "promise": "A green primary button with the GitHub mark starts the OAuth authorisation and returns the user to this same dialog with step 1 satisfied.",
+          "howToVerify": "Open the import modal with no GitHub connection, click \"Authorise with GitHub\", complete the GitHub flow, and confirm you land back in the same dialog with step 1 showing the connected account and steps 2 and 3 unlocked.",
+          "inferred": false,
+          "notes": "The OAuth mechanism is inferred from the wording; the design draws only the button and the promise that you stay on this screen."
+        },
+        {
+          "id": "06a-import-first-token-choice",
+          "name": "Choose to paste a personal access token instead",
+          "kind": "button",
+          "figmaNode": "15:651",
+          "label": "or / paste a personal access token",
+          "promise": "Beside the authorise button, separated by the word \"or\", a ghost button offers the alternative path: paste a personal access token rather than run the OAuth flow.",
+          "howToVerify": "Open the import modal with no GitHub connection, click \"paste a personal access token\", and confirm a token field appears in step 1 while Authorise remains available.",
+          "inferred": false,
+          "notes": "The panel it controls is named \"token disclosure\" (15:653) and is drawn already open, so this reads as a disclosure toggle. The collapsed state is not drawn, so whether the field is hidden until clicked is inferred."
+        },
+        {
+          "id": "06a-import-first-token-field",
+          "name": "Paste a GitHub personal access token",
+          "kind": "input",
+          "figmaNode": "15:654",
+          "label": "Personal access token / ghp_••••••••••••••••••••••••••••••••",
+          "promise": "A labelled field inside the disclosure panel takes a pasted GitHub personal access token; the value is masked and set in a monospace face, showing only the ghp_ prefix.",
+          "howToVerify": "Open the import modal with no GitHub connection, reveal the token field, paste a token, and confirm the characters are masked and that submitting connects GitHub and unlocks steps 2 and 3.",
+          "inferred": false,
+          "notes": "No submit/save button is drawn for the token field, so what commits the pasted token is not shown. The field is a stacked label-over-value box on white inside the grey #F7F8FA panel."
+        },
+        {
+          "id": "06a-import-first-token-help",
+          "name": "Token scope guidance and storage promise",
+          "kind": "display",
+          "figmaNode": "15:657",
+          "label": "Needs the repo scope only. Create one on GitHub with the scopes pre-selected — the token is stored per user, never in the extension.",
+          "promise": "Under the token field, the design states the minimum scope (repo only), offers a route to create a token on GitHub with the scopes already selected, and promises the token is stored per user and never inside the extension.",
+          "howToVerify": "Open the token disclosure and confirm this help text is present; confirm the pre-selected-scopes route actually opens GitHub's token page with scope=repo, and that the stored token is scoped to the user rather than written into the extension.",
+          "inferred": false,
+          "notes": "\"Create one on GitHub with the scopes pre-selected\" promises a deep link, but it is drawn as plain grey #8B8B96 caption text, not as a link, so there is nothing to click as drawn. Flagging this as a gap rather than a feature."
+        },
+        {
+          "id": "06a-import-first-steps-locked",
+          "name": "Steps 2 and 3 locked until GitHub is connected",
+          "kind": "display",
+          "figmaNode": "15:658",
+          "label": "Choose a repository / Branch and name",
+          "promise": "Before GitHub is connected, steps 2 and 3 are present but inert: grey #F2F3F5 markers with grey digits, grey #8B8B96 headings, and no fields, list or pre-import check inside them.",
+          "howToVerify": "Open the import modal with no GitHub connection and confirm step 2 and step 3 show only their greyed headings, with no search box, repository list, branch control or name control rendered or focusable.",
+          "inferred": false,
+          "notes": "Step 3 is node 15:663. The steps are collapsed to their headings rather than being disabled copies of the 06 content, so this is a content swap, not a disabled attribute."
+        },
+        {
+          "id": "06a-import-first-step-markers",
+          "name": "Step 1 is the only active step",
+          "kind": "display",
+          "figmaNode": "15:640",
+          "label": "1 / 2 / 3",
+          "promise": "The step markers show progress: step 1 blue #3D98D3 with a white 1 (active), steps 2 and 3 flat grey #F2F3F5 with grey digits (not yet reachable).",
+          "howToVerify": "Open the import modal with no GitHub connection and confirm only the first step marker is coloured; after connecting, confirm step 1 turns into a green check and 2 and 3 turn blue.",
+          "inferred": false,
+          "notes": "Markers 15:659 and 15:664 for steps 2 and 3. The post-connect state is read from screen 06, not drawn here."
+        },
+        {
+          "id": "06a-import-first-cancel",
+          "name": "Cancel out of the first-run dialog",
+          "kind": "button",
+          "figmaNode": "15:670",
+          "label": "Cancel",
+          "promise": "Cancel stays fully enabled in the unconnected state, so the user can always back out of connecting GitHub.",
+          "howToVerify": "Open the import modal with no GitHub connection, click Cancel, and confirm the modal closes with no token stored.",
+          "inferred": false,
+          "notes": "Drawn at full opacity in normal text colour, unlike the Import button beside it."
+        },
+        {
+          "id": "06a-import-first-import-disabled",
+          "name": "Import stays disabled until GitHub is connected",
+          "kind": "button",
+          "figmaNode": "15:672",
+          "label": "Import",
+          "promise": "The primary Import button is drawn at 0.4 opacity while step 1 is unfinished: connecting GitHub is what gates the whole wizard, and no repo can be imported before it.",
+          "howToVerify": "Open the import modal with no GitHub connection, confirm the Import button is visibly dimmed and does nothing on click, then connect GitHub and confirm it becomes enabled once a repository is chosen.",
+          "inferred": false,
+          "notes": "Only opacity marks the disabled state; no aria-disabled, tooltip or explanatory text is drawn. The 06 frame shows the same button at full opacity, which is the whole contrast."
+        }
+      ]
+    }
+  ]
+}
