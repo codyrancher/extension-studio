@@ -1,0 +1,503 @@
+{
+  "screen": "w3-home-queue-import",
+  "verdicts": [
+    {
+      "id": "01-home-actions-column",
+      "status": "pass",
+      "evidence": "Read the six .studio-home__th elements on /barn/extensions: the last has label '', no .studio-home__sort caret (querySelectorAll count 0), title=null and aria-sort stays 'none'. Clicked it while 'Last change' was the sort column and the aria-sort vector was unchanged before/after ([none,none,none,none,descending,none]), so it carries no sort control.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-current",
+      "status": "pass",
+      "evidence": "The trailing crumb is <span class=studio-home__crumb-current>Studio</span> after the chevronRight icon, with no href. Clicked it: URL stayed https://magic-closet-rancher/dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-extensions",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=studio-crumb-extensions]. URL became /dashboard/c/local/uiplugins#installed, i.e. Rancher's own Extensions page (the c-cluster-uiplugins route), not /dashboard/home as it used to.",
+      "defect": null
+    },
+    {
+      "id": "01-home-count",
+      "status": "pass",
+      "evidence": "Pill read 3 with three rows. Typed 'node': table went to 1 row and the pill read 1, title '1 of 3 match'. Typed 'zzz-nomatch': 0 rows, pill 0, title '0 of 3 match \u201czzz-nomatch\u201d', plus the 'Nothing matches' empty state. Cleared it: back to 3 rows and pill 3.",
+      "defect": null
+    },
+    {
+      "id": "01-home-filter",
+      "status": "pass",
+      "evidence": "Bordered .studio-home__search with an icon-search glyph and an input (placeholder 'Search', aria-label 'Search extensions'). Typed 'node': rows went [base, demo, nodehealth] -> [nodehealth], so the non-matching rows were removed, not just the matching ones kept. 'zzz-nomatch' emptied the table. Clearing restored all three.",
+      "defect": null
+    },
+    {
+      "id": "01-home-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every i/svg/img/button in <header> on /barn/extensions. The complete list is the hamburger (data-testid=top-level-menu, aria 'Expand the Application Bar'), the local cluster chip and its pin, the rail's group icons, data-testid=notifications-center and data-testid=nav_header_showUserMenu. Filtering the icon class list for /grid|apps|collection/ returns [].",
+      "defect": "The design's header grid icon does not exist. The only product switcher is the hamburger's slide-out Application Bar, which is a different control (covered by 01-home-nav-menu), and barn does not render Rancher's header."
+    },
+    {
+      "id": "01-home-header-logo",
+      "status": "fail",
+      "evidence": "The logo is a bare IMG[data-testid=header__brand-img]; evaluating img.closest('a') returns null ('no-anchor'). Clicked it (force) from /barn/extensions: URL stayed /dashboard/barn/extensions.",
+      "defect": "The header logo has no wrapping anchor and no click handler, so clicking it does nothing. This is Rancher shell chrome rather than barn code; /dashboard/home is still reachable from the rail's Home entry."
+    },
+    {
+      "id": "01-home-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header enumeration as 01-home-header-apps, plus a filter of every header i/svg/button class for /ellipsis|actions-menu|kebab|more|dots/: []. The header's only buttons are top-level-menu, menu-cluster-local, the pin, notifications-center and nav_header_showUserMenu.",
+      "defect": "The design's header kebab is absent from the running product."
+    },
+    {
+      "id": "01-home-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] on /barn/extensions. A .notification-dropdown opened headed 'Notifications / Mark all as read' listing real timestamped entries from this instance ('Verification recorded', 'Asked the assistant', 'Snapshot taken').",
+      "defect": null
+    },
+    {
+      "id": "01-home-import-github",
+      "status": "pass",
+      "evidence": "The masthead's neutral button carries the icon-github mark (s-btn--neutral). Clicked it: a 680px modal titled 'Import an extension from GitHub' opened over the list with the three-step wizard, and the URL stayed /dashboard/barn/extensions.",
+      "defect": "Labelled 'Import' where the design draws 'Import from GitHub'; the GitHub mark carries the rest of the meaning."
+    },
+    {
+      "id": "01-home-intro",
+      "status": "pass",
+      "evidence": ".studio-home__lede under the title row reads 'Describe what you want in plain language; the assistant builds it against this Rancher. Nothing reaches users until you publish.'",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-about",
+      "status": "pass",
+      "evidence": "Opened the rail with the hamburger and clicked 'About' (a[href=/dashboard/about]): navigated to /dashboard/about and the page rendered with h1 'About'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-book",
+      "status": "not-implemented",
+      "evidence": "Opened the rail on /barn/extensions and read all eleven entries with their icon classes and hrefs: Home, local, Cluster Management (icon-cluster-management), Continuous Delivery (icon-fleet), Extension Studio (icon-extension), Virtualization Management (icon-harvester), Base (icon-gear), Users & Authentication (icon-user), Extensions (icon-extension), Global Settings (icon-globe), About. No book/docs icon and no docs or catalog destination.",
+      "defect": "There is no docs/catalog entry in this Rancher's top-level menu. Apps/Charts live inside a cluster explorer, not the rail."
+    },
+    {
+      "id": "01-home-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked [data-testid=menu-cluster-local]: navigated to /dashboard/c/local/explorer#cluster-events and the Cluster Dashboard rendered (h1 'Cluster Dashboard'). This Rancher has one cluster, so there is one chip rather than the three the design draws.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-extensions",
+      "status": "pass",
+      "evidence": "The Studio's rail entry now carries the puzzle icon (i.icon.group-icon.icon-extension) and is marked current on every /barn/* route. Tested with full page loads, not in-app clicks: /barn/extensions, /barn/review, /barn/settings, /barn/editor/base and /barn/extensions/base/files each showed exactly one rail entry with 'active-menu-link' and it was 'Extension Studio' every time. From /dashboard/home, clicking it returned to /dashboard/barn/extensions with h1 'Extension Studio'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-gear",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked 'Global Settings': navigated to /dashboard/c/local/settings/management.cattle.io.setting and the Settings page rendered (h1 'Settings').",
+      "defect": "The settings entry's icon is a globe (icon-globe), not a gear. The only icon-gear in this rail belongs to the 'Base' extension's own product entry (/dashboard/c/local/base), so clicking the literal gear opens that instead. Rancher shell chrome, not barn."
+    },
+    {
+      "id": "01-home-nav-home",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked the house entry (a.option.cluster.selector.home): navigated to /dashboard/home, h1 'Welcome to Rancher Prime'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-menu",
+      "status": "pass",
+      "evidence": "On /barn/extensions the .side-menu className went 'side-menu menu-close' -> 'side-menu menu-open' on the first click of [data-testid=top-level-menu] and back to 'menu-close' on the second, so it both opens and collapses.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-server",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked 'Cluster Management' (icon-cluster-management): navigated to /dashboard/c/_/manager/provisioning.cattle.io.cluster, h1 'Clusters'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-user",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=nav_header_showUserMenu] on /barn/extensions. A dropdownTarget panel opened reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out', so both preferences and log out are present.",
+      "defect": null
+    },
+    {
+      "id": "01-home-new-extension",
+      "status": "pass",
+      "evidence": "Clicked the primary plus button: URL became /dashboard/barn/extensions/new and .new-ext__card rendered.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-actions",
+      "status": "pass",
+      "evidence": "Every row ends in a .studio-home__td--actions cell measured at exactly 104px wide with justify-content:flex-end, holding an SMenu trigger (aria-label 'Actions for <name>') plus a secondary Review button on Unsaved rows. Opened the menu and drove all four navigation items from base's row: 'Open in the workspace' -> /barn/editor/base, 'Review changes' -> /barn/extensions/base/review, 'Open files' -> /barn/extensions/base/files, 'Open the brief' -> /barn/extensions/base/brief. The disabled lines track reality: demo (clean tree) has 'Review changes none' disabled while base has 'Review changes 2' enabled, and 'Remove the local install' is disabled 'not installed' on base/demo and enabled 'v0.1.0' on nodehealth, which matches kubectl get uiplugins (only nodehealth is installed).",
+      "defect": "Remove the local install was read but not clicked - it deletes a UIPlugin in the Rancher every other verifier is signed in to."
+    },
+    {
+      "id": "01-home-row-open",
+      "status": "pass",
+      "evidence": "Clicked the name cell of the demo row (away from the action area): URL became /dashboard/barn/editor/demo and .mc-editor rendered.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-review",
+      "status": "pass",
+      "evidence": "base and nodehealth are both Unsaved (git status in each pod shows uncommitted work) and both carry data-testid=studio-review-<name>; demo (clean tree) carries none. Clicked studio-review-base: URL became /dashboard/barn/extensions/base/review and .review__body rendered, i.e. the diff review rather than the workspace.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-source",
+      "status": "pass",
+      "evidence": "All four extensions in the cluster are Studio-authored and each shows the icon-ai sparkle plus 'Created here \u00b7 no repo yet'. To exercise the repo-backed branch I temporarily set demo's barn.rancher.io/source annotation to github:aaa-owner/aaa-repo#w3-branch: its cell became the icon-github mark plus 'aaa-owner/aaa-repo \u00b7 w3-branch'. Annotation restored to 'base' afterwards and confirmed.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-subtitle",
+      "status": "pass",
+      "evidence": "Every name cell renders a second muted line and each tracked the row's real state: base '2 changes waiting for your review' (git status in the pod: HARNESS.md added, product.ts modified), demo 'On main, nothing uncommitted' (git status empty, branch main), nodehealth '2 changes waiting for your review' (BRIEF.md and pages/NodeHealth.vue added), v3nf 'Ready' (up, on no branch yet). Later in the run base's line moved to '4 changes' as another agent edited it, still matching.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-target",
+      "status": "pass",
+      "evidence": "Cross-checked against the cluster: nodehealth reads 'catalog \u00b7 v0.1.0' and kubectl get uiplugins shows nodehealth 0.1.0 installed; base, demo and v3nf read 'local (preview)' and have no UIPlugin. So published-to-catalog and preview-only are distinguished from real readings.",
+      "defect": "The dash placeholder for an extension running nowhere was not observed: it needs a pod that is not ready, and all four pods were 1/1 Running for the whole session."
+    },
+    {
+      "id": "01-home-row-when",
+      "status": "pass",
+      "evidence": "The column now takes the newer of the last commit and the newest uncommitted file, and I checked both branches against the pods. base read '32 min ago' with the tooltip 'An uncommitted file was edited then. The last commit is older.' - its last commit is 2026-08-23T07:15:36Z but product.ts/HARNESS.md were written 15:59:39 (read time 16:31). demo read '18 hours ago' with 'The last commit. Nothing has been edited since.' against a clean tree and a commit at 2026-08-22T22:24:41Z. nodehealth read '12 hours ago' against BRIEF.md mtime 04:33:07. v3nf, which has never committed, reads '-'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-last-change",
+      "status": "pass",
+      "evidence": "Clicked the header three times. First click aria-sort=descending, order [base 33 min, nodehealth 12 hours, demo 18 hours]; second ascending, [demo, nodehealth, base]; third back to descending. That is the timestamp order, not the rendered string order ('12 hours ago' would sort before '18 hours ago' before '33 min ago' alphabetically, which is not what happened). Caret flips chevronDown/chevronUp.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-name",
+      "status": "pass",
+      "evidence": "Click 1: aria-sort=ascending, [base, demo, nodehealth]. Click 2: descending, [nodehealth, demo, base]. Click 3: ascending again. Caret flips and the header title reads 'Sorted ascending, click to reverse'.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-running-on",
+      "status": "pass",
+      "evidence": "Click 1 (ascending): [nodehealth 'catalog \u00b7 v0.1.0', base 'local (preview)', demo 'local (preview)'] - installed first, previewing after. Click 2 (descending) reversed it. A string sort on the rendered cells would also put 'catalog' first, but the underlying key is '0 <version>' / '1' / '2', which is what produces this grouping; see 01-home-sort-source for the case where the two disagree.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-source",
+      "status": "pass",
+      "evidence": "With every row 'Created here' the column has nothing to separate, so I temporarily annotated demo as github:aaa-owner/aaa-repo#w3-branch - a rendered string that sorts BEFORE 'Created here' alphabetically. Ascending put demo LAST ([base, nodehealth, demo]) and descending put it first, which is the underlying value sorting (a repo-less row is the empty string and groups first), not the rendered text. Annotation restored afterwards.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-state",
+      "status": "pass",
+      "evidence": "Click 1: aria-sort=ascending, [base Unsaved, nodehealth Unsaved, demo Live] - the attention order in STATE_ORDER, not alphabetical ('Live' would precede 'Unsaved'). Click 2: descending, [demo Live, base Unsaved, nodehealth Unsaved]. Click 3 returned to ascending.",
+      "defect": null
+    },
+    {
+      "id": "01-home-state-badge",
+      "status": "pass",
+      "evidence": "Every row leads with an .s-badge pill and each is a live reading cross-checked against the pod: base/nodehealth 'Unsaved' (s-badge--warning, rgb(201,162,39) on rgb(253,246,227)) with uncommitted work in git status, demo/v3nf 'Live' (s-badge--success, rgb(62,140,79) on rgb(235,244,236)) with clean trees and no UIPlugin.",
+      "defect": "Only two of the six states could be produced in this cluster during the run. Reading the component: SBadge maps all six (live/draft/building/unsaved/failed/published) to distinct tones, but extensions.vue's stateOf() can only ever return building, unsaved, published or live - 'failed' and 'draft' are unreachable from it, and 'draft' appears only as the template's placeholder while a row is still enriching."
+    },
+    {
+      "id": "01-home-title",
+      "status": "pass",
+      "evidence": "h1.studio-home__title on /dashboard/barn/extensions reads 'Extension Studio'.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-breadcrumb",
+      "status": "pass",
+      "evidence": "Clicked .queue__crumb ('Extensions') on /barn/review: URL became /dashboard/barn/extensions and .studio-home__table rendered.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-footnote",
+      "status": "pass",
+      "evidence": ".queue__footnote is the last child of .queue__list, with the sparkle icon and the text 'Rows lead with what the change is for, taken from its brief - not with a file count. A change with no brief says so, which is the point: a reviewer should never have to reverse-engineer intent from a diff.'",
+      "defect": null
+    },
+    {
+      "id": "11-queue-header-actions",
+      "status": "fail",
+      "evidence": "Enumerated every button in <header> on /barn/review: top-level-menu ('Expand the Application Bar'), menu-cluster-local, the pin, notifications-center and nav_header_showUserMenu. The bell opens the notification dropdown ('Notifications / Mark all as read / Snapshot taken Today, 4:59:58 pm ...'), and the hamburger expands the Application Bar listing Home, local, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings - the app collection. Filtering every header icon and button class for /ellipsis|kebab|more|dots|apps|grid/ returns [].",
+      "defect": "Two of the three promised controls exist (the bell, and the app collection behind the hamburger). There is no overflow/kebab menu in the header at all - same finding as 01-home-header-more. This is Rancher shell chrome; barn does not render the header."
+    },
+    {
+      "id": "11-queue-nav-rail",
+      "status": "pass",
+      "evidence": "The Studio is marked current on /barn/review with a FULL PAGE LOAD, not an in-app click: after page.goto to /dashboard/barn/review the only rail entry carrying 'active-menu-link' is 'Extension Studio' (it no longer needs router-link-exact-active, which only fires on /barn/extensions). Same on /barn/settings, /barn/editor/base and /barn/extensions/base/files. Navigation out still works: clicked Continuous Delivery from /barn/review and landed on /dashboard/c/_/fleet; Home, Cluster Management, Global Settings, About, the local cluster chip and the user menu were each driven and each reached its destination.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-open-brief",
+      "status": "pass",
+      "evidence": "Produced a blocked row rather than waiting for one: moved demo's BRIEF.md aside in its pod so readExtensionFile returned ''. The demo card's first line became 'No brief - nobody wrote down what this is for.' (.queue__no-brief with the alert icon), its state line read 'No brief, so there is nothing to review this against and nothing to hand over.', the action cell carried a 'Blocked' chip and the button read 'Open the brief'. Clicking it went to /dashboard/barn/extensions/demo/brief with .brief__columns rendered - the brief, not the diff. BRIEF.md restored and the index re-added; git status in the pod is clean again at 22db7ed.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-open-review",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=queue-review-nodehealth]: URL became /dashboard/barn/review/nodehealth/working and .rc__body rendered.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-preview-only-notice",
+      "status": "pass",
+      "evidence": ".queue__lede renders under the title row: 'Nothing in this list is live. Everything here is still running only in its author's preview, and you are both its author and its only reviewer, so nothing here is waiting on anybody else. A change is only a review request once it has been handed over as a packet; until then it is its author's own work, and the row says so.'",
+      "defect": null
+    },
+    {
+      "id": "11-queue-review-settings",
+      "status": "pass",
+      "evidence": "[data-testid=queue-review-settings] opens a modal titled 'Review settings' (not the editor's GitHub-token dialog) with two real settings: 'Order the queue by' and 'Count as signed off for N days'. Drove the second one end to end: with demo's later sign-off dated 2026-08-13 (10 days back) the third tab read 'Signed off this week 0' and was empty; setting the field to 14 and saving made the tab read 'Signed off in 14 days 1' with demo in it. Reloaded /barn/review and the 14 stuck. Set it back to 7 and the tab returned to 'Signed off this week 0'. The order setting persists the same way - see 11-queue-sort.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-intent",
+      "status": "pass",
+      "evidence": "Every row's first line is a purpose sentence from the brief and the counts are below it. base: 'Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.' then 'base \u00b7 v0.1.0' then '4 files \u00b7 +45 -1 \u00b7 4 acceptance criteria'. The whole hard-wrapped paragraph is joined, not truncated at the first newline (base's BRIEF.md wraps that sentence over two lines). A row with no brief says so instead - see 11-queue-open-brief.",
+      "defect": "demo and nodehealth render a garbled first line ('...apart from a sloAn operator cannot see how node conditions moved during an incident.w degradation.'). That text is exactly what is in BRIEF.md in each pod, so the queue is faithful; the corruption was written by whatever produced those briefs, not by this screen."
+    },
+    {
+      "id": "11-queue-row-open",
+      "status": "pass",
+      "evidence": "With the default 'Oldest first' order the first row was demo. Clicked .queue__card:nth-child(1) .queue__main - the row body, well away from the action button: URL became /dashboard/barn/review/demo/working.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-risk",
+      "status": "pass",
+      "evidence": "Each row carries a risk chip plus a one-line reason, and both are computed from the real diff rather than constant. Read across the four rows in one load: base 'medium / 46 lines changed \u00b7 no dependency changes \u00b7 touches the entry point' (its uncommitted set includes product.ts), nodehealth 'low / 33 lines changed \u00b7 no dependency changes \u00b7 2 files', demo and v3nf 'none / Nothing uncommitted since the last commit' (clean trees). Driving demo into a prose-only change (BRIEF.md alone uncommitted) produced 'low / Prose only, no code \u00b7 no dependency changes \u00b7 1 file'.",
+      "defect": "The design draws an em-dash placeholder instead of a rating on a blocked row. The blocked demo row still showed a real rating ('low, Prose only, no code...') beside its 'Blocked' chip."
+    },
+    {
+      "id": "11-queue-row-waiting",
+      "status": "pass",
+      "evidence": "Every card carries a WAITING column: [data-testid=queue-waiting] read '19 hours' for demo and nodehealth, '9 minutes' for base and 'never committed' for v3nf, and each matched the pod (demo's last commit 2026-08-22T22:24:41Z, nodehealth's 22:25:12Z, v3nf has no commit at all). The line under it is [data-testid=queue-asked]: 'asked for by local://user-btc48' for base and v3nf, whose briefs carry a '## Who asked' section, and 'nothing records who asked for this' for demo and nodehealth, whose briefs do not.",
+      "defect": "The requester is shown as the raw Rancher principal id (local://user-btc48) rather than a name, because the brief records the id and nothing resolves it to a display name here."
+    },
+    {
+      "id": "11-queue-row-your-part",
+      "status": "pass",
+      "evidence": "There is no 'Your part' column; the part is said in the action cell, and I drove all four values from real records. 'Blocked' chip + 'Open the brief' button on a row whose BRIEF.md I had moved aside. 'Not handed over' chip + 'Review' on every row with no packet and no sign-off. 'Outcome sign-off' chip + a primary 'Sign off' button after writing an approved code sign-off into barn-review-demo. No chip and a secondary 'Review' button on an ordinary code-review row. The chip and the button agreed in every case.",
+      "defect": "The design draws a 'Your part' pill on every row including the ordinary 'Code review' one; here that case carries no chip at all, only the button's label. Deliberate per the screen's own comment (a chip that says the same thing on every row is not a readout), but it is a deviation from the drawn frame."
+    },
+    {
+      "id": "11-queue-sign-off",
+      "status": "pass",
+      "evidence": "Wrote barn-review-demo with an approved code sign-off from a different principal (local://w3-other-reviewer) against demo's HEAD (22db7ed). demo's action cell changed from the secondary 'Review' to a primary 'Sign off' (s-btn--primary) with an 'Outcome sign-off' chip, and its state line read 'The code is signed off by W3 Other Reviewer. The outcome sign-off is still outstanding.' Clicking it went to /dashboard/barn/extensions/demo/verification with .verify__body rendered - the verification screen, not the code review. ConfigMap deleted afterwards.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-since-banner",
+      "status": "fail",
+      "evidence": "The banner exists and can be right: with a code sign-off naming an OLDER commit in abbreviated form (ea04b8d) demo's card was topped with [data-testid=queue-since], the undo icon and '2 commits since W3 Other Reviewer approved this on 2026-08-23.' plus the filter link, which is the true count. But sign-offs the product itself writes are 40-character shas (signCodeReview -> resolveCommit expands them), and changesSince() compares them with listHistory()'s %h (7 characters) using ===, so they never match. Proved it both ways on the same record: sha '22db7ed191e63bc644e4f9a5ed892a918f9fb232' (demo's actual HEAD, clean tree) produced a banner reading 'the branch has moved past the commit you approved since W3 Other Reviewer approved this on 2026-08-23'; the identical record with sha '22db7ed' produced no banner at all, which is correct.",
+      "defect": "review-queue.vue changesSince(): `const at = commits.findIndex((h) => h.ref === code.sha)`. listHistory() formats commits with %h (abbreviated) while sign-offs store the full object id, so findIndex always returns -1 and every real sign-off gets the 'the branch has moved past the commit you approved' clause - false when it has not moved, and it also makes the 'never a banner about nothing' condition (at===0 && !changes) unreachable, so a signed-off change with a clean tree gets a banner claiming a move that never happened. gateFrom() already has sameCommit() for exactly this comparison; changesSince should use it."
+    },
+    {
+      "id": "11-queue-since-filter",
+      "status": "fail",
+      "evidence": "The link is there and it navigates: [data-testid=queue-since-filter] in demo's banner took the page to /dashboard/barn/review/demo/working?scope=since. But the scope is not applied. Screen 12 reads it and refuses out loud - [data-testid=rc-scope-refused] renders 'You asked for only what has landed since your last look, and this is the whole change instead. Every diff in the Studio is measured from the last published version, and nothing can yet take one from the commit you last read, which nothing recorded. Nothing has been hidden from you.' The diff shown is the whole change and no 'Since my last look' chip is on.",
+      "defect": "Narrowing a change to what has landed since the reviewer's last look is not implemented. review-change.vue's scopeNotice() says why: every diff in extensions.ts is pinned to $BARN_BASE and nothing can take one from an arbitrary commit. The refusal is honest and visible, so nobody is misled, but the promised effect does not happen."
+    },
+    {
+      "id": "11-queue-sort",
+      "status": "pass",
+      "evidence": "The 'Oldest first' chip opens a four-item menu: 'Oldest first | by last commit \u00b7 current', 'Newest first | by last commit', 'Most changes', 'Least changes'. Drove all four and read the row order out of the DOM each time. Oldest first: [demo 19 hours, nodehealth 19 hours, base 9 minutes, w3rc 1 minute, v3nf never committed]. Newest first reversed it to [w3rc, base, nodehealth, demo, v3nf] - the never-committed row staying last in both directions rather than flipping ends. Most changes: [base 3 files, nodehealth 2 files, w3rc 1 file, demo none, v3nf none]. Least changes reversed it. Chose 'Most changes', reloaded /barn/review, and the chip still read 'Most changes'; set it back to 'Oldest first'.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-signed-off",
+      "status": "pass",
+      "evidence": "It means sign-offs now, and it is windowed on the later of the two answers. With barn-review-demo holding an approved code sign-off from local://w3-other-reviewer dated 2026-08-01 (22 days back) and an approved outcome from local://user-btc48 dated 2026-08-21 (2 days back), demo appeared in 'Signed off this week' (count 1) - so the window is measured from the later answer, not the earlier one, which would have excluded it. Moving the later answer to 2026-08-13 (10 days) emptied the tab, and raising the window to 14 days in Review settings brought it back with the tab relabelled 'Signed off in 14 days'. A clean working tree with no sign-offs never appears there: demo, with nothing uncommitted and no record at all, sat in 'Waiting on you'.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-waiting-on-others",
+      "status": "pass",
+      "evidence": "The predicate can match and I made it match. With an approved code sign-off in barn-review-demo carrying MY principal (local://user-btc48, which currentSigner returns here) and no outcome, the tabs read 'Waiting on you 4 / Waiting on others 1 / Signed off this week 0' and demo was the single row under 'Waiting on others' with the state line 'The code is signed off by Default Admin. The outcome sign-off is still outstanding.' Changing that same sign-off's principal to local://w3-other-reviewer moved demo back to 'Waiting on you' and emptied this tab, so the filter turns on who signed rather than on nothing.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-waiting-on-you",
+      "status": "pass",
+      "evidence": "'Waiting on you' is selected on load (aria-selected=true, s-tab--selected) and its badge matched the row count on every read: 4/4, 3/3, 5/5 across the run. The three tabs are disjoint and each can be non-empty: with demo signed by another principal the split was you=4 others=0 signed=0 with demo in 'you'; with demo signed by me it was 4/1/0 with demo only in 'others'; with both questions answered by two different principals it was 3/1/1 with demo only in 'signed'. The reviewer/author distinction is real and observable - a change with no packet and no sign-off carries [data-testid=queue-not-handed] 'Not handed over' and the state line 'Never handed over, so nobody has been asked to review it. It is still the author's own working tree.', while writing one sign-off removes that chip and turns the row into a review request.",
+      "defect": null
+    },
+    {
+      "id": "06-import-branch",
+      "status": "pass",
+      "evidence": "With rancher/dashboard chosen, step 3's Branch control is a real <select data-testid=barn-import-branch-select> holding 183 options with 'master (default)' pre-selected and an icon-chevron-down beside it. Selecting '2.10-pin-actions' re-ran the check against that branch. Pasting https://github.com/rancher/dashboard/tree/release-2.9 pre-filled the control with release-2.9. For octocat/Hello-World the list was its own three branches with 'master (default)' selected, so it is the repository's branches and not a fixed list. There is also a 'Type a branch name instead' escape, and typing 'w3-no-such-branch' produced 'rancher/dashboard has no branch called w3-no-such-branch. Choose one of its 183 branches instead. Import is off until you do' with the submit button disabled.",
+      "defect": null
+    },
+    {
+      "id": "06-import-cancel",
+      "status": "pass",
+      "evidence": "Filled step 2 with octocat/Hello-World and step 3 with branch master and the name w3-import-cancel-probe (Import enabled), then clicked the footer's ghost Cancel. The modal closed, the Studio list was unchanged ([base, demo, nodehealth, v3nf, w3rc] before and after) and no 'starting' strip appeared. kubectl -n barn get cm,deploy shows no w3-import-cancel-probe object, so nothing was cloned.",
+      "defect": null
+    },
+    {
+      "id": "06-import-change-connection",
+      "status": "pass",
+      "evidence": "Stored a throwaway (deliberately invalid) token through the dialog to reach the connected state, then clicked [data-testid=barn-import-change-connection]. Step 1 went from data-state='done' / 'GitHub connected' back to data-state='active' / 'Connect GitHub' with the token field open in it, and steps 2 and 3 both returned to data-state='locked' with zero input/select elements inside them - exactly the promise the button makes. A 'Keep the one that is stored' ghost button beside Connect put it back without touching what is stored. The token was removed from the barn-settings Secret afterwards; its data is empty again.",
+      "defect": null
+    },
+    {
+      "id": "06-import-close",
+      "status": "pass",
+      "evidence": "Opened the dialog, filled octocat/Hello-World, branch master and the name w3-import-cancel-probe, then clicked the single icon button in .s-modal__head. The modal closed and the list was unchanged with no new object in the barn namespace. Done again from the unconnected state with a token typed but not submitted: closing left barn-settings with no data keys.",
+      "defect": "The close glyph computes to 13px where the design draws 18px. It is SModal's shared ghost icon button."
+    },
+    {
+      "id": "06-import-connected-account",
+      "status": "fail",
+      "evidence": "Step 1 is wired to githubIdentity() now - the code calls it on mount and on connect - but it can never answer, so the row shows no handle, no scopes and no expiry. With a token stored, [data-testid=barn-import-account] read: 'A token is stored, so a private repository clones too. Studio could not read the account from it: \" + String(e.message).replace(/[' with barn-import-account-login and barn-import-account-meta both absent. That trailing text is a fragment of the pod script's own source leaking through as the error message. Root cause reproduced in the pod: the installed bundle emits the node script with a REAL carriage return and line feed inside a regex character class (the bundle's string literal is '...replace(/[\\r\\n]+/g, \" \")...' with single backslashes, so the value contains the control characters), node dies with 'SyntaxError: Invalid regular expression: missing /' and echoes the offending source line, and the caller's /BARN-GH-ERR:(.*)/ then matches that echo instead of a real error. Ran the same one-liner via kubectl exec into barn-base-extension and got exactly that SyntaxError and exactly that echoed line.",
+      "defect": "githubApiAnywhere() in extensions.ts (~line 2925, and githubApi() at ~2857 has the same line) builds a node -e script containing the literal regex /[\\r\\n]+/g. The TypeScript source doubles the escapes correctly, but the built bundle in dist-pkg/barn-0.5.22 carries them singly, so at runtime the emitted script has real CR/LF inside the character class and node never reaches the fetch. Neither githubIdentity() nor listGithubRepos() can succeed with any token, valid or not. Avoid a regex literal with escapes inside the emitted script (for example replace(/\\s+/g, ' ') written without backslash escapes, or String.raw), and check the built artifact rather than only the source."
+    },
+    {
+      "id": "06-import-dialog-header",
+      "status": "pass",
+      "evidence": "The dialog's head reads 'Import an extension from GitHub' with the github icon, and directly under it .import-extension__lede reads 'The repository is cloned into your workspace. Nothing is pushed back until you publish.' The panel measures exactly 680px wide.",
+      "defect": null
+    },
+    {
+      "id": "06-import-launch",
+      "status": "pass",
+      "evidence": "On /dashboard/barn/extensions the title row holds Import (neutral, github icon), Settings (neutral, gear) and New extension (primary, plus). Clicking Import opened a modal over the list titled 'Import an extension from GitHub' with three numbered steps, and the URL stayed /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "06-import-list-behind",
+      "status": "pass",
+      "evidence": "With the dialog open, .studio-home__table was still in the DOM and laid out (rect 94, 199, 1322x375) with its search box, all six sortable headers and all five extension rows, and location.pathname was still /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "06-import-name",
+      "status": "pass",
+      "evidence": "The Name in Studio field sits in step 3 and is derived from the repository: typing the rancher/dashboard URL filled it with 'dashboard' and the hint read 'Taken from the repository. Change it to call it something else here.' Overwriting it with 'W3 Renamed Thing' stuck (the field stopped following the repository) and the hint became 'It will be called w3-renamed-thing.' Setting it to 'base' - a name that already exists here - showed 'base already exists here.' and disabled Import.",
+      "defect": null
+    },
+    {
+      "id": "06-import-paste-url",
+      "status": "pass",
+      "evidence": "Step 2's field takes a pasted URL directly: entering https://github.com/rancher/dashboard/tree/release-2.9 was accepted, the hint read 'Reads as rancher/dashboard.', the name filled with 'dashboard' and the branch control pre-filled with release-2.9. Its placeholder says so ('owner/name, or paste the repository URL') and its hint offers it as the escape from the listing ('Or name one that is not on the list, or paste its URL.'). Garbage ('not a repo at all') is rejected with 'That has to be owner/name, or a github.com repository URL.'",
+      "defect": "There is no separate 'Not listed? Paste a repository URL instead' link revealing a second field - the one repository field accepts both forms. That is a smaller surface than the design draws rather than a missing capability."
+    },
+    {
+      "id": "06-import-precheck",
+      "status": "pass",
+      "evidence": "The check is real - it clones the repository into a pod without file contents and reports four distinct outcomes, each of which I drove. rancher/dashboard: green (data-tone=pass) 'This looks like a Rancher extension. Found pkg/aks/package.json, pkg/aks/index.ts, a pkg/ directory and the rancher annotations block. It does not say which Rancher it was built against, so Studio cannot tell you what has moved since. This Rancher is 2.15.' octocat/Hello-World: warn, 'This does not look like a Rancher extension. Did not find package.json, index.ts, a pkg/ directory and the rancher annotations block. You can import it anyway...'. A non-existent repo: unknown, 'Studio could not see w3verify/definitely-not-a-real-repo-xyz on GitHub. It may be private, in which case connect GitHub in step 1...'. A non-existent branch: unknown, and Import disabled. The version comparison is against this Rancher's real version (2.15).",
+      "defect": "For an unreadable repository Import stays enabled - deliberate, since a private repo the anonymous check cannot see may still import with the token - so the only thing the check actually gates is a missing branch."
+    },
+    {
+      "id": "06-import-repo-meta",
+      "status": "fail",
+      "evidence": "No repository rows are ever rendered, so there is nothing to carry a visibility icon, a visibility word or a relative updated time. The markup for all three exists and is correct (the row template draws repoIcon() lock/book, the private/public word and updatedAgo(each.updatedAt)), and listGithubRepos() returns private/updatedAt, but the call cannot succeed - see 06-import-connected-account for the reproduced root cause. With a token stored, [data-testid=barn-import-repo-list] count was 0 and the note under step 2 read '\" + String(e.message).replace(/[. Name the repository below or paste its URL instead.'",
+      "defect": "Blocked behind the same githubApiAnywhere() regex defect. Once listGithubRepos() answers, this row markup should light up unchanged."
+    },
+    {
+      "id": "06-import-repo-pick",
+      "status": "fail",
+      "evidence": "The list is implemented but never appears. With no token, step 2 renders only the text field and says why ('Studio can only list your repositories when a token is stored, because the listing is fetched by the pod that holds it'). With a token stored, [data-testid=barn-import-repo-list] is still absent (count 0) because listGithubRepos() throws - the note under step 2 was the leaked script fragment '\" + String(e.message).replace(/[. Name the repository below or paste its URL instead.' Root cause reproduced in the pod; see 06-import-connected-account. So the user must still know and type owner/name, or paste a URL.",
+      "defect": "Same githubApiAnywhere() regex defect. The row markup, the single-selection highlight (import-extension__repo--on plus the check icon, derived from repoPath so typing into the field lights the matching row) and pickRepo() all exist and are unreachable."
+    },
+    {
+      "id": "06-import-repo-search",
+      "status": "fail",
+      "evidence": "The search box is conditional on the list having rows (v-if=\"repos.length\"), and the list never loads, so [data-testid=barn-import-repo-search] does not exist in the DOM in either state. Enumerated every input and select inside [data-testid=barn-import-step-2] with a token stored: exactly ['barn-import-repo'].",
+      "defect": "Same githubApiAnywhere() regex defect as 06-import-repo-pick. The filter itself (visibleRepos, matching on fullName, with an 'N of M match' note) is written and untestable until the listing answers."
+    },
+    {
+      "id": "06-import-scrim",
+      "status": "pass",
+      "evidence": "The .s-modal root is position:fixed and measures 1440x900 at 0,0 with background rgba(0, 0, 0, 0.45). Controls behind it are unreachable: document.elementFromPoint over the centre of the 'New extension' button returns the s-modal element, not the button.",
+      "defect": "The tint is rgba(0,0,0,0.45) where the design specifies rgba(20,20,26,0.42)."
+    },
+    {
+      "id": "06-import-step-markers",
+      "status": "pass",
+      "evidence": "Three stacked steps, each with a 22x22 round marker, and the states are driven by whether GitHub is connected rather than drawn. Unconnected: step 1 data-state='active' with a rgb(61,152,211) (#3D98D3) disc and a white '1'; steps 2 and 3 data-state='locked' with rgb(240,241,244) discs and grey digits. With a token stored: step 1 data-state='done', marker rgb(62,140,79) (#3E8C4F) carrying an icon-checkmark and no digit, and steps 2 and 3 both data-state='active' with blue discs and white digits, both open for input.",
+      "defect": null
+    },
+    {
+      "id": "06-import-submit",
+      "status": "blocked",
+      "evidence": "Deliberately stopped short of the clone: a completed import creates a ConfigMap, a Deployment and a pod in the shared barn namespace that other verifiers are working against, and this wave was told not to. Everything short of it is proved. The footer button is the green primary with an icon-download, [data-testid=barn-import-submit], and its gating is a real reading of the form: disabled with no repository, disabled while the pre-import check is running, disabled on an invalid owner/name, disabled on a name that already exists ('base already exists here.'), disabled on a branch the repository does not have, and enabled with octocat/Hello-World + master + a free name. The emitted source is `github:<owner/name>#<branch>`.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-authorise",
+      "status": "not-implemented",
+      "evidence": "With barn-settings holding no data keys (confirmed by kubectl) I opened the dialog and enumerated every button in it: the header close, the footer Cancel and the footer Import, and nothing matching /author/i (count 0). Step 1's only control is the 'Paste a personal access token' link.",
+      "defect": "Deliberate and said out loud in step 1: 'There is no \"Authorise with GitHub\" because Studio has no OAuth app of its own to send you to.' OAuth needs a client id and a callback this product has no server for. Recorded as not-implemented rather than fail because the design's control is genuinely absent, and the copy explains rather than pretends."
+    },
+    {
+      "id": "06a-import-first-cancel",
+      "status": "pass",
+      "evidence": "In the unconnected state (step 1 active, no token stored) the footer Cancel is enabled and clicking it closed the dialog. barn-settings still has no data keys afterwards, and the extension list was unchanged.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-close",
+      "status": "pass",
+      "evidence": "In the unconnected state, revealed the token field, typed 'ghp_FAKE_never_saved' into it and clicked the header X. The modal closed, nothing was stored (barn-settings data still empty) and no extension was created.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-connect-copy",
+      "status": "pass",
+      "evidence": "Step 1 is headed 'Step 1. Connect GitHub' and carries the paragraph 'Studio clones the repository from a pod in this cluster, which takes a few seconds and happens without leaving this dialog. A public repository needs nothing at all. A private one needs a token, and you can paste it here without losing what you have typed. There is no \"Authorise with GitHub\" because Studio has no OAuth app of its own to send you to.'",
+      "defect": "Two wordings differ from the design and both are corrections rather than gaps: 'a few seconds' rather than 'about fifteen seconds', and the purpose is stated as cloning rather than 'list your repositories and clone one' - the listing is written but cannot answer (see 06-import-repo-pick)."
+    },
+    {
+      "id": "06a-import-first-header",
+      "status": "pass",
+      "evidence": "With no token stored, clicking Import from the Studio list opens the same dialog rather than redirecting: the panel measures exactly 680px, the head reads 'Import an extension from GitHub' and the caption under it is the same one-way clone line, 'The repository is cloned into your workspace. Nothing is pushed back until you publish.' Connecting happens inside step 1 of this dialog, so there is no round trip to a settings screen and nothing typed is lost.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-import-disabled",
+      "status": "pass",
+      "evidence": "With no token stored, [data-testid=barn-import-submit] has disabled=true and a computed opacity of exactly 0.4. Once step 1 is satisfied the same button enables on a valid repository: after taking the 'carry on without connecting' escape and entering octocat/Hello-World with a free name, disabled became false; connecting a token instead unlocks steps 2 and 3 the same way.",
+      "defect": "Import is gated on steps 2 and 3 being unlocked plus a valid repository, and 'unlocked' can also be reached by the 'carry on without connecting' escape rather than only by connecting GitHub. That is deliberate - a public repository clones with no credential - and the escape says so where the design draws the lock."
+    },
+    {
+      "id": "06a-import-first-step-markers",
+      "status": "pass",
+      "evidence": "Read the computed styles off all three markers in both states. Unconnected: step 1's marker is rgb(61,152,211) (#3D98D3) holding a white '1' with data-state='active'; steps 2 and 3 are rgb(240,241,244) with grey digits (color(srgb 0.582 0.582 0.663)) and grey headings, data-state='locked'. After connecting a token: step 1 turned data-state='done' with a green rgb(62,140,79) disc and a checkmark icon, and steps 2 and 3 both turned blue with white digits.",
+      "defect": "The locked disc measures rgb(240,241,244) where the design specifies #F2F3F5."
+    },
+    {
+      "id": "06a-import-first-steps-locked",
+      "status": "pass",
+      "evidence": "Genuinely absent, not disabled. With no token stored I enumerated every input, select and textarea inside [data-testid=barn-import-step-2] and [data-testid=barn-import-step-3]: both returned []. Step 3 renders nothing but its greyed heading; step 2 renders one sentence explaining the lock and offering the escape. Both headings compute to the tertiary grey and both markers are the flat grey disc.",
+      "defect": "Step 2's locked body is not empty: it carries 'Locked until GitHub is connected. A public repository needs no token, so carry on without connecting if the one you want is public.' with a working link. The design draws the locked steps bare."
+    },
+    {
+      "id": "06a-import-first-token-choice",
+      "status": "pass",
+      "evidence": "It is a real disclosure, closed by default. Before clicking, [data-testid=barn-import-token-field] does not exist in the DOM (count 0). Clicking 'Paste a personal access token' ([data-testid=barn-import-token-toggle]) renders the field plus a 'Connect' button inside step 1, and the step stays step 1 rather than becoming a separate screen.",
+      "defect": "The design pairs this with 'Authorise with GitHub' separated by the word 'or' and draws it as a ghost button. Here it is a text link at the end of the step 1 paragraph and there is no 'or', because the token path is the only path (see 06a-import-first-authorise)."
+    },
+    {
+      "id": "06a-import-first-token-field",
+      "status": "pass",
+      "evidence": "The field is labelled 'Personal access token', is type=password (so the value is masked) and computes to a monospace face, font-family '\"JetBrains Mono\", SFMono-Regular, Menlo, Consolas, monospace' at 12px. Submitting it connects: pasting a throwaway token and clicking Connect turned step 1 into data-state='done' / 'GitHub connected' and unlocked steps 2 and 3 (data-state='active', fields barn-import-repo, barn-import-branch, barn-import-name now present) without the dialog remounting. The token was removed from the barn-settings Secret afterwards.",
+      "defect": "The design shows the value masked except for the ghp_ prefix; type=password masks it entirely."
+    },
+    {
+      "id": "06a-import-first-token-help",
+      "status": "pass",
+      "evidence": "Under the field: 'Needs the repo scope only. Create one on GitHub with the scope pre-selected. It is stored in a Secret in this Rancher, not in your browser, because the thing that spends it is a pod - which also means it is shared with everyone using this Rancher's Studio, not held per user.' The link's href is https://github.com/settings/tokens/new?scopes=repo&description=Rancher%20Extension%20Studio, so the scopes really are pre-selected. Confirmed the storage claim against the cluster: saving wrote the key gh_token into the Secret barn-settings in namespace barn, which is one shared object, not a per-user one.",
+      "defect": "The design's promise is 'stored per user, never inside the extension'. Half holds - it is not in the extension - and the copy corrects the other half out loud rather than repeating it, which is the right call but is a deviation from the drawn text."
+    }
+  ]
+}

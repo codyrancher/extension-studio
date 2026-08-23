@@ -1,0 +1,527 @@
+{
+  "screen": "w3-review-cross",
+  "verdicts": [
+    {
+      "id": "04-review-masthead-title",
+      "status": "pass",
+      "evidence": "Loaded /barn/extensions/base/review: the masthead reads 'base' over 'REVIEW CHANGES', and on /barn/extensions/w3rc/review it reads 'w3rc'. The name is the route's extension, not a hardcoded 'node-health-panel'.",
+      "defect": null
+    },
+    {
+      "id": "04-review-state-badge",
+      "status": "pass",
+      "evidence": "On base (6 changed files) the badge read 'Unsaved'; on w3rc immediately after 'Discard all' emptied the tree the same badge read 'Live' and the action bar read 'Nothing has changed since the last commit.' Both states observed on the same screen.",
+      "defect": null
+    },
+    {
+      "id": "04-review-branch-chip",
+      "status": "pass",
+      "evidence": "The masthead chip read 'main'; `git rev-parse --abbrev-ref HEAD` in deploy/barn-base-extension also answers main. No chevron and no click handler, which matches the read-only reading.",
+      "defect": null
+    },
+    {
+      "id": "04-review-changed-files-summary",
+      "status": "pass",
+      "evidence": "Header showed count 6 and totals '+50 -1' (title '50 lines added and 1 removed across 6 files'). The six rows were BRIEF.md +35 -1, CHANGELOG.md +5, HARNESS.md +3, product.ts +2, verify-07-publish.txt +2, verify-w3-review-cross.txt +3 - which sums to exactly +50 -1. After my own file was reverted on the way out the count dropped, so it tracks the tree rather than being fixed.",
+      "defect": null
+    },
+    {
+      "id": "04-review-file-stats",
+      "status": "pass",
+      "evidence": "Each row carried a status chip and counts: BRIEF.md 'modified' +35 -1, CHANGELOG.md 'added' +5, verify-w3-review-cross.txt 'added' +3. I created verify-w3-review-cross.txt in the pod with exactly three lines and the row said +3.",
+      "defect": null
+    },
+    {
+      "id": "04-review-select-file",
+      "status": "pass",
+      "evidence": "Clicked the CHANGELOG.md row: the diff header changed from BRIEF.md to CHANGELOG.md, the code pane rendered CHANGELOG.md's patch, the explanation rail re-derived itself for that file, and the review__file--selected class moved off BRIEF.md onto CHANGELOG.md.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-header",
+      "status": "pass",
+      "evidence": "The diff pane's header showed 'BRIEF.md' and then 'CHANGELOG.md' as the selection moved. The per-file counts are drawn by DiffView just under it ('1 file +5 -0 / CHANGELOG.md / +5 / -0').",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-body",
+      "status": "pass",
+      "evidence": "The code pane rendered the real patch with two numbered gutter columns (old and new line numbers) and a sign column: e.g. '1 1  # base', '  3 +## What you were handed'. DiffView classes rows diff__row--add / diff__row--remove and tints them from --studio-diff-added-bg / --studio-diff-removed-bg.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-scroll",
+      "status": "pass",
+      "evidence": "Measured the pane on the 36-line BRIEF.md diff: .review__code has scrollHeight 1191 against clientHeight 758 with overflow-y: auto, so the diff scrolls inside its own column while the masthead, file list and action bar stay put.",
+      "defect": null
+    },
+    {
+      "id": "04-review-explanation",
+      "status": "pass",
+      "evidence": "Three headed paragraphs, all derived from the patch on screen. For BRIEF.md: 'What was added - 35 lines added, in 4 places in the file. The new lines bring in the heading \"What you were handed\"...'; 'What was replaced - 1 line taken out...'; 'What is not touched - Outside those 4 places, BRIEF.md is unchanged. 5 other files changed in this working tree...'. Selecting CHANGELOG.md re-derived all three ('CHANGELOG.md is new. The whole file is 5 lines of it.'), so it is not fixed copy.",
+      "defect": null
+    },
+    {
+      "id": "04-review-keep-file",
+      "status": "pass",
+      "evidence": "Created verify-w3-review-cross.txt in the base pod, unticked only that row, and the action bar recounted from '6 of 6 files will be kept' to '5 of 6'. The intent was stored as sessionStorage barn.review.unkept.base = [\"verify-w3-review-cross.txt\"]. Left with 'Keep and continue building'; afterwards `git status --porcelain` in the pod no longer listed the file and it was gone from disk, while BRIEF.md, HARNESS.md and product.ts were still modified.",
+      "defect": null
+    },
+    {
+      "id": "04-review-preview-note",
+      "status": "pass",
+      "evidence": "The action bar read 'These changes are running in your preview only. 6 of 6 files will be kept.' and recounted to '5 of 6 files will be kept' the moment one box was cleared.",
+      "defect": null
+    },
+    {
+      "id": "04-review-unticked-note",
+      "status": "pass",
+      "evidence": "The caption under the list reads 'Unticked files are reverted when you leave this screen. Nothing here has reached the repository yet.' and it is true: the unticked file really was reverted on the way out (see 04-review-keep-file).",
+      "defect": null
+    },
+    {
+      "id": "04-review-keep-and-continue",
+      "status": "pass",
+      "evidence": "Clicked 'Keep and continue building' with one file unticked: it routed to /dashboard/barn/editor/base, the remaining five files were still changed in the pod, and no UIPlugin was created (no 'base' entry in uiplugins.catalog.cattle.io).",
+      "defect": null
+    },
+    {
+      "id": "04-review-back-arrow",
+      "status": "pass",
+      "evidence": "Clicked the arrow at the start of the masthead: the route went from /barn/extensions/base/review to /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "04-review-back-to-assistant",
+      "status": "pass",
+      "evidence": "Clicked 'Back to assistant': routed to /dashboard/barn/editor/base, and the workspace masthead there still read 'Unsaved / Iterating - 4 changes / Review 4 changes', so nothing was lost.",
+      "defect": null
+    },
+    {
+      "id": "04-review-publish-masthead",
+      "status": "pass",
+      "evidence": "Clicked 'Publish' in the masthead: a modal opened titled 'Publish this extension?' explaining that base is built in its pod and this Rancher is pointed at the result, with Cancel and 'Publish to this Rancher'. Not a dead click, and nothing is installed before the confirmation.",
+      "defect": null
+    },
+    {
+      "id": "04-review-publish-action-bar",
+      "status": "pass",
+      "evidence": "Clicked 'Publish...' in the action bar: the same 'Publish this extension?' confirmation opened, so the ellipsis is honest. Confirming routes to /barn/editor/base with ?publish=local, where the workspace's own publish flow runs.",
+      "defect": null
+    },
+    {
+      "id": "04-review-discard-all",
+      "status": "fail",
+      "evidence": "Drove it on my own extension. /barn/extensions/w3rc/review listed 3 changed files (BRIEF.md, pages/Home.vue, verify-w3rc-approve.txt) with the button reading 'Discard all'. Clicking it asked first - window.confirm received 'Discard all 3 changed files in w3rc? This cannot be undone.' - and the discard itself really happened: `git status --porcelain` in the pod went from ' M BRIEF.md / M pages/Home.vue' to empty.",
+      "defect": "The screen does not empty afterwards, and it cannot, because it counts against a different point from the one it discards to. The file list is `changedFiles`, measured from $BARN_BASE (refs/barn/published/oci, then refs/barn/published/local, then HEAD), while discardChanges() puts the working tree back to HEAD. On w3rc, which has a baseline ref two commits behind HEAD, the list still showed the same three files after the discard, the action bar still said '3 of 3 files will be kept' and the badge still read Unsaved - so a user is told 'this cannot be undone', it is done, and nothing on the screen changes. Also worth naming: two of those three files were only different from the baseline because of commits, and 'Discard all' cannot touch a commit, so the button's own label over-promises on any extension that has ever been published or handed over. On base, which has no baseline ref, baseline resolves to HEAD and the two readings agree, which is why this did not show up before."
+    },
+    {
+      "id": "04-review-ask-different-approach",
+      "status": "pass",
+      "evidence": "The button under the explanation is labelled 'Ask why this file changed' rather than 'Ask for a different approach'. Clicking it sent a question about the selected file to the pod's assistant and routed to /dashboard/barn/editor/base?tab=terminal, which is the 'at minimum the assistant panel opens' bar. Worth knowing: the screen has deliberately re-scoped the promise to 'why', and an adjacent banner says so ('Why it was made is not in a diff, so this rail does not guess at it: that question goes to the one assistant this extension has').",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-view-mode",
+      "status": "not-implemented",
+      "evidence": "No unified/split control exists. Grepped pkg/barn for 'Unified', 'split', 'side by side' - the only hits are DiffView.vue's header comment ('Unified rather than side by side. Side by side needs twice the width to say the same thing') and String.split calls. The rendered .review__diff-head contains only the file name and a 'Re-read this file' refresh button; no chip is drawn, so nothing looks pressable either.",
+      "defect": null
+    },
+    {
+      "id": "04-review-open-in-files",
+      "status": "not-implemented",
+      "evidence": "No such button. Grepped pkg/barn for 'Open in Files' and 'open-in-files': no hits. The rendered diff header's only button is the icon-only 'Re-read this file'.",
+      "defect": null
+    },
+    {
+      "id": "04-review-revert-file",
+      "status": "not-implemented",
+      "evidence": "No per-file revert. Grepped pages/review.vue for 'Revert' and 'revert-file': the only revert path is revertUnkept(), which runs when you leave the screen with a box cleared. The diff header carries no undo button.",
+      "defect": null
+    },
+    {
+      "id": "04-review-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] in the header: a .notification-dropdown opened listing real entries ('Snapshot taken - Today, 5:03:53 pm - The copy you wrote over was snapshotted first...') with 'Mark all as read'.",
+      "defect": null
+    },
+    {
+      "id": "04-review-header-apps",
+      "status": "not-implemented",
+      "evidence": "There is no grid/app-collection icon in this Rancher's header. Inventoried every button in [data-testid=header]: 'Cluster menu item local', 'Open notification center', 'Open user menu'. The product-group icons the design draws as a grid live inside the slide-out nav rail, not in the top bar.",
+      "defect": null
+    },
+    {
+      "id": "04-review-header-more",
+      "status": "not-implemented",
+      "evidence": "No three-dot overflow in the header. Same inventory as above: the header has exactly three buttons and none is an overflow menu, and no icon-more element is present.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-menu",
+      "status": "pass",
+      "evidence": "Clicked the hamburger ([data-testid=top-level-menu]) from the review screen: [data-testid=side-menu] went from 70px wide to 300px and stayed visible, i.e. the rail expanded into the navigation drawer.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-home",
+      "status": "pass",
+      "evidence": "Clicked 'Home' in the rail from /barn/extensions/base/review: landed on /dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Clicked the cluster entry ([data-testid=menu-cluster-local]): landed on /dashboard/c/local/explorer#cluster-events. This Rancher has one cluster, 'local', so there is one chip rather than the design's three (LT1/CD2/AFT), but the chip does open that cluster's explorer.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-rail-icons",
+      "status": "pass",
+      "evidence": "Clicked rail entries in turn from the review screen: 'Extension Studio' -> /barn/extensions, 'Global Settings' -> /dashboard/c/local/settings/management.cattle.io.setting, 'Home' -> /dashboard/home. While on a Studio route the Extension Studio entry carries the class 'option active-menu-link', so the selected state sits on the right one.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the foot of the rail: landed on /dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "12-change-identity",
+      "status": "pass",
+      "evidence": "Masthead line one on /barn/review/base/working: 'base . not published yet'; on w3rc after its outcome sign-off: 'w3rc v0.1.0'. Line two ([data-testid=rc-provenance]): 'CODE REVIEW . 4 UNCOMMITTED FILES . LAST EDITED JUST NOW . ON MAIN'. It says which of the two reviews this is and when the tree was last touched; it declines to name an author for an uncommitted tree and its hover text says why ('Git records no author for an uncommitted working tree').",
+      "defect": null
+    },
+    {
+      "id": "12-change-risk-chip",
+      "status": "pass",
+      "evidence": "Screen 12 showed 'medium risk' for base (4-8 changed files) and 'low risk' for w3rc (2 files). The queue row for base on /barn/review carries the same rating from the same assessRisk() reading of the changed files, so it survives the navigation.",
+      "defect": null
+    },
+    {
+      "id": "12-change-back",
+      "status": "pass",
+      "evidence": "Clicked the left arrow (aria-label 'Back to the queue') on /barn/review/base/working: landed on /dashboard/barn/review.",
+      "defect": null
+    },
+    {
+      "id": "12-change-nav-rail",
+      "status": "pass",
+      "evidence": "On /barn/review/base/working both [data-testid=side-menu] and [data-testid=header] render, and the rail's 'Extension Studio' entry carries 'option active-menu-link' while the others carry plain 'option'.",
+      "defect": null
+    },
+    {
+      "id": "12-change-purpose-card",
+      "status": "pass",
+      "evidence": "The first card is headed 'WHAT THIS IS FOR' and renders the purpose read out of BRIEF.md ('w3 handed: the on-call team keep opening Grafana mid-incident.') plus a provenance line. Where the brief records the history the line is real - on w3rc the packet card showed 'WHO ASKED / local://user-btc48 - Default Admin, on 2026-08-23' and 'Agreed in the Extension Studio on 2026-08-23'. Where it does not, the line says so instead of inventing it: 'Nothing records who agreed it, when, or which ticket it came from - the brief has no field for any of that, so this screen does not invent one.'",
+      "defect": null
+    },
+    {
+      "id": "12-change-open-brief",
+      "status": "pass",
+      "evidence": "Clicked 'Open the brief' ([data-testid=rc-open-brief]) in the 'What this is for' header: landed on /dashboard/barn/extensions/base/brief.",
+      "defect": null
+    },
+    {
+      "id": "12-change-criteria-list",
+      "status": "pass",
+      "evidence": "On base the section reads 'DOES IT DO THE JOB? / 4 criteria' and lists all four with their evidence state: 'The tab appears under the cluster nav without a reload - evidence captured at /home', 'It renders with metrics-server absent, and says why - evidence captured', 'A 24-hour trend is readable at a glance - not measured', 'Nothing on the existing cluster page moves or changes - not measured'. Those are the same four criteria BRIEF.md holds and the same verdicts screen 13 wrote there, so it is a real mirror.",
+      "defect": null
+    },
+    {
+      "id": "12-change-file-ranking",
+      "status": "pass",
+      "evidence": "Files render in named groups with counts and a one-line reason each. On base: 'Worth your attention 2' (BRIEF.md 'the brief itself, so what this change is measured against moved . modified . +36 -1'; product.ts 'changed code . modified . +2') and 'Config 2' (CHANGELOG.md 'documentation . added . +5'; HARNESS.md 'documentation . added . +3'). The group counts and the masthead's 'Reviewing all 4 files' agree, unlike the mock's numbers.",
+      "defect": null
+    },
+    {
+      "id": "12-change-file-select",
+      "status": "pass",
+      "evidence": "Clicked product.ts in the ranked list: the diff pane header changed to 'product.ts', the code pane rendered its +2 patch, and the rc__file--selected class moved from BRIEF.md onto product.ts.",
+      "defect": null
+    },
+    {
+      "id": "12-change-diff-header",
+      "status": "pass",
+      "evidence": "The header names the selected file ('BRIEF.md', then 'product.ts') and carries the change-wide provenance summary beside it. The line delta is drawn immediately under it by DiffView ('1 file +2 -0 / product.ts / +2 / -0').",
+      "defect": null
+    },
+    {
+      "id": "12-change-diff-lines",
+      "status": "pass",
+      "evidence": "Real code with both gutter columns and a +/- sign column, e.g. on product.ts '26 26 (blank)', '27 27   basicType([HOME_PAGE]);', '  29 +', '  30 +// harness fixture: delete this line'. Added rows carry diff__row--add and its tint.",
+      "defect": null
+    },
+    {
+      "id": "12-change-hunk-provenance",
+      "status": "pass",
+      "evidence": "Every hunk carries a strip, and it quotes the prompt when one exists. With a completed turn on w3rc (a commit carrying a Barn-Turn trailer plus its record in /app/.barn/provenance.jsonl), /barn/review/w3rc/working rendered under the hunk: 'Prompt 1 of 1 | w3rc audit prompt: colour the greeting so a pressure event stands out | 3 lines . 1 minute ago | See the conversation', with '1 prompt behind this change' above the diff. The numbering is across the whole change (turnOrder), and the hover text explains how the lines were attributed ('resolved by blaming each line to the commit the turn ended in'). The matching works despite the report being -U0 and the display -U3: the report's hunk was 47-49 and the displayed hunk started at 44, and hunkProvenance matches on overlap. On base, where the pod's claude is signed out and no turn has ever ended, the strip is the honest empty state - 'No prompt recorded for any of this change's 46 lines' above the diff and '10 lines changed in the pod, no prompt recorded' on each hunk - and it never attributes those lines to a nearest turn; the hover says so outright ('The nearest prompt is not the answer, so none is named').",
+      "defect": null
+    },
+    {
+      "id": "12-change-see-conversation",
+      "status": "pass",
+      "evidence": "The link renders inside a provenance strip whenever that hunk has a turn - on w3rc's pages/Home.vue hunk it read 'See the conversation' with [data-testid=rc-conversation-0]. It routes to the workspace terminal, and its title says exactly what it can and cannot do rather than overpromising: 'Opens the workspace terminal, which is attached to the one conversation this pod has. A terminal cannot be opened at a particular prompt, so it opens where the conversation is now.' On hunks with no recorded turn (every hunk on base) no link is drawn, which is right.",
+      "defect": null
+    },
+    {
+      "id": "12-change-write-comment",
+      "status": "pass",
+      "evidence": "Each hunk carries a 'Comment on line N' affordance ([data-testid=rc-comment-on-<i>]) anchored to the hunk's first new line. Opened it on product.ts hunk 0, typed 'w3rc RECORD probe 1787503892', and the comment was written into the barn-review-base ConfigMap as {file: product.ts, hunk: 26, text: ..., principal: local://user-btc48, name: Default Admin, at: 2026-08-23T16:52:00.754Z}.",
+      "defect": null
+    },
+    {
+      "id": "12-change-comment-thread",
+      "status": "pass",
+      "evidence": "After posting, the thread rendered under that hunk as 'DA | Default Admin . just now . on line 26 | w3rc RECORD probe 1787503892 | on the record, not sent to the assistant' - avatar initials, byline with the line number, body, and the delivery state.",
+      "defect": null
+    },
+    {
+      "id": "12-change-send-to-assistant",
+      "status": "pass",
+      "evidence": "Typed a second comment and pressed 'Send to the assistant' ([data-testid=rc-comment-send-0]). It recorded the comment, routed to /barn/editor/base?tab=terminal&comment=<id>, and the pod's tmux pane 'mc-editor' then showed 'A reviewer looked at this change and asked for something. It is about product.ts around line 26. Their words: w3rc SEND probe 1787503892 please rename nothing. Make that change in the working tree and explain what you did.' The record was updated to sentAt 2026-08-23T16:52:14.848Z, sentHow 'sent'.",
+      "defect": null
+    },
+    {
+      "id": "12-change-leave-for-author",
+      "status": "pass",
+      "evidence": "The composer's second button is 'Just record it' rather than the design's 'Leave it for the author'. Pressing it left the thread marked 'on the record, not sent to the assistant' and produced no assistant draft, which is the behaviour the design asks for. The screen deliberately declines to name an author (its hover text: 'Git records no author for an uncommitted working tree, so there is nobody to address it to by name - it waits here for whoever opens the review next'), so the design's 'Ken sees it either way' note is not drawn.",
+      "defect": null
+    },
+    {
+      "id": "12-change-approve",
+      "status": "pass",
+      "evidence": "Clicked 'Approve the code' on /barn/review/w3rc/working with two files uncommitted. It committed the tree as cbb6995 ('Reviewed: 2 files', confirmed with git log in the pod) and wrote signoffs.code = {verdict: approved, principal: local://user-btc48, name: Default Admin, sha: cbb6995d27e3cb8311d26084cb77af98b9360cc7, ...} into barn-review-w3rc. The Code review dot gained rc__gate-dot--on and read 'Default Admin, just now' while the Outcome dot stayed empty at 'not signed off'. The sha is stored as the full 40-character object id, i.e. resolveCommit() normalises at write time.",
+      "defect": null
+    },
+    {
+      "id": "12-change-request-changes",
+      "status": "pass",
+      "evidence": "'Request changes' opened a modal that requires a note ('What needs to change? ... It is also put straight to the assistant working in w3rc's pod'). Sent 'w3rc audit request-changes probe: reply ACK only, change nothing.' The record became signoffs.code = {verdict: changes-requested, note: <that sentence>, sha: 6cbb9a4..., principal: local://user-btc48}, the route went to /barn/editor/w3rc?tab=terminal, and the pod's mc-editor pane received 'A reviewer looked at the working tree of the w3rc extension and asked for a change: w3rc audit request-changes probe: reply ACK only, change nothing.. Make that change in the working tree and explain what you did.'",
+      "defect": null
+    },
+    {
+      "id": "12-change-signoff-status",
+      "status": "pass",
+      "evidence": "The decision bar draws both gates with their owner and state: on base 'Code review - not signed off' and 'Outcome sign-off - not signed off - 2 of 4 criteria met', both dots empty. After approving on w3rc the first dot filled ('Default Admin, just now') and the second stayed empty, so the two are tracked separately.",
+      "defect": null
+    },
+    {
+      "id": "12-change-open-preview",
+      "status": "pass",
+      "evidence": "The 'Rendered result' pane runs the live preview rather than a static shot: it reported 'Loaded . just now' with a viewport chip, and its pop-out link is <a target=\"_blank\" href=\"/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-w3rc-extension:8005/proxy/home\"> - the extension's own dev server through the cluster proxy.",
+      "defect": null
+    },
+    {
+      "id": "12-change-pr-link",
+      "status": "blocked",
+      "evidence": "The chip is real and clickable with four states (checking / 'PR #N open' / 'No open PR for <branch>' / 'No GitHub token'). It read 'No GitHub token' and clicking it opened the Connect GitHub dialog, which is the documented action for that state. I could not reach the 'PR #N open' state: no GitHub token is stored anywhere in this Studio (the barn-settings Secret is empty) and no repository is remembered, so no pull request can exist to open. Separately worth flagging for whoever does get a token in: checkPullRequest() searches for a PR whose head is listBranches().current, but a packet's branch (barn/<ext>/<n>) is created with `git branch -f` and never checked out, so the branch the hand-over actually pushes is not the one the chip looks for.",
+      "defect": null
+    },
+    {
+      "id": "12-change-header-actions",
+      "status": "fail",
+      "evidence": "Only one of the three exists. Inventoried every button in [data-testid=header] on /barn/review/base/working: 'Cluster menu item local', 'Open notification center', 'Open user menu'. The bell works (a .notification-dropdown opens). There is no app-collection grid and no three-dot overflow anywhere in the header.",
+      "defect": "This Rancher's own header has no app-collection or overflow control, so two of the three the design draws are not reachable from screen 12. Nothing in pkg/barn adds them either. If the design means Rancher's chrome, the frame is drawing a header this version does not have."
+    },
+    {
+      "id": "12-change-file-scope",
+      "status": "not-implemented",
+      "evidence": "The chip is a readout, not a control. review-change.vue line 1435 renders it as <SChip :label=\"`Reviewing all ${count} file${...}`\" tone=\"subtle\" /> - no @click, no :clickable, no chevron and no icon, unlike the PR chip beside it which does take :clickable and @click. There is no scope state anywhere in the component and no way to narrow which files the diff pane covers. The count itself is real (4 on base, 2 then 3 on w3rc as its tree changed).",
+      "defect": null
+    },
+    {
+      "id": "12-change-hide-generated",
+      "status": "not-implemented",
+      "evidence": "No such chip. Grepped pages/review-change.vue for 'generated', 'Hide' and 'fold': no hits. The ranked file list does group files into 'Generated, low risk', but nothing collapses their lines out of the diff.",
+      "defect": null
+    },
+    {
+      "id": "12-change-since-last-look",
+      "status": "not-implemented",
+      "evidence": "No chip and no filter. What exists instead is an SBanner: after I looked at packet 1 and a packet 2 was handed over, /barn/review/w3rc/working showed '1 change landed since you last looked at packet 1. The diff below is still the whole change rather than only the newer part of it: narrowing it needs a diff taken against the commit you last read, and nothing in the Studio takes one against an arbitrary commit yet.' Arriving with ?scope=since produces a warning banner naming the commit it would have measured from rather than a chip in an on state. So the refusal is deliberate and said out loud, but the control the design draws does not exist.",
+      "defect": null
+    },
+    {
+      "id": "12-change-automated-checks",
+      "status": "not-implemented",
+      "evidence": "No such section. Grepped pages/review-change.vue for 'check', 'credential', 'contrast', 'translatable', 'private API': no hits. The rendered page has three columns (packet, diff, rendered result) and a decision bar, and none of them carries machine checks. The publish dialog has its own unrelated pre-flight list.",
+      "defect": null
+    },
+    {
+      "id": "12-change-see-the-fix",
+      "status": "not-implemented",
+      "evidence": "No such button. There is no assistant-draft object in this product at all: the comment path routes the reviewer's words to the pod's live assistant and does not produce a reviewable draft, so there is nothing for a 'See the fix' button to open. Grepped pages/review-change.vue for 'See the fix' and 'draft': no hits.",
+      "defect": null
+    },
+    {
+      "id": "12-change-assistant-draft",
+      "status": "not-implemented",
+      "evidence": "No drafted-fix block. After 'Send to the assistant' the thread's state line reads 'sent to the assistant' and the route leaves for the workspace terminal; nothing renders a diff size, a description or a 'Not applied' marker under the thread. Grepped review-change.vue for 'Not applied' and 'draft': no hits.",
+      "defect": null
+    },
+    {
+      "id": "12-change-talk-to-author",
+      "status": "not-implemented",
+      "evidence": "No such button. The masthead's controls are the back arrow, the risk chip, the PR chip, the file-count chip and Refresh. Grepped review-change.vue for 'Talk to the author' and 'author': the only 'author' hits are comments explaining that the screen refuses to name one for an uncommitted tree.",
+      "defect": null
+    },
+    {
+      "id": "12-change-ux-decision",
+      "status": "not-implemented",
+      "evidence": "No such button and no UX-reviewer role in the product. Grepped review-change.vue and review.ts for 'UX' and 'design question': no hits. The decision bar's three buttons are 'Request changes', 'Come back to it' and 'Approve the code'.",
+      "defect": null
+    },
+    {
+      "id": "12-change-shot-before",
+      "status": "not-implemented",
+      "evidence": "There is no Before panel. The right-hand column is a single live PreviewPanel iframe of the extension's dev server ('Rendered result / Loaded . just now / Desktop'), not two stacked screenshots. Grepped review-change.vue for 'before', 'After', 'shot' and 'screenshot': no hits.",
+      "defect": null
+    },
+    {
+      "id": "12-change-shot-after",
+      "status": "not-implemented",
+      "evidence": "Same single live preview as 12-change-shot-before: one PreviewPanel, no labelled After panel and no captured shot. What is drawn is the running build rather than an image of it, which is arguably better evidence but is not what the frame asks for.",
+      "defect": null
+    },
+    {
+      "id": "12-change-visual-mode",
+      "status": "not-implemented",
+      "evidence": "No Before/After/Overlay segmented control. The only control on the rendered-result pane is the viewport chip ('Desktop'). Grepped review-change.vue and components/studio/PreviewPanel.vue for 'Overlay': no hits.",
+      "defect": null
+    },
+    {
+      "id": "12-change-diff-line-to-visual",
+      "status": "not-implemented",
+      "evidence": "Diff lines are plain table rows with no click handler; clicking one selects text and nothing in the preview changes. DiffView renders <tr class=\"diff__row ...\"> with no @click, and review-change.vue passes only #hunk-head and #hunk-foot slots. The hint text the promise comes from is not drawn either.",
+      "defect": null
+    },
+    {
+      "id": "12-change-visual-to-code",
+      "status": "not-implemented",
+      "evidence": "The rendered result is a cross-origin-style iframe of the pod's dev server through the cluster proxy; nothing in the page listens for clicks inside it and there is no element-to-hunk map. Same grep as 12-change-diff-line-to-visual.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-oci-gate",
+      "status": "pass",
+      "evidence": "There is now exactly one hard refusal in the product and it sits at the distribution boundary. distributeExtension() opens with assertGateOpen(); nothing else can reach a distribution, and the two other ways out of the pod (publishExtension for the local load, handOverForReview for the GitHub push) are deliberately ungated. It is reachable from screen 07 now: I drove the publish dialog on /barn/editor/w3rc through eight hand-written review records and read what it said each time. With no sign-offs: 'Packet 1 is waiting on both sign-offs' and the OCI and repository rows had no checkbox. Code only: 'The outcome sign-off on packet 1 is still outstanding.' Both by the same person: 'Both sign-offs on packet 1 carry the same person, Default Admin...' Two different people: chip 'Both sign-offs in', 'Packet 1 is signed off by Default Admin for the code and Other Person for the outcome.' Walking 01, 02, 10, 03, 04, 05, 12 and 13 beforehand asked for no approval anywhere. Worth knowing: the OCI push itself does not exist and the row says so ('Not built. Pushing to an OCI registry means building a Helm chart from the extension and pushing it with a registry client, and this Studio has neither in the pod and no registry configured'); the performable half of the same boundary is the 'Put the reviewed packet on the repository' row, and that one is also unavailable here because no GitHub token or repository is configured.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-iteration-ungated",
+      "status": "pass",
+      "evidence": "Created w3rc from screen 02, agreed its brief on screen 10, watched it in the workspace on screen 03, opened its diff on screen 04 and screen 12, opened its files, and read its verification on screen 13 - no approval dialog, no pending-review banner and no disabled control at any point. The publish dialog states the rule itself: the 'Load into this Rancher' and 'Push the source to GitHub' rows both carry 'No sign-off' and are tickable, and the note under the sign-offs reads 'Two people answer two questions, and only leaving the gate ... asks for them. Loading this into a Rancher to try it, or handing it over on GitHub to ask for a review, needs nobody.' The settings page's sign-off matrix cannot override this: policyNote() says out loud that a 'required' value on the dev-load row is 'recorded and not obeyed'.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-both-signoffs-required",
+      "status": "pass",
+      "evidence": "Both halves can now be given and the gate refuses every incomplete combination. I gave the code half through screen 12's Approve (record: signoffs.code, principal local://user-btc48, sha cbb6995...) and the outcome half through screen 13's 'Sign off on the outcome' (record: signoffs.outcome, written by signOutcome(), which is now wired - verification.vue line 1074). Screen 13 refused the button until every criterion was answered ('2 criteria have not been looked at yet'). Then on screen 07: code approved and outcome missing -> 'The code review is signed off by Default Admin. The outcome sign-off on packet 1 is still outstanding', row not tickable, Publish disabled; outcome approved and code missing -> 'Packet 1 is waiting on both sign-offs', same refusal; both in from two different principals -> chip 'Both sign-offs in' and the dialog listed both with signer and time ('Code review | Is it safe? | Default Admin . approved just now', 'Outcome sign-off | Does it do the job? | Other Person . approved just now'). The last step of the design's script - the publish then proceeding - could not be run, because no GitHub token or repository is configured so no distribution destination is performable at all.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-two-signers",
+      "status": "pass",
+      "evidence": "The two sign-offs are separate acts with separate records and the product refuses one person giving both. signCodeReview and signOutcome write independent entries carrying the Rancher principal from currentSigner(); on w3rc I produced both through the real screens and got two entries with distinct timestamps (code 17:02:16, outcome 17:07:09) that did not affect each other - approving the code left the outcome dot empty and signing the outcome left the code entry alone. The role split is enforced rather than described: signOutcome() reads the brief's '## Who asked' section and refuses anybody else, and screen 02 now writes that section at creation ('## Who asked / local://user-btc48 - Default Admin, on 2026-08-23' in w3rc's BRIEF.md), so screen 13 said 'The brief records you as the person who asked for this, so the outcome sign-off is yours to give.' With both entries carrying the same principal the gate refuses: 'Both sign-offs on packet 1 carry the same person, Default Admin. The two questions are \"is it safe?\" and \"does it work?\", and they are two sign-offs precisely because one person answering both is one opinion recorded twice.' With two different principals it opens. Nothing checks that the code reviewer is a developer, and the product does not claim to.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-pr-is-the-record",
+      "status": "fail",
+      "evidence": "The hand-over is built to produce the PR and the record is written, but nothing can read it back to a reviewer and no PR can be made here. handOverForReview() assembles the packet, pushes branch barn/<ext>/<n>, opens the pull request and stores {branch, sha, base, pr, prError, pushError} in the review record; the GitHub dialog now describes exactly that ('assembles the work into a packet, pushes that packet to a branch of its own (barn/w3rc/3) in that repository, and opens a pull request against the default branch. Nothing is merged and nothing is written to main'), so the stale 'pushes straight to main' copy is gone.",
+      "defect": "Two gaps. (1) Screen 12's PR chip cannot find the PR the hand-over makes: checkPullRequest() searches for an open PR whose head is listBranches().current, but a packet's branch is created with `git branch -f` and never checked out, so the branch it searches for is never the packet's. The only reader of packets[n].pr in the product is PublishModal's gatePacketPr(), which is on screen 07, not on the review surface. (2) Unverifiable end to end in this environment: the barn-settings Secret holds no GitHub token and no repository is remembered, so the hand-over refuses before it reaches GitHub and no queue entry can be backed by a PR."
+    },
+    {
+      "id": "00-cross-screen-review-packet-accumulates",
+      "status": "fail",
+      "evidence": "The 'assembled at the push' half is right: assemblePacket() allocates refs/barn/packets/<n>, attaches the blame-resolved provenance index as a git note and creates branch barn/<ext>/<n>, and its only caller is handOverForReview(). What accumulates in the background is real too - /app/.barn/provenance.jsonl gains a record on every prompt the Studio sends, with the screen and the principal on it - and the queue now reads packets: distributionGate() and sinceLastLook() are called per row and the row for a change with no packet says 'Never handed over, so nobody has been asked to review it. It is still the author's own working tree.'",
+      "defect": "A dirty working tree still puts an extension in the review queue. base and w3rc have both never been handed over, and /barn/review counted 'Waiting on you 2' with both of them listed - the row explains the state in words but it is still a row in somebody's queue, so 'work for several build cycles without publishing and confirm nothing appears in the review queue' does not hold. review-queue.vue's load() enumerates every extension and enriches it, rather than enumerating packets."
+    },
+    {
+      "id": "00-cross-screen-collapsed-diff",
+      "status": "pass",
+      "evidence": "Made an intermediate change and superseded it before the review: in w3rc's pod I committed 'w3rc intermediate: add transient file' creating w3rc-transient.txt, then committed 'w3rc intermediate: remove transient file' deleting it. The baseline ref refs/barn/published/local sat two commits further back. /barn/review/w3rc/working then listed BRIEF.md, pages/Home.vue and verify-w3rc-approve.txt and did not mention w3rc-transient.txt anywhere on the page - the net difference from the baseline, with the intermediate state collapsed out. The mechanism is BASELINE_SH in extensions.ts, which resolves refs/barn/published/oci, then refs/barn/published/local, then HEAD, and every diff on screens 04, 05 and 12 goes through it. Worth knowing: base has no baseline ref at all, so its baseline falls back to HEAD and it is measuring from the last commit rather than from a published version - and no screen says which point it measured from (baselineRef()'s sentence is only consumed by components/BuildFailure.vue).",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-scope-creep-vs-brief",
+      "status": "fail",
+      "evidence": "Detection works and is honest about what it is. I put two non-goals in w3rc's brief ('- No alerting', '- No w3rcscopecreep widget') and then added a line to pages/Home.vue mentioning one of them. Screen 13's Scope card went from 'The brief does not say what this was deliberately not doing' to 'This change adds lines that mention what the brief said it was deliberately not doing. A word match is not proof of anything - it is a place to look.' and listed the hits with their files: 'w3rcscopecreep - pages/Home.vue' and 'widget - pages/Home.vue'.",
+      "defect": "Neither resolution the design asks for exists. The drifted branch of the Scope card renders a warning banner and a list of term/file rows and nothing else - there is no 'accept it into the brief' control that would add the work to the brief, and no 'take it out' control that would revert it. The check is also a term match over added lines rather than a comparison of the build against the brief, so work that is outside the brief but does not reuse a non-goal's words is not flagged at all."
+    },
+    {
+      "id": "00-cross-screen-prompt-provenance-survives",
+      "status": "pass",
+      "evidence": "Both halves work and I saw the join. Capture: pressing 'Agree and start building' on w3rc's brief put a record in the pod's /app/.barn/provenance.jsonl carrying the prompt, screen and principal - {\"kind\":\"prompt\",\"turn\":\"tmt61m5036hlol\",\"prompt\":\"Read BRIEF.md in this package...\",\"screen\":\"workspace\",\"principal\":\"local://user-btc48\",\"who\":\"Default Admin\"} - so authoring provenance is captured with the person attached. Survival: with a completed turn on record (a commit carrying a Barn-Turn trailer plus its turn record), `node /seed/barn-provenance.mjs report` resolved the hunk by blame and screen 12 rendered it per hunk: 'Prompt 1 of 1 / w3rc audit prompt: colour the greeting so a pressure event stands out / 3 lines . 1 minute ago / See the conversation', with the change-wide summary '1 prompt behind this change'. The brief travels too: screen 12's left column renders w3rc's BRIEF.md as the packet - what this is for, who asked, the problem, what changes, where it appears, and its criteria. Caveat worth recording: the pod's claude is signed out, so no turn ever ends by itself (the Stop hook never runs) and every real hunk reads 'N lines changed in the pod, no prompt recorded'. I had to write the turn record and the trailer commit by hand to exercise the join; everything downstream of that - the report, the overlap match between the -U0 report and the -U3 display, and the strip - is the product's own.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-since-last-look",
+      "status": "fail",
+      "evidence": "The per-reviewer half is real and persists. markLook() now runs on every screen-12 load: barn-review-w3rc gained looks.pa5g3hz = {principal: local://user-btc48, name: Default Admin, packet: 1, sha: 4926d49, at: ...}, keyed by a hash of my principal rather than to the extension. After a second packet was handed over, reloading /barn/review/w3rc/working showed '1 change landed since you last looked at packet 1.' and the queue reads the same sinceLastLook() per row.",
+      "defect": "The second half of the promise does not exist: there is no way to filter the diff to what landed since. The banner says so itself ('The diff below is still the whole change rather than only the newer part of it: narrowing it needs a diff taken against the commit you last read, and nothing in the Studio takes one against an arbitrary commit yet'), and arriving from the queue's link with ?scope=since produces a warning banner naming the commit it would have measured from instead of a narrowed diff. Every diff in extensions.ts is pinned to $BARN_BASE, so the missing piece is a diff function that takes an arbitrary base."
+    },
+    {
+      "id": "00-cross-screen-recovery-returns-to-workspace",
+      "status": "pass",
+      "evidence": "Both amber routes end in the same workspace. Changes requested: screen 12's Request changes on w3rc recorded the refusal and routed to /dashboard/barn/editor/w3rc?tab=terminal, and the reviewer's sentence was in that pod's assistant pane when I read it; the comment composer's 'Send to the assistant' does the same via /barn/editor/base?tab=terminal&comment=<id>; screen 13's per-criterion 'Send this back to the assistant' uses the same askAssistant transport. Build failure: screen 08's controls are 'Ask the assistant to explain this', 'Ask the assistant to fix it', 'Show me pages/NodeHealth.vue', 'Roll back to the snapshot ...' and 'Undo the last change' - all of which act on the same pod and return to the same workspace rather than opening a separate remediation surface or leaving the product.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-failure-snapshot-rollback",
+      "status": "fail",
+      "evidence": "Seeded barn.publish.failure and opened /barn/extensions/base/build-failed. There is a way back and the screen names it, but it is not the guaranteed one the design asks for: it offered 'Roll back to the snapshot \"before overwriting w3-files-conflict.txt\"' - a snapshot somebody else happened to take by hand 5 minutes earlier, with '4 changed files since' - and the note under it says outright 'What it rolls back to is only as good as the point above: nothing takes a snapshot automatically when a build succeeds yet, so this is the nearest point that exists rather than a guaranteed last working build.' findWayBack() falls back through last-working-build, baseline ref, newest hand-made snapshot, then HEAD, and only the first is actually a build that worked.",
+      "defect": "The design's guarantee needs a snapshot taken before every change, and nothing takes one. editor.vue's publishTo() calls recordWorkingBuild() only after a successful LOCAL publish, and that record lives in the browser's own storage, so on a fresh browser, on an extension nobody has locally published, or on the first failing build there is no working-build point at all. The screen is honest about it, which is right, but the promise ('every build is snapshotted so a failure always has a state to roll back to') does not hold. I did not click Roll back: it would have thrown away four other verifiers' work in the shared base pod."
+    },
+    {
+      "id": "00-cross-screen-changes-requested-loads-assistant",
+      "status": "pass",
+      "evidence": "Drove the whole loop and read the far end. Screen 12's comment composer: typed 'w3rc SEND probe 1787503892 please rename nothing' on product.ts line 26, pressed 'Send to the assistant'; the comment was recorded in barn-review-base with my principal and time, the route became /barn/editor/base?tab=terminal&comment=<id>, editor.vue read the id back with readComment() and the pod's mc-editor tmux pane then held 'A reviewer looked at this change and asked for something. It is about product.ts around line 26. Their words: w3rc SEND probe 1787503892 please rename nothing. Make that change in the working tree and explain what you did.' The record was then stamped sentAt/sentHow='sent', and 'Just record it' leaves it unsent and the thread says so, so delivery is reported rather than assumed. Screen 12's Request changes does the same with its note, and screen 13's per-criterion 'Send this back to the assistant' is the same transport, so a rejection from either reviewer lands in the same place. Two honest gaps: the reviewer's sentence goes straight into the live session rather than arriving staged for the author to approve before it is sent, so 'the author still approves it' is only true of the answer and not of the instruction; and the composer's hint says so plainly rather than pretending otherwise.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-brief-precedes-build",
+      "status": "pass",
+      "evidence": "Created the w3rc extension from screen 02 (description, outcome, name, 'Draft the brief') and the router went straight to /dashboard/barn/extensions/w3rc/brief - screen 10 - with the masthead 'BRIEF . STEP 1 OF 2 BEFORE ANY CODE IS WRITTEN'. The brief was already on disk in the pod at that point (BRIEF.md holding what I typed plus '## Who asked'), and pressing 'Agree and start building' routed on to /dashboard/barn/editor/w3rc - the workspace - and handed the brief to the assistant as the session's first instruction. Screen 04 by contrast is skippable: nothing routes through it, and I published-dialogued and reviewed from the workspace without visiting it. Worth knowing: screen 10 also offers 'Skip the brief', so the stage is on the path but not compulsory - though skipping now loses nothing, because the brief is written at creation rather than by that screen.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-criteria-from-brief",
+      "status": "pass",
+      "evidence": "Wrote two distinctive criteria into w3rc's BRIEF.md under '## How we will know it worked' ('w3rc criterion one: the tab appears without a reload', 'w3rc criterion two: it says why when metrics are absent'). Screen 13 then listed exactly those two, in order, with Yes/No/Can't tell and a 'Show me' that drives the running preview to the criterion's route. Answering both Yes took the counter to 2/2 and enabled 'Sign off on the outcome'; signing wrote the verdicts back into the same file - '- **Met** at `/home`: w3rc criterion one: the tab appears without a reload' - so the evidence route is captured against the criterion. Screen 12 shows the same items read-only, and base's four criteria appear there with their captured/not-measured states.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-preview-is-not-published",
+      "status": "pass",
+      "evidence": "base's pod has six files changed in its working tree and its dev-server preview renders them (screen 12's 'Rendered result' panel reported 'Loaded . just now' against http:barn-base-extension:8005/proxy), yet nothing named base exists in uiplugins.catalog.cattle.io - the only two are barn and nodehealth. Every Studio surface says the same thing rather than blurring it: screen 12's masthead reads 'base . not published yet', screen 04's action bar reads 'These changes are running in your preview only', screen 01's row reads 'local (preview)' under Running on, and the publish dialog separates 'Load into this Rancher' (which does reach everybody signed in here) from the preview. Publishing stays a separate deliberate act behind its own confirmation.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-publish-reversible",
+      "status": "pass",
+      "evidence": "Opened the row menu for nodehealth on /barn/extensions - the one extension that is actually installed (Running on 'catalog . v0.1.0'). The menu offers 'Remove the local install' enabled and annotated with the version it would take off ('v0.1.0'); on the rows that are not installed the same item is disabled with the note 'not installed'. It is wired to removeLocalInstall(), which deletes the UIPlugin and reports 'is no longer loaded by this Rancher. The extension itself is untouched.' I did not press it: nodehealth belongs to another verifier's fixture and the brief forbids publishing, and the promise as written is that the row offers the reversal.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-connection-and-permission-state",
+      "status": "fail",
+      "evidence": "The two surfaces do agree, because they read the same thing: detectPermission() reads the pod's claude-session.sh, so screen 03's strip chip says 'Edits apply without asking' (hover: 'The assistant runs with --dangerously-skip-permissions in this pod') and screen 09's card says the same in longer words and marks that level 'In force'. Settings is also now a real page with all four concerns on it: 'What needs sign-off', 'GitHub connection', 'What the assistant may do without asking', 'Where previews run', 'Who can use Studio', 'What is sent to the model'.",
+      "defect": "Neither half of the promise's test can be met. (1) The permission mode is not a control anywhere - the settings card is explicit: 'Not settable, and not per user... these three are drawn as what they are: a statement of the level in force, not a choice.' So it cannot be changed in one place and seen in the other, and the design's 'the permission mode as a real control' on screen 03 does not exist either. (2) A second surface still edits the GitHub token: components/EditorSettingsModal.vue stores and removes it and is opened from screens 02, 03 and 12 (I opened it from screen 12 by clicking the 'No GitHub token' chip). It shares studio-settings.ts with the page so the two cannot disagree, and it deliberately offers only the credential, but the design's caption has screen 09 replacing the token modal outright."
+    },
+    {
+      "id": "00-cross-screen-existing-components-only",
+      "status": "fail",
+      "evidence": "Screen 01's list is a bespoke component, not the Clusters page pattern. The element behind .studio-home__table is a DIV grid, there is no .sortable-table anywhere on the page, and grepping pkg/barn for 'SortableTable' or 'ResourceTable' returns nothing. Its headers (State, Name, Source, Running on, Last change) reproduce the pattern by hand.",
+      "defect": "The Studio is built almost entirely on its own primitives: components/ui holds SBadge, SBanner, SButton, SCard, SChip, SEmpty, SField, SIcon, SLabel, SMenu, SModal, SPanel, SRow, STabs, SToolbar, and every one of the ten screens is drawn with those. The only Rancher components imported anywhere in pkg/barn are AppModal, LabeledSelect and AsyncButton, and only in four of the older components (NewExtensionModal, PublishStatus, ExtensionSelect, ExtensionFiles). So Banner, Card, Tabbed and SortableTable are all reimplementations, and screen 01 in particular is a hand-rolled table rather than the SortableTable the rationale names."
+    },
+    {
+      "id": "00-cross-screen-capability-parity",
+      "status": "pass",
+      "evidence": "Re-checked all five on a freshly created extension and on base, and the two regressions from last time are gone. CLI: the workspace's Terminal tab is the pod's live tmux session (I read my own prompts back out of it with `tmux capture-pane -t mc-editor`), and the raw output is one click from the activity stream - [data-testid=barn-open-raw-output] labelled 'Open the raw output / the terminal is still here'. FILES: the Files tab lists the tree and the commit history (on a brand-new w3rc: 'd3cd0d4 The seeded extension 23 seconds ago' plus every file), and screen 05 renders. GITHUB IMPORT: 'Import a repo instead' on screen 02 opens the import wizard without leaving the page, and the workspace's publish split menu still carries 'Import from GitHub' beside 'Publish to GitHub' and 'Remove local install'. PUBLISH: both reachable publishes work and are described correctly - the dialog's 'Load into this Rancher' and 'Push the source to GitHub' rows are tickable and marked 'No sign-off'. SETTINGS: /barn/settings carries all of it (What needs sign-off, GitHub connection, What the assistant may do without asking, Where previews run, Who can use Studio, What is sent to the model). The two regressions: (1) the hand-over no longer refuses without a brief - assemblePacket()'s brief check is gone and the record/PR body say plainly when there is none, so 'Push the source to GitHub' works on a brief-less extension again; (2) a refused hand-over no longer moves HEAD - I ticked 'Push the source to GitHub' on w3rc with no token configured and let it refuse, and `git rev-parse HEAD` in the pod read 6cbb9a4968ab26c4be26dd208c62d21d7c172877 both before and after, with the working tree untouched. The dialog copy that used to describe the removed behaviour is also corrected: it now reads 'assembles the work into a packet, pushes that packet to a branch of its own (barn/w3rc/3) in that repository, and opens a pull request against the default branch. Nothing is merged and nothing is written to main.'",
+      "defect": null
+    }
+  ]
+}

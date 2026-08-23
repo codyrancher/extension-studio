@@ -1,0 +1,419 @@
+{
+  "screen": "03-workspace",
+  "verdicts": [
+    {
+      "id": "03-workspace-activity-stream",
+      "status": "pass",
+      "evidence": "Drove /barn/editor with the stream open. Before: 28 [data-testid=barn-turn] entries built from the 14 turns `node /seed/barn-provenance.mjs turns 25` returns in the pod. Typed 'w3-workspace dup probe 914779' and pressed Enter: a 29th entry appeared immediately, noted 'Sent from this composer - the pod has not recorded it yet', and the stream's scrollTop moved 3622->3720 so scrollHeight-scrollTop-clientHeight was 0 (newest kept in view). Within 5s the same bubble's note flipped to 'Sent from the workspace screen by Default Admin', which is the pod's own record - `grep w3-workspace dup probe 914779 /app/.barn/provenance.jsonl` shows the matching {kind:prompt,screen:workspace,principal:local://user-btc48} line. Sent a second and a third probe later in the session and each appended and scrolled the same way (28->31->51 entries). This is the first wave the tab shows anything but the 'not wired' empty state.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-ask",
+      "status": "pass",
+      "evidence": "Placeholder reads 'Describe the next change - e.g. \"colour the bars by severity and add a 7-day toggle\"'. Clicked in, typed 'line one', Shift+Enter, 'line two': the textarea value became \"line one\\nline two\" (two lines, placeholder gone, nothing sent - turn count unchanged at 28). Cleared it, typed a one-line request and pressed Enter: the field emptied and a user bubble with that text appeared in the stream.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-autosave-status",
+      "status": "fail",
+      "evidence": "The clock line is a real reading and it moved under me. It read 'Snapshot saved 24h ago' (the only tag in the pod was barn-snap/1787416713830 'probe point A' created 2026-08-22 16:38), then 'Snapshot saved 3m ago' after another agent took one, and after I took one from the Snapshots menu it read 'Snapshot saved 9s ago' and barn-snap/1787504587878 'w3-workspace snapshot probe' appeared in the pod (deleted again afterwards). What did not happen is autosaving: the pod's working tree had uncommitted edits hours old while the reading still said 24h.",
+      "defect": "Half the promise is false and the component says so itself: the menu's own title is '\"probe point A\" - taken by hand from this menu. Nothing here autosaves.' A snapshot is only ever created by the Snapshots menu item or by recordWorkingBuild() after a successful publish, so editing a file never updates the line. The design's 'the workspace autosaves' has nothing behind it."
+    },
+    {
+      "id": "03-workspace-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron-left button (aria-label='Back') at the start of the masthead: landed on https://magic-closet-rancher/dashboard/barn/extensions with .studio-home__table present.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-branch-chip",
+      "status": "pass",
+      "evidence": "Chip reads 'main'; `git branch --show-current` in /app/pkg/base is main. Cross-checked on nodehealth, also main. Clicking the chip opens a branch menu listing 'main' marked 'current', which is the only branch the pod's repository has.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-changes-summary",
+      "status": "pass",
+      "evidence": "Banner above the composer read '4 changes / Only you can see them. Nothing is asked of you until you publish. / Review' while `git status --porcelain` in the pod listed exactly 4 entries (BRIEF.md, HARNESS.md, product.ts, verify-w3-failed.txt). Cross-checked on a second pod: /barn/editor/nodehealth read '2 changes since v0.1.0' and that pod's git status listed 2. The reassurance copy is present verbatim and is true - nothing is installed into Rancher until Publish.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-composer-keyboard",
+      "status": "pass",
+      "evidence": "Hint under the composer reads 'Shift + Enter for a new line - the assistant never publishes on its own'. Shift+Enter inserted \\n into the textarea and did not send (turn count held at 28). Enter alone sent: field cleared, a new user bubble appeared, and the pod recorded the prompt seconds later. The second half of the hint holds too - nothing in sendToAssistant/askAssistant touches publishExtension.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-add",
+      "status": "pass",
+      "evidence": "Clicked the 'Add' chip: a modal 'Add a file to the context' opened listing the package's actual files (.gitignore, BRIEF.md, CLAUDE.md, HARNESS.md, babel.config.js, index.ts, l10n/en-us.yaml, package.json, pages/Home.vue, product.ts - matching what the Files tab shows for the pod). Picked pages/Home.vue: the modal closed, a new chip appeared, the hint gained '- 1 path named in the message', and the next message reached the pod as 'Context: pages/Home.vue. w3-workspace context probe 99328' (read out of /app/.barn/provenance.jsonl and out of the tmux pane).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-chip-cluster",
+      "status": "pass",
+      "evidence": "The row carries a server-icon chip reading 'cluster: local'. That is the cluster the work happens in: every extension pod is created in namespace barn on the local cluster (EXT_CLUSTER in extensions.ts), the preview is proxied through /k8s/clusters/local/..., and the masthead's 'Preview on: local' agrees.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-chip-file",
+      "status": "pass",
+      "evidence": "On arrival the row names the extension ('base', puzzle icon) rather than a file; a file chip appears when you add one, and it is real. Added pages/Home.vue from the picker: a chip labelled 'pages/Home.vue' with title 'pages/Home.vue' appeared, and the prompt the pod then recorded was 'Context: pages/Home.vue. w3-workspace context probe 99328' - so the chip's path is genuinely named in the line the assistant receives. Removing the chip removed it from the row.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-context-label",
+      "status": "pass",
+      "evidence": "A 'Context' label sits at the head of the row directly above the prompt field, followed by the chips that describe what goes with the next message.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Nothing at the far right of the top bar but the bell and the avatar. Searched the whole <header> for apps / grid / collection in class names and aria-labels: no matches. Nothing in pkg/barn adds a launcher, and this Rancher's shell has no app-collection control.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-header-logo",
+      "status": "fail",
+      "evidence": "The SUSE Rancher Prime wordmark is drawn in the header (img.side-menu-logo-img at x=85) but it is not a link. It has no ancestor <a>, its computed cursor is 'auto', and clicking it left the URL at /dashboard/barn/editor.",
+      "defect": "The logo is an inert <img>. Rancher's own shell renders it that way; the only way home from the header is the hamburger's Home entry. The design draws the chameleon and wordmark as the way back to product home."
+    },
+    {
+      "id": "03-workspace-header-more",
+      "status": "fail",
+      "evidence": "There is no three-dot in the top bar. .rd-header-right contains exactly two controls - the notifications bell and the user avatar - and a search of the whole <header> for anything matching icon-actions / icon-more / an aria-label about more returned nothing.",
+      "defect": "No overflow menu exists in the header on this screen, so the design's extra actions have nowhere to live. Everything comparable is on the workspace masthead's own three-dot instead."
+    },
+    {
+      "id": "03-workspace-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell at the right of the top bar (it carried an unread dot). A .notification-dropdown opened headed 'Notifications / Mark all as read' listing real entries from this session, e.g. 'Snapshot taken - Today, 4:57:51 pm - The copy you wrote over was snapshotted first, and is in the history under ...'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked the three-dot at the end of the masthead (aria-label='More'). The menu lists Files and history, Review changes, Verification, The brief, a divider, Re-read this extension, a divider, and the danger item Remove the local install. Clicked four of them and each landed on its screen: /barn/extensions/base/brief with .brief__columns, /barn/extensions/base/verification with .verify__body, /barn/extensions/base/files with .files__body, /barn/extensions/base/review with .review__body. Did not click 'Remove the local install' - it deletes the UIPlugin for everybody on this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-model-picker",
+      "status": "not-implemented",
+      "evidence": "No model chip. Read the whole .assistant-panel text on /barn/editor: tabs, the session strip, 'Edits apply without asking', the stream, the changes banner, CONTEXT/base/cluster: local/Add, Send, the hint. grep -ri 'opus' over pkg/barn returns nothing at all, and the only 'model' hits are v-model bindings. Nothing selects a model and nothing displays one.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' in the rail footer: landed on https://magic-closet-rancher/dashboard/about, which lists Rancher v2.15-bc4b5242602aa822e9cdeab0f386f99ed0f6d85c-head, Rancher Prime CLI v2.15.0-rc.1, Helm v4.2.0 and the CLI downloads.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "Same control, same evidence: the rail pins the clusters that exist, and clicking the one that does ('local') lands in /dashboard/c/local/explorer. There is no AFT cluster in this Rancher to click.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same control, same evidence: the rail pins the clusters that exist, and clicking the one that does ('local') lands in /dashboard/c/local/explorer. There is no CD2 cluster in this Rancher to click.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "The rail's pinned-cluster row lists the clusters this Rancher actually has, which is one: 'local'. Clicked its chip from the workspace and landed on https://magic-closet-rancher/dashboard/c/local/explorer, that cluster's explorer. LT1 itself does not exist here - AFT/CD2/LT1 are the design's fictional pins - so what is verified is the chip's behaviour on the real pinned cluster.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked the Cluster Management entry (icon-cluster-management): landed on https://magic-closet-rancher/dashboard/c/_/manager/provisioning.cattle.io.cluster, the cluster management list.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-docs",
+      "status": "not-implemented",
+      "evidence": "No book glyph and no docs destination in the rail. Opened it and enumerated every entry: Home, local, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. A search of the rail for book / docs / help / question in class names, hrefs and text returned nothing.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-extensions",
+      "status": "pass",
+      "evidence": "While on /barn/editor the Extension Studio entry carries class 'option active-menu-link', so it is drawn selected. Clicked it from the workspace and landed on https://magic-closet-rancher/dashboard/barn/extensions, the Studio home.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-home",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked the house entry (a.option.cluster.selector.home): landed on https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-menu-toggle",
+      "status": "pass",
+      "evidence": "Clicked the hamburger at the top of the rail: .side-menu went from 'side-menu menu-close' at 70px wide to 'side-menu menu-open' at 300px with the labelled entries showing. Clicked it again and it went back to 70px and menu-close.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked the Global Settings entry (icon-globe) in the rail: landed on https://magic-closet-rancher/dashboard/c/local/settings/management.cattle.io.setting, the global settings page.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-nav-user",
+      "status": "pass",
+      "evidence": "The account control is the avatar at the right of the top bar (data-testid=nav_header_showUserMenu), not a person icon at the foot of the rail. Clicked it from /barn/editor: a menu opened reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out', which is this Rancher's account menu for the signed-in user.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-permission-mode",
+      "status": "fail",
+      "evidence": "The chip is present but it is a label, not a control. [data-testid=barn-permission-chip] reads 'Edits apply without asking', renders as a SPAN with computed cursor 'auto', has no click handler, and clicking it opens nothing. Its title says 'The assistant runs with --dangerously-skip-permissions in this pod, so its edits land in the working tree as it makes them.'",
+      "defect": "There is no permission-mode picker and no permission mode to pick: pod/claude-session.sh starts claude with --dangerously-skip-permissions and nothing in the product can change that. The chip has been rewritten to state what the session actually does instead of the design's 'Ask before each file edit', which was the opposite of the truth, so this is a deliberate refusal - but the design's promise (a menu of modes that changes the assistant's behaviour) is not met."
+    },
+    {
+      "id": "03-workspace-phase-chip",
+      "status": "pass",
+      "evidence": "Chip read 'Iterating - 4 changes' while the Changes tab pill read 4, the banner read '4 changes' and the pod's git status listed 4; later in the session all four read 5 together. On nodehealth it read 'Iterating - 2 changes since v0.1.0' against that pod's 2 changes and the v0.1.0 UIPlugin version. It is a reading of a real phase and a real count.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-back",
+      "status": "pass",
+      "evidence": "Preview at /home, typed /about and pressed Enter, then clicked the back chevron: the frame's contentDocument location went back to .../proxy/about -> .../proxy/home, the route field re-read '/home', and the pop-out href followed to .../proxy/home.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-canvas",
+      "status": "pass",
+      "evidence": "The right pane is a live second dashboard, not an image: iframe src /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/, contentDocument title 'Rancher Prime - Homepage', its own nav and tables inside. Proved it updates as the agent works: pointed it at /base/c/_/home (h1 'It works'), edited pages/Home.vue in the pod to 'It works w3wsCanvas1787503866104', and 6 seconds later the frame's h1 read the new text with no reload and the live label flipped to 'Hot reload - just now'. Reverted the file and the h1 went back.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-chart",
+      "status": "not-implemented",
+      "evidence": "No chart. Queried the framed document for canvas / svg.chart / [class*=chart] on /home, /about and /base/c/_/home: zero matches. The base extension's pages/Home.vue is an h1, two paragraphs and a timestamp; the nodehealth extension's NodeHealth.vue is an h1 and one sentence. Neither draws node-condition data, and the Studio itself never draws into the preview.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-chart-legend",
+      "status": "not-implemented",
+      "evidence": "No legend, because there is no chart. Zero .legend / [class*=legend] elements in the framed document on any of the three routes checked.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-existing-stats",
+      "status": "pass",
+      "evidence": "The framed page keeps rendering its own content in full and none of it is marked. On /home the preview shows 'Welcome to Rancher Prime', the Clusters table with its columns and the Links panel; on /base/c/_/home it shows the base extension's own page under Rancher's nav. No part of the frame carries any Studio highlight - which is consistent, because the Studio draws nothing into the frame at all (see preview-new-panel).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-forward",
+      "status": "pass",
+      "evidence": "After going back to /home, clicked the forward chevron: the frame returned to .../proxy/about (contentDocument title 'Rancher Prime - About') and the route field re-read '/about'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-live-state",
+      "status": "pass",
+      "evidence": "Was a fail; it works now. Sitting at 'Loaded - 7s ago' with a green dot, I edited a file in the pod: within 6 seconds the label changed to 'Hot reload - just now' and then counted up ('Hot reload - 55s ago'), with the title 'The dev server last patched this page without reloading it, which is what hot reload is. Timed from the frame's own hot-update requests.' Repeated it a second time with a different file edit and the reset happened again, and in the same run the frame's content updated without a manual reload. Before any hot update it honestly says 'Loaded - Ns ago' instead.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-new-content-marker",
+      "status": "not-implemented",
+      "evidence": "No marker of any kind at the top of the preview body. The preview panel is a toolbar and a canvas holding the iframe; there is no band, no legend and no highlighted region, and nothing in pkg/barn computes what this session changed in the rendered page. Same reasoning as preview-new-panel.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-new-panel",
+      "status": "not-implemented",
+      "evidence": "There is no session-work outline. The live half of this is real and is recorded under 03-workspace-preview-canvas: an edit in the pod appeared in the preview in 6 seconds. What the design adds is an accent outline round the panel the session built, with its title and 'last 24 hours' subtitle, and nothing draws it: PreviewPanel.vue renders one <iframe> and no overlay, and grep for highlight / marker / accent-outline over components/studio and pages/editor.vue finds nothing. The Studio has no way to know which nodes inside a third-party framed document this session caused. Also nothing had built such a panel: the base pod's only page is pages/Home.vue ('It works'), and the nodehealth pod's NodeHealth.vue is an h1 and a sentence with no chart.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-open-external",
+      "status": "pass",
+      "evidence": "Clicked the external-link icon at the end of the toolbar with the preview on /about: a new browser tab opened on https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/about and rendered the same page. The href tracks the route field rather than being fixed at the frame's src.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-page-more",
+      "status": "pass",
+      "evidence": "The previewed page's own overflow opens inside the preview and is the framed app's, not the Studio's. Pointed the preview at /c/local/explorer/apps.deployment/barn/barn-base-extension and clicked the page's actions kebab (button.variant-multi-action) inside the iframe: a v-popper menu rendered within the framed document listing that app's real actions - Execute Shell, Pause Orchestration, Redeploy, Rollback, Show Configuration, Edit Config, Add Sidecar, Edit YAML, Clone, Download YAML, Delete. Opened only; none of the items was clicked, since they act on a live deployment other verifiers depend on.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-page-tabs",
+      "status": "pass",
+      "evidence": "The framed app's own tab bar is operable from inside the preview. Pointed the preview at /c/local/explorer/apps.deployment/barn/barn-base-extension, which renders Pods (1) / Services (1) / Ingresses / Conditions (2) / Recent Events (0) / Related Resources (3) with Pods active. Clicked 'Conditions' inside the frame: .active moved to Conditions. Clicked 'Pods' again: it moved back. The design's specific 'Node health' tab does not exist because no extension in this cluster builds one - the base pod's only page is Home.vue - so what is verified is the mechanism, on the real tabs the framed page has.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-panel-collapse",
+      "status": "not-implemented",
+      "evidence": "No collapsible panel to collapse. The framed pages have no 'Node condition trend' panel and no chevron in any panel header of their own that the design describes; the Studio adds nothing to the frame.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-reload",
+      "status": "pass",
+      "evidence": "Clicked the refresh icon: the frame's contentWindow.performance.timeOrigin changed from 1787503457618.5 to 1787503463650.3, so the document really was reloaded, and the live readout reset to 'Loaded - 6s ago'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-route",
+      "status": "pass",
+      "evidence": "The field is editable and both directions work. Typed '/about' and pressed Enter: the frame navigated to .../proxy/about. It also tracks navigation done inside the frame - clicking around in the preview and using back/forward updated the field to /home and /about without typing.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-target-chip",
+      "status": "pass",
+      "evidence": "Chip reads 'Preview on: local' with the title 'Every extension pod is created in this cluster (see EXT_CLUSTER in extensions.ts), so the preview is served from it. There is nowhere else to run one, which is why this is not a picker.' The iframe's src is /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/, so the named cluster is the one the preview really runs in.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-preview-viewport",
+      "status": "pass",
+      "evidence": "Clicked the 'Desktop' chip: a menu of three opened - Desktop (marked 'Showing'), Tablet 834px, Mobile 390px. Picked Mobile: the chip read 'Mobile' and the iframe's measured width went 970 -> 390. Picked Desktop again: chip 'Desktop', width back to 970.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-publish",
+      "status": "blocked",
+      "evidence": "Not driven. Publish installs a new UIPlugin into the shared Rancher that four other verifiers and the browser sidecar are working in, and a bad build takes the Studio itself down for all of them. Inspected instead: the masthead renders a PublishSplit with an enabled primary 'Publish' button plus a chevron 'Other ways to publish', wired to @publish / @publish-select on the page, which open PublishModal and route to publishExtension() / publishExtensionToGithub() / removeLocalInstall(). The one adjacent claim I could check is that a failure lands back here: seeded sessionStorage['barn.publish.failure'] and .mc-editor__failure rendered inside the workspace ('The publish did not finish / The build itself failed. Nothing was installed...'), so screen 08 is now a state of screen 03 as the flow map says.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-raw-output-toggle",
+      "status": "fail",
+      "evidence": "The strip is there and reads 'Open the raw output ... the terminal is still here'. Clicked it: the left panel switched to the Terminal tab (the stream's display went to none, the pod's xterm pane became visible, the Terminal tab took .s-tab--selected). Nothing expanded inline - no .assistant-panel__raw-body or equivalent appeared - and a second click cannot collapse it because the strip is no longer on screen.",
+      "defect": "It is a navigation, not a toggle. The design's collapsed strip expands the command output in place under the steps; this button emits update:tab('terminal'). The label is honest about it, so this is a scope gap rather than a lie, but the promise 'expands inline, click again to collapse' does not hold."
+    },
+    {
+      "id": "03-workspace-review",
+      "status": "pass",
+      "evidence": "Clicked 'Review' in the changes banner: the activity stream's display went to none and the Changes pane came up showing 'Uncommitted changes / 4 files +48-1' with the per-file diffs (BRIEF.md +38-1 with its actual added lines, etc.), matching the pod's working tree.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-see-changes",
+      "status": "pass",
+      "evidence": "The masthead's secondary button is labelled with the live count ('Review 4 changes' / 'Review 5 changes' as the count moved). Clicked it: the left panel switched to Changes and rendered the session's diff, the same view the banner's Review opens.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-send",
+      "status": "pass",
+      "evidence": "Typed 'w3-workspace send-button probe 66091' and clicked the primary Send button (not Enter). Turn count went 50 -> 51 and the new bubble read 'You - just now / w3-workspace send-button probe 66091 / Sent from this composer - the pod has not recorded it yet'. `grep -c` for that string in /app/.barn/provenance.jsonl in the pod returned 1, so the message really reached the assistant.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-session-status",
+      "status": "pass",
+      "evidence": "The strip is a real reading of the pod, not of this browser. It reads 'The assistant is not signed in - run /login in the terminal' with an amber dot (.assistant-panel__dot--warn) and the title 'There is no credential in this pod: no OAuth credentials file, no API key in its environment and no account in .claude.json.' Checked the pod: /app/.home/.claude/.credentials.json does not exist, ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are both empty, and /app/.home/.claude.json has no emailAddress. The tmux pane confirms it - every prompt comes back 'Not logged in - Please run /login'. Did not delete the pod to break it further (shared with other verifiers), but the state on show is the true one and it is the opposite of the 'Connected as admin' this row used to claim.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-state-badge",
+      "status": "pass",
+      "evidence": "Badge next to the name read 'Unsaved' while the pod's working tree had 4 uncommitted entries, and read 'Unsaved' on /barn/editor/nodehealth while that pod had 2. EditorMasthead computes it straight off the live countChanges() reading. Could not observe the clean state: both pods in this cluster were dirty for the whole session (other verifiers are writing to them), so the 'live' half of the badge was not seen - but the badge tracked the true count on two independent pods.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-duration",
+      "status": "not-implemented",
+      "evidence": "0 .turn__step-duration elements in the stream. Nothing measures a step: the hooks fire on the prompt, on a file-editing tool and at the end of a turn. The only elapsed time the panel can honestly produce is a whole-turn duration between `at` and `endedAt`, and even that is withheld here because no turn in this pod has an `endedAt` (see 03-workspace-activity-stream / the stalled note).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-expand",
+      "status": "not-implemented",
+      "evidence": "Nothing to expand. 0 .turn__step rows and 0 chevrons inside any turn after sending three prompts. The only chevron-bearing control in the stream is the 'Open the raw output' strip, which is the whole-turn escape hatch to the Terminal tab, not a per-step disclosure. Same root cause as step-status: no step is recorded, so no row is drawn.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-files",
+      "status": "not-implemented",
+      "evidence": "No step sub-line exists. The turn-level file list is implemented (ActivityTurn `files` + `filesLabel`, with an 'N more' overflow above 5), but every turn in this pod recorded `files: []` because the Stop hook never runs, so no list was drawn to look at. The design's claim is per step, and there is no step: PostToolUse records a path against the turn, not against a step, and the component deliberately draws those as a plain list rather than as step rows.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-progress",
+      "status": "not-implemented",
+      "evidence": "No in-flight step row and no live sub-progress. 0 .turn__spin and 0 .turn__step--running after sending three prompts and watching for two minutes. The panel's only 'in flight' rendering is at turn level: an unfinished turn gets .turn--pending, drawn muted with no spinner, deliberately, because nothing in the pod can see whether the turn is running right now. Nothing counts modules or anything else while a command runs.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-step-status",
+      "status": "not-implemented",
+      "evidence": "No step row exists to carry a status glyph. Counted .turn__step across the whole stream after three sends: 0. .turn__status: 0. ActivityTurn.vue still has the steps block but no caller passes `steps` - grep over pkg/barn finds AssistantPanel is the only place that builds ActivityTurn props and it never sets it. Honestly absent rather than faked: the pod has no PreToolUse hook, so nothing records a step starting, and the note under the stream says 'the hooks record a turn's start, the files its editing tools touch and its end, and nothing in between'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-stop",
+      "status": "not-implemented",
+      "evidence": "No Stop control. Enumerated every button in .assistant-panel: the four tabs, the session-menu trigger, the attach (upload) icon-only button, Send, plus the picker's rows when open. AssistantPanel.vue has no stop/interrupt/abort handler (grep for stop/interrupt/abort over components/studio finds only prose in comments), and there is nothing in extensions.ts that would send an interrupt to the pane.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-assistant",
+      "status": "pass",
+      "evidence": "On arrival the Assistant tab carries .s-tab--selected with aria-selected='true' and the activity stream is the visible pane. Switched to Files, Changes and Terminal and back: the selected state followed each time and the stream came back with all 51 turns and its scroll position, because the panel v-shows the panes rather than unmounting them.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-changes",
+      "status": "pass",
+      "evidence": "Clicked 'Changes': aria-selected moved to it, the stream's display went to none, and the pane showed 'Uncommitted changes / 4 files +41-1' with a diff per file (BRIEF.md +35-1, HARNESS.md +3-0, product.ts +2-0, verify-w3-failed.txt +1-0).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-changes-count",
+      "status": "pass",
+      "evidence": "The pill read 4. Opening the tab showed exactly 4 file entries, and `git status --porcelain` in the pod at the same moment listed exactly those 4 paths. Cross-checked on nodehealth: pill 2, pod git status 2 (BRIEF.md, pages/NodeHealth.vue).",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-files",
+      "status": "pass",
+      "evidence": "Clicked 'Files': the pane showed the extension's real tree - l10n/en-us.yaml, pages/Home.vue, routing/index.ts, .gitignore, BRIEF.md, CLAUDE.md, HARNESS.md, babel.config.js, index.ts, package.json, product.ts, tsconfig.json - which is what `ls` shows in /app/pkg/base, including the HARNESS.md fixture. Branch and commit history were listed above it.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-tab-terminal",
+      "status": "pass",
+      "evidence": "Clicked 'Terminal': an xterm attached to the pod appeared. Typed 'w3wsTerm100167' into it and then read the pod's own session from outside - `tmux capture-pane -p -t mc-editor` showed '> w3wsTerm100167' at the prompt. Pressed Backspace until it was gone and the pane's prompt was empty again. So the keystrokes really execute in the pod's session; it is claude's prompt rather than a shell, which is what the pane is for.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-title",
+      "status": "pass",
+      "evidence": "Masthead reads 'base' with the eyebrow 'Extension Studio' under it. Opened /barn/editor/nodehealth and it read 'nodehealth' with the same eyebrow, so it names the extension actually open rather than a constant.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-turn-assistant",
+      "status": "not-implemented",
+      "evidence": "The assistant half of each turn renders, but it never contains the assistant's prose. Sent a prompt and read the entry that followed it: 'No end was recorded for this turn, so there is nothing yet to show for it.' with the caption 'Started 2 minutes ago - no duration, because nothing recorded its end'. Every assistant entry in the stream is one of five sentences produced by AssistantPanel.outcomeEntry(); nothing renders text the assistant wrote, and no turn states a plan or a step count. That is because the pod records only the UserPromptSubmit / PostToolUse / Stop hook events (see /seed/barn-provenance.mjs) - claude's reply in the pane is an ANSI character stream and no hook captures it. The panel says so under the last turn and points to the terminal.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-turn-user",
+      "status": "pass",
+      "evidence": "Every prompt renders as a user bubble with the design's meta line. After sending, the newest bubble read 'You - just now' over the prompt text; older recorded prompts read 'You - 10 hours ago' / 'You - 2 minutes ago', counted up live by the panel's 1s clock against the pod's ISO timestamps. The caption under each is the recorded origin, not a guess: prompts the Studio sent say 'Sent from the workspace screen by Default Admin', prompts typed into the pane say 'Recorded in the pod - no screen and no Rancher user recorded for it'.",
+      "defect": null
+    },
+    {
+      "id": "03-workspace-undo",
+      "status": "pass",
+      "evidence": "Drove it against a file only I made, so no other verifier's work was at risk. Created /app/pkg/base/verify-03-workspace.txt in the pod and confirmed it was the newest changed file by mtime (1787504111 vs BRIEF.md at 1787504005). Clicked 'Undo': afterwards the file was gone from the pod (test -f -> NO) and it had left git status, while the harness fixture was untouched (HARNESS.md still present, product.ts still '1 file changed, 2 insertions(+)'). undoLastChange reverts one file - restore if it is tracked, remove if it is untracked - which is what happened.",
+      "defect": null
+    }
+  ]
+}

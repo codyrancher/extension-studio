@@ -2324,7 +2324,22 @@ export async function listHistory(name: string, limit = 50): Promise<HistoryEntr
  * stray file behind. The screen says so.
  */
 export async function restoreSnapshot(name: string, ref: string): Promise<void> {
-  const out = await inPackage(name, `git checkout ${ shellQuote(ref) } -- . 2>&1 ; echo "RESTORED"`);
+  // `&&`, not `;`. With a semicolon the echo runs whatever the checkout did, so the guard below
+  // could never fire: restoring a ref that does not resolve reported success, the caller cleared
+  // the failure record and dismissed its panel, and nothing had been restored. A roll back that
+  // says it worked and did not is worse than one that refuses, because the person stops looking.
+  //
+  // The ref is verified first rather than trusted to the checkout's exit code, so a ref that is
+  // gone is reported as gone rather than as whatever git says about a pathspec it cannot resolve.
+  const out = await inPackage(
+    name,
+    `git rev-parse --verify -q ${ shellQuote(ref) }^{commit} >/dev/null 2>&1 || { echo "NOREF"; exit 0; } ; ` +
+    `git checkout ${ shellQuote(ref) } -- . 2>&1 && echo "RESTORED"`
+  );
+
+  if (out.includes('NOREF')) {
+    throw new Error(`could not restore ${ ref }: no such commit in this extension`);
+  }
 
   if (!out.includes('RESTORED')) {
     throw new Error(`could not restore ${ ref }: ${ out.trim().slice(0, 200) }`);
@@ -2833,7 +2848,13 @@ async function githubApi(
     '.then((r) => r.text().then((t) => ({ ok: r.ok, status: r.status, text: t })))',
     '.then((r) => { if (!r.ok) { throw new Error(r.status + " " + r.text.slice(0, 200)); }',
     'console.log("BARN-GH:" + (r.text || "null")); })',
-    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\r\n]+/g, " ")));',
+    // The escapes are doubled on purpose. This string is the *source* of a script that runs in the
+    // pod, so a single-escaped \r\n here becomes a real carriage return and newline inside the
+    // emitted regex literal, and node dies with "Invalid regular expression: missing /" before it
+    // ever reaches the fetch. That is what it did: githubIdentity and listGithubRepos have never
+    // once succeeded, and because a SyntaxError is not a 401 the settings card could not even
+    // report the token as rejected.
+    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\\r\\n]+/g, " ")));',
   ].join(' ');
 
   const out = await runInPackage(
@@ -2895,7 +2916,13 @@ async function githubApiAnywhere(method: string, apiPath: string): Promise<any> 
     'scopes: r.headers.get("x-oauth-scopes") || "", expires: r.headers.get("github-authentication-token-expiration") || "" })))',
     '.then((r) => { if (!r.ok) { throw new Error(r.status + " " + r.text.slice(0, 200)); }',
     'console.log("BARN-GH:" + JSON.stringify({ body: JSON.parse(r.text || "null"), scopes: r.scopes, expires: r.expires })); })',
-    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\r\n]+/g, " ")));',
+    // The escapes are doubled on purpose. This string is the *source* of a script that runs in the
+    // pod, so a single-escaped \r\n here becomes a real carriage return and newline inside the
+    // emitted regex literal, and node dies with "Invalid regular expression: missing /" before it
+    // ever reaches the fetch. That is what it did: githubIdentity and listGithubRepos have never
+    // once succeeded, and because a SyntaxError is not a 401 the settings card could not even
+    // report the token as rejected.
+    '.catch((e) => console.log("BARN-GH-ERR:" + String(e.message).replace(/[\\r\\n]+/g, " ")));',
   ].join(' ');
 
   const out = await podExecOnce(pod, asPodUser(

@@ -1,0 +1,353 @@
+{
+  "screen": "09-settings",
+  "verdicts": [
+    {
+      "id": "09-settings-title",
+      "status": "pass",
+      "evidence": "/dashboard/barn/settings renders (data-testid barn-settings, bundle barn-0.5.22, UIPlugin endpoint .../barn-0.5.22.umd.min.js?t=1787500544392). h1.settings__title reads 'Studio settings' and the lede under it reads 'Applies to everyone who uses Studio on this Rancher.' - Rancher-wide scope, not per project.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-no-save",
+      "status": "pass",
+      "evidence": "Enumerated every <button> on the page: nothing matching /^(save|apply)/i (saveButtons: []). Proved apply-on-change rather than inferring it: one click on the dev-load outcome 'Required' segment wrote ConfigMap barn/barn-studio-settings on the click and a full reload came back with 'required' still selected; same for repo code 'Off' and for Disconnect, which emptied Secret barn-settings with nothing to press afterwards.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-breadcrumb-current",
+      "status": "pass",
+      "evidence": "The last crumb is <span data-testid=settings-crumb-current>Settings</span>: tagName SPAN, no enclosing <a>, no href. Clicked it and the URL was unchanged (before and after both /dashboard/barn/settings).",
+      "defect": null
+    },
+    {
+      "id": "09-settings-breadcrumb-studio",
+      "status": "pass",
+      "evidence": "Clicked 'Studio' in the breadcrumb: landed on https://magic-closet-rancher/dashboard/barn/extensions and .studio-home__table was present, so the Studio home really rendered rather than the route silently failing.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-breadcrumb-extensions",
+      "status": "pass",
+      "evidence": "Clicked 'Extensions' in the breadcrumb: landed on /dashboard/c/local/uiplugins#installed, document title 'Rancher Prime - Extensions'. That is Rancher's extensions area.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-signoff-intro",
+      "status": "pass",
+      "evidence": "The 'What needs sign-off' card head reads 'Everything before the push to a repository is iteration, and Studio never interrupts it. The gate is the moment the extension becomes installable by somebody else.' That is the gate stated as the design states it, and it matches the product: the publish dialog's two gated rows (oci, repository) are the only ones that consult distributionGate().",
+      "defect": null
+    },
+    {
+      "id": "09-settings-signoff-columns",
+      "status": "pass",
+      "evidence": "Two column heads, 'Code review' and 'Outcome sign-off', over two independent three-way controls per destination row. Proved independence by driving them separately: dev-load code -> Notified and dev-load outcome -> Required landed as two separate keys in the ConfigMap ({\"dev-load\":{\"code\":\"notified\",\"outcome\":\"required\"}}) and both survived a reload. Cosmetic gap, unchanged since the last pass: neither column head carries a glyph (querySelector('svg') on both .settings__matrix-col returns null), where the design puts icon/code and icon/eye on them.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-iteration-note",
+      "status": "pass",
+      "evidence": "The note at the foot of the sign-off card (data-testid settings-iteration-note) is titled 'Nobody reviews the same extension forty times' and makes all three claims: changes accumulate against the last published version, there is no per-change approval and nothing to click, and at the push the run is collapsed into one diff. It ends 'Notified means the person who asked gets the criteria checked against the build; it never blocks the push', which matches what the publish dialog does with a Notified value - with dev-load.outcome=notified the row's requirement chip became 'Sign-offs advisory' and the row stayed publishable.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dest-dev-preview",
+      "status": "pass",
+      "evidence": "First destination row reads 'Your dev preview', carries an 'always' chip and a lock glyph (<i class=\"s-icon icon icon-lock\">) and is drawn on the muted background rgb(247,248,250). Its note is 'Hot reload while you work. Nobody else can load it.' - the containment half of the design's sentence.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dest-dev-load",
+      "status": "pass",
+      "evidence": "Second row, 'Developer load into this Rancher', drawn with an inline SVG server glyph (SIcon 'server', class s-icon s-icon--svg), on a plain transparent row with no lock and no chip. It is classed as iteration by the card head above it and its note says it is reversible with 'Remove local install'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dest-oci",
+      "status": "fail",
+      "evidence": "There is a green gate row and it is drawn exactly as the design draws the OCI one: background rgb(238,245,239), a 3px green left rule (box-shadow: inset 3px 0 0 var(--studio-green-500)) and a green 'The gate' chip. But the row is 'Push to a repository' with the github glyph (icon-github), not an OCI push. grep -rn over pkg/barn (excluding node_modules) still finds no OCI code, and the publish dialog's own 'Push to an OCI repository' row is gated-and-unavailable.",
+      "defect": "There is no OCI destination in this product. The settings row is a GitHub source push standing in for it, and says so in its note. Nothing to fix on this page until an OCI push exists; the row is honest about the substitution."
+    },
+    {
+      "id": "09-settings-dest-catalog",
+      "status": "pass",
+      "evidence": "The catalog row carries the lock glyph (<i class=\"s-icon icon icon-lock\">), the 'Org policy' chip and the greyed background rgb(247,248,250), and both of its controls are disabled=true so this Rancher's admin cannot set them. Its reason line states the underlying truth: 'Studio has no catalog destination, so there is nothing this Rancher could set.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-preview-code-review",
+      "status": "pass",
+      "evidence": "All three dev-preview code-review segments have disabled=true with 'Off' aria-checked. Force-clicked every one of the six dev-preview segments in a single evaluate() and re-read the row: still Off on both columns, and ConfigMap barn-studio-settings never gained a dev-preview key (its data only ever holds dev-load and repo).",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-preview-outcome",
+      "status": "pass",
+      "evidence": "The dev-preview outcome control is Off with all three segments disabled=true. Force-clicked 'Notified' and 'Required' on it and re-read: still Off. setLevel() returns before any write for any destination carrying a `locked` map, and no dev-preview key ever appeared in the ConfigMap.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-load-code-review",
+      "status": "pass",
+      "evidence": "Starts at Off and is editable (all three segments disabled=false). Clicked 'Notified': ConfigMap barn/barn-studio-settings read {\"dev-load\":{\"code\":\"notified\",...}} immediately, and a full page reload came back with Notified still selected. Set it back to Off and both the page and the ConfigMap went back.",
+      "defect": "Not a fail, but worth carrying forward: the card's own warning banner still says 'Nothing in the publish path reads these values', and that sentence is now false - PublishModal.vue imports readStudioSettings and renders a per-destination line from it. The rest of the banner ('records this policy, does not enforce it', 'no publish is blocked') is still true."
+    },
+    {
+      "id": "09-settings-dev-load-outcome",
+      "status": "fail",
+      "evidence": "The control works and the publish dialog now reads it, which is new. Set it to 'Required': the ConfigMap took it, a reload kept it, and the publish dialog's 'Load into this Rancher' row gained a line it did not have at defaults - 'Settings ask for an outcome sign-off before a developer load. That is recorded and not obeyed: this destination reaches only this Rancher, it is ungated by design, and nothing here asks anybody for anything.' Set to 'Notified' the row's requirement chip changed from 'No sign-off' to 'Sign-offs advisory'. In every case the row stayed publishable and its requirement never became a demand.",
+      "defect": "The destination line changes but no sign-off is demanded. PublishModal's policyNote() reports the stored value and explicitly declines to obey it for dev-load (REVIEW-SYSTEM rule 2: a developer load reaches only this Rancher and is ungated forever), and the policy never feeds distributionGate(). So the design's promise - set Required and the developer load demands an outcome sign-off - cannot happen while dev-load is ungated by design."
+    },
+    {
+      "id": "09-settings-oci-code-review",
+      "status": "fail",
+      "evidence": "Drove the row that wears the gate, 'Push to a repository', since there is no OCI push. Its code-review control sits at Required as the design draws, but it is not locked: all three segments are disabled=false. Clicked 'Off', the ConfigMap took {\"repo\":{\"code\":\"off\",...}} and a reload came back Off. Restored to Required.",
+      "defect": "The design's lock is not there - Required is only a default and any admin can set it to Off. Nothing downstream notices either: distributionGate() takes both sign-offs regardless, and the publish dialog says so out loud ('The gate takes both regardless, because this is the one boundary the design fixes, so the weaker value is recorded and not obeyed'). Either lock the repo code cell the way the catalog row is locked, or drop the control."
+    },
+    {
+      "id": "09-settings-oci-outcome",
+      "status": "pass",
+      "evidence": "Default is Notified as the design draws, and it is editable and persists: moved it to Off, the ConfigMap took it and a reload came back Off; restored to Notified. The second half of the check now holds too - the publish dialog reads the value. At Notified both gated rows read 'Settings put an outcome sign-off at \"Notified\". The gate takes both regardless...'; with the value at Off the same two lines re-read as '...at \"Off\"'. Captured both dialogs in the same session.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-catalog-code-review",
+      "status": "pass",
+      "evidence": "Fixed at Required and not movable: all three segments disabled=true. Force-clicked all six catalog segments in one evaluate() and re-read - still Required on both columns, and no catalog key was ever written to ConfigMap barn-studio-settings.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-catalog-outcome",
+      "status": "pass",
+      "evidence": "Fixed at Required with all three segments disabled=true, unmoved by a force-click. It matches screen 07: the publish dialog's catalog row reads 'Requires approval' / 'Both + extensions team', which I captured in the same session.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-intro",
+      "status": "fail",
+      "evidence": "The card names both uses - 'Used to import repositories and to push when you publish' - and then states the opposite of the design's isolation promise, correctly: 'Generated extensions are never handed this credential, but the pod they run in can read the Secret it lives in (barn-settings in namespace barn, and that pod is bound to cluster-admin)'. Verified the binding: `kubectl get clusterrolebinding barn-extension-cluster-admin` is roleRef cluster-admin over ServiceAccount barn/barn-extension, which is the ServiceAccount every extension pod runs as.",
+      "defect": "The design's promise (a generated extension never gets this credential) is not true here and the card declines to make it. Making it true means running extension pods under a ServiceAccount that is not cluster-admin, or keeping the token out of a namespace those pods can read."
+    },
+    {
+      "id": "09-settings-github-account",
+      "status": "fail",
+      "evidence": "The pod-side identity read is broken, so none of GitHub's own answers ever reach the card. Seeded Secret barn-settings with a placeholder token (never a real credential) and reloaded: the row read 'A token is stored' with the chip 'Unverified' and the detail 'Nothing could ask GitHub about it just now: \" + String(e.message).replace(/[. Anything above it is what was recorded when it was stored.' - the error text is a fragment of the script's own source. Seeded ConfigMap barn-studio-settings with a recorded connection as well and reloaded: 'Connected as w3-settings-probe / Scopes: repo, read:org . stored 8/23/2026', still chipped 'Unverified', and the word 'expires' appears nowhere on the page. Reproduced the cause directly in the pod: the script githubApiAnywhere() injects ends with .replace(/[\\r\\n]+/g, \" \"), and \\r\\n in the TS string literal become real CR/LF characters, so the pod's node exits with 'SyntaxError: Invalid regular expression: missing /' before any fetch runs. The same fetch written by hand in the same pod returns 401 Bad credentials, so egress is fine.",
+      "defect": "pkg/barn/extensions.ts:2898 - the injected script's last line is written as '...String(e.message).replace(/[\\r\\n]+/g, \" \")...' inside a single-quoted TS string, so the emitted script contains a literal newline inside the character class and never compiles. githubIdentity() therefore always throws, which means (a) login/scopes/expiry are never read from GitHub, (b) the chip can never be 'Active' and can never be 'Rejected by GitHub' either, because a SyntaxError is not a 401 and `rejected` tests for /\\b40[13]\\b/, and (c) a node SyntaxError echo is printed into the UI as an explanation. Escape it (\\\\r\\\\n) or use /\\\\s+/ built from a string. listGithubRepos() goes through the same helper and is broken the same way. Separately: the card claims 'the credential itself never comes back into this page', and that is false - readToken() GETs /k8s/clusters/local/v1/secrets/barn/barn-settings from the browser and base64-decodes it; I captured that response three times in one page load with gh_token in the body."
+    },
+    {
+      "id": "09-settings-github-pat",
+      "status": "pass",
+      "evidence": "Clicking Connect reveals SField 'GitHub token' (type=password, data-testid settings-github-token) and focuses it, with the hint 'A personal access token with the repo scope is enough' and a link to https://github.com/settings/tokens/new?scopes=repo&description=Rancher%20Extension%20Studio. Drove it for real with a placeholder token: pressing Enter spent it against api.github.com from the browser, GitHub answered 401, the field went into its error state and Secret barn-settings was left with no data at all - so a rejected token is refused rather than stored. The card also states plainly that the design's per-user storage does not hold: 'there is one Secret for this Rancher's Studio and everybody using it uses the same credential.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-reconnect",
+      "status": "pass",
+      "evidence": "With no token the neutral refresh button reads 'Connect'; with one stored it reads 'Reconnect'. Clicking it reveals the token field and puts focus in it (document.activeElement's data-testid was settings-github-token). Re-authorising is real: the pasted token is spent against https://api.github.com/user before anything is written. There is no OAuth redirect - re-authorising means pasting a replacement - and no expiry date to watch move on afterwards, because the expiry is never read (see 09-settings-github-account).",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-disconnect",
+      "status": "pass",
+      "evidence": "With a placeholder token seeded, clicked the ghost 'Disconnect'. The credential really went: `kubectl -n barn get secret barn-settings -o jsonpath='{.data}'` came back empty and the ConfigMap's github key went back to null, in one click with nothing to press afterwards. The card fell back to the dot--off state, 'Not connected', 'Importing a public repository still works. A private one, and publishing to GitHub, do not.', no chip, and the button set collapsed to a single 'Connect'. Note on the second half of the design's check: the GitHub publish destination is still offered with no token stored - PublishModal's github row is available: true unconditionally and reads 'No sign-off', and its note says the next dialog asks for a token if there is not one.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-permission-intro",
+      "status": "fail",
+      "evidence": "The card's banner says the opposite of the design, and truthfully: 'Not settable, and not per user. The pod starts claude with --dangerously-skip-permissions (pod/claude-session.sh), so this is the level in force for everybody, and it is the only level this build can produce.' No per-user scope, no next-message timing. The detection is a real read, not a string: `kubectl -n barn get cm barn-base-extension -o jsonpath='{.data.claude-session\\.sh}'` spells --dangerously-skip-permissions on three invocation lines (43, 51, 52), which is what detectPermission() greps for.",
+      "defect": "The design's scope claim does not hold: the level is a flag baked into the pod's start-up script, shared by everybody who opens a terminal in that pod, and changing it needs the script changed and the pod restarted rather than taking effect on the next message."
+    },
+    {
+      "id": "09-settings-permission-ask-every-edit",
+      "status": "fail",
+      "evidence": "The radio carries the disabled attribute and checked=false. Read the DOM after a click: still unchecked, still disabled, and 'Do not ask at all' still holds the 'In force' chip. Nothing was written anywhere.",
+      "defect": "Genuinely not settable, which the card states. The level cannot be selected so the promised behaviour (approve every write) cannot be produced. Making it real means dropping --dangerously-skip-permissions from pkg/barn/extension-skeleton/pod/claude-session.sh and giving PodTerminal a way to surface claude's approval prompts."
+    },
+    {
+      "id": "09-settings-permission-edit-freely",
+      "status": "fail",
+      "evidence": "The radio is disabled=true and checked=false. The design has this as the selected default; here 'Do not ask at all' is the one with checked=true and the 'In force' chip, and that matches the pod - claude-session.sh runs claude with --dangerously-skip-permissions on all three of its invocation lines.",
+      "defect": "Not selectable and not the default. The middle level would need --permission-mode acceptEdits in claude-session.sh; detectPermission() already recognises that flag, so the page would follow the moment the script changed."
+    },
+    {
+      "id": "09-settings-permission-never-ask",
+      "status": "fail",
+      "evidence": "This is the level actually in force and the page detects it by reading claude-session.sh out of ConfigMap barn-base-extension rather than asserting it (checked=true, 'In force' chip; I read the same ConfigMap with kubectl and it does spell --dangerously-skip-permissions). But the radio is disabled=true so it cannot be selected or deselected, and the card states that the design's two qualifiers do not hold: the chip reads 'Admins only, not enforced', and the note says nothing restricts who may open a terminal and the pod's ServiceAccount is bound to cluster-admin. Confirmed that binding: clusterrolebinding barn-extension-cluster-admin -> cluster-admin over ServiceAccount barn/barn-extension.",
+      "defect": "Three parts of the promise fail. It is not a choice (disabled). 'Admins only' is not enforced - barn registers its pages with no permission gate. 'Still cannot publish' is false - the pod is cluster-admin and the publish path runs from that pod."
+    },
+    {
+      "id": "09-settings-preview-intro",
+      "status": "pass",
+      "evidence": "The 'Where previews run' card head makes the containment claim: 'Unpublished extensions only ever load on this cluster. A preview is served by the extension's own pod in namespace barn, reached through this cluster's API proxy, so nothing outside this Rancher can load it.' It holds - every extension pod I could see is in namespace barn on the local cluster (base, demo, nodehealth), and the preview URL the editor uses is the apiserver service proxy on Rancher's own origin.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-preview-cluster",
+      "status": "fail",
+      "evidence": "Not a dropdown. The control is a plain <div data-testid=settings-preview-cluster> holding the label 'Preview cluster', the value 'local - K3s v1.36.1' and an <i class=\"s-icon icon icon-lock\">; computed cursor is 'auto', it contains no select, no .v-select and no role=combobox, and clicking it opened no listbox. The value is true - the node's kubeletVersion is v1.36.1+k3s1 - and the hint under it says why there is no picker.",
+      "defect": "No cluster picker and no second cluster to pick. The promised effect (pick a cluster, new previews start there) cannot happen while the cluster is a module-level literal in extensions.ts. The design's chevron is a lock here."
+    },
+    {
+      "id": "09-settings-dev-server-status",
+      "status": "pass",
+      "evidence": "One row per extension, each with a live dot, a state and an uptime read from the pods rather than from a stored list. base, demo and nodehealth all showed a green dot (computed backgroundColor rgb(62,140,79)) and 'Dev server running'. Cross-checked the uptimes against the pods: nodehealth read 'uptime 10h 32m' at 16:51Z against a container startedAt of 06:18:22Z, and base read '1d 10h' against a pod that last restarted 34h earlier.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-server-restart",
+      "status": "pass",
+      "evidence": "Clicked Restart on the nodehealth row (the least-used pod; no tmux session existed in any extension pod at the time). Pod barn-nodehealth-extension-58f64c4997-69x55 (uid e879fdac-cac2-421e-8cd4-46cf19ef523d) was deleted and the Deployment made barn-nodehealth-extension-58f64c4997-p8jgb (uid 3c6402b9-cfe1-4048-a1d1-d5a5c5a94bf7, startTime 16:51:33Z). The row moved from 'Dev server running . uptime 10h 32m' with a green dot to 'Pod pending, not serving yet . uptime 0m' with the amber dot, so the uptime really reset. The pod was back 1/1 Running when I finished.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-intro",
+      "status": "pass",
+      "evidence": "The 'Who can use Studio' card leads with the design's sentence: 'Studio can write to this Rancher, so treat access like cluster admin.' It is true here - the terminal on every editor runs in a pod whose ServiceAccount (barn/barn-extension) is bound to cluster-admin, which I confirmed with kubectl.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-admins",
+      "status": "pass",
+      "evidence": "The Administrators row's checkbox is checked=true and disabled=true and the right-hand count reads 'always'. Clicked it and re-read: still checked. Its detail line reads '1 user', which matches this Rancher: /v3/globalRoleBindings has exactly one binding with globalRoleId 'admin' (userId user-btc48) and none with 'restricted-admin'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-cluster-owners",
+      "status": "fail",
+      "evidence": "The count is now right. The row reads '2 users' and that matches this Rancher: /v1/management.cattle.io.clusterroletemplatebindings returns two cluster-owner bindings on the local cluster (local/local-fleet-local-owner with userName u-mo773yttt4 and local/u-b4qkhsnliz-admin with userName u-b4qkhsnliz), and de-duping on userName gives 2. The grant half still fails: the checkbox is checked=true and disabled=true and did not move when clicked, so access cannot be revoked from here.",
+      "defect": "No grant or revoke. Studio has no access list at all - barn registers its pages with no permission gate, so revoking is not expressible, and the card's warning banner says exactly that. Only the count is actionable information."
+    },
+    {
+      "id": "09-settings-access-cluster-members",
+      "status": "fail",
+      "evidence": "The count is right - '0 users', and there genuinely are no cluster-member bindings on this Rancher (the Steve clusterroletemplatebindings collection holds two rows, both cluster-owner). The control is the inverse of the design: the checkbox is checked=true and disabled=true where the design draws it unticked and tickable, and clicking it changed nothing. So Studio cannot be granted to Cluster Members from here, and the design's '18 people would gain access' has no analogue.",
+      "defect": "No grant control: the checkbox is disabled because Studio has no allow-list to add a role to. It is drawn ticked because every signed-in user can already open Studio, which is a different statement from the design's."
+    },
+    {
+      "id": "09-settings-access-counts",
+      "status": "pass",
+      "evidence": "All three counts now match this Rancher, cross-checked against the API with an admin bearer token in the same hour: Administrators '1 user' (one globalRoleBinding with globalRoleId admin), Cluster Owners '2 users' (two cluster-owner clusterroletemplatebindings on local, two distinct userNames), Cluster Members '0 users' (none). The banner's '4 people can sign in to this Rancher' matches /v3/users (admin, user1, user2, user3). Also proved a failing read does not print as zero: aborted /v1/management.cattle.io.clusterroletemplatebindings, /v3/globalRoleBindings and /v3/users at the network layer and reloaded - the rows read 'Rancher would not say' and the banner read 'Rancher would not tell this page how many people can sign in.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-custom-role",
+      "status": "fail",
+      "evidence": "The fourth row is present and unticked as the design draws, with no count, but its checkbox is disabled=true and clicking both the checkbox and the row opened nothing: no [role=dialog], no select or .v-select appeared anywhere in the document, and the URL was unchanged. The row's own detail says why - 'no picker: Studio has no allow-list to add a role to'.",
+      "defect": "No role picker, and nothing for one to write to. The row is a placeholder that states its own absence. A picker only becomes meaningful once Studio gates its routes on something."
+    },
+    {
+      "id": "09-settings-model-intro",
+      "status": "pass",
+      "evidence": "The last card, 'What is sent to the model', leads with the design's own purpose sentence: 'Shown here so you can answer this question without asking the platform team.' It then warns that the rows describe what this build does rather than what the design promises, which is accurate for the two rows below it.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-model-sends-source",
+      "status": "pass",
+      "evidence": "First data row carries a green check glyph (<i class=\"s-icon icon icon-checkmark settings__model-icon settings__model-icon--sent\">, computed colour rgb(62,140,79)) and reads 'Your message and the extension source files / Everything under the extension folder in the pod, plus whatever the assistant opens while it works. claude runs in the pod, so the conversation goes to Anthropic's API.' That names the extension folder and it is true - claude-session.sh runs claude inside the extension pod against /app/pkg/<name>.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-model-sends-shapes",
+      "status": "fail",
+      "evidence": "The row exists but deliberately does not make the design's claim. It carries an amber warning glyph, not a check (icon-warning, settings__model-icon--warn, computed colour rgb(201,162,39)), is titled 'The names, shapes and values of cluster resources', and says 'The design promises kinds, fields and counts with the values redacted. Studio does not redact: the pod's ServiceAccount is bound to cluster-admin, so anything the assistant reads from this cluster - values included - can end up in a request.' The binding is real (clusterrolebinding barn-extension-cluster-admin) and nothing in pkg/barn redacts anything.",
+      "defect": "The design's promise (values stripped) is not implemented and the page says so rather than pretending. Making it true needs a redaction layer between the assistant and the cluster, which does not exist - claude talks to the apiserver directly from the pod."
+    },
+    {
+      "id": "09-settings-model-never-secrets",
+      "status": "fail",
+      "evidence": "The third row uses the amber warning glyph rather than the design's lock, and denies the first half of the promise: 'The design promises two things: redaction on the way out, and a scan again before publish. The scan is real, the redaction is not.' Both halves of that sentence check out. Nothing redacts, and the GitHub token sits in Secret barn-settings which the cluster-admin-bound ServiceAccount barn/barn-extension can read. The scan does exist and I saw it run: the publish dialog's pre-flight list read 'No credentials in the diff - Scanned 4 files for tokens, keys and kubeconfigs.'",
+      "defect": "The design's redaction promise fails. The row's replacement text is now accurate about the publish-time scan, which it was not on the last pass. What is left is the redaction half, which needs something between the assistant and the cluster that does not exist."
+    },
+    {
+      "id": "09-settings-nav-menu",
+      "status": "pass",
+      "evidence": "Measured the rail's geometry rather than its presence. On load .side-menu is 70px wide; one click on the hamburger (data-testid top-level-menu) takes it to 300px with the full labelled menu; a second click takes it back to 70px.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-home",
+      "status": "pass",
+      "evidence": "Opened the rail from the settings page and clicked 'Home' (aria-label 'Home page navigation menu', href /dashboard/home): landed on https://magic-closet-rancher/dashboard/home, document title 'Rancher Prime - Homepage'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked 'Cluster Management' in the rail (icon-cluster-management): landed on /dashboard/c/_/manager/provisioning.cattle.io.cluster, title 'Rancher Prime - Cluster Management - Clusters', h1 'Clusters'. That is Rancher's cluster management area.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "The rail's pinned-cluster chips are Rancher's own, one per cluster this Rancher has. It has exactly one, so the only chip is 'local' (data-testid menu-cluster-local, with a pin/unpin control beside it) and there is no LT1 - that name is Figma fixture data. Drove the affordance the feature is about: clicked the chip from the settings page and landed on /dashboard/c/local/explorer#cluster-events, title 'Rancher Prime - local - Cluster Dashboard'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same mechanism as 09-settings-nav-cluster-lt1: the rail lists a chip per cluster and this Rancher has only 'local', so there is no CD2 chip to click. The one chip that exists switches cluster correctly (clicked it from /barn/settings and landed on /dashboard/c/local/explorer, title 'Rancher Prime - local - Cluster Dashboard').",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "Same mechanism as 09-settings-nav-cluster-lt1. Enumerated [data-testid^=menu-cluster] and [data-testid^=top-level-menu-cluster] from the settings page: the only entries are top-level-menu-cluster-0 and menu-cluster-local, both the local cluster. No AFT cluster exists on this Rancher, and the chip that does exist switches to its cluster.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-extensions",
+      "status": "pass",
+      "evidence": "With /barn/settings open, the rail entry 'Extension Studio' carries class 'option active-menu-link' and the puzzle glyph (<i class=\"icon group-icon icon-extension app-icon\">), so the highlighted puzzle icon does mark the Studio as the current section. Clicked it and landed on /dashboard/barn/extensions with .studio-home__table present. Rancher's own 'Extensions' entry uses the same glyph but carries only 'option', not the active class.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-docs",
+      "status": "not-implemented",
+      "evidence": "Swept every a/button/i/svg inside header, .side-menu and nav (26 elements) and listed the distinct icon-* classes and aria-labels: icon-pin-outlined, icon-cluster-management, icon-fleet, icon-extension, icon-harvester, icon-gear, icon-user, icon-globe, icon-lg (the bell); labels are Home, the cluster chip and its pin, the seven product entries, About, 'Open notification center' and 'Open user menu'. A separate regex sweep of every element in the document for docs|documentation|book over className, aria-label, title and data-testid returned nothing.",
+      "defect": "No documentation link in this Rancher's rail and barn adds none. The design's book icon is a Figma-only affordance."
+    },
+    {
+      "id": "09-settings-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked 'Global Settings' in the rail (icon-globe, href /dashboard/c/local/settings): landed on /dashboard/c/local/settings/management.cattle.io.setting, title 'Rancher Prime - Global Settings - Settings'. A settings area opened. (There is also a gear glyph in the rail, but on this Rancher it belongs to the 'Base' extension entry.)",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the person control in the header (data-testid nav_header_showUserMenu, aria-label 'Open user menu'): a dropdown appeared reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the foot of the rail (aria-label 'About page link'): landed on https://magic-closet-rancher/dashboard/about, title 'Rancher Prime - About', h1 'About'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-logo",
+      "status": "pass",
+      "evidence": "Screenshotted the header strip while /barn/settings was open: it shows the green SUSE chameleon, 'SUSE' in bold and 'Rancher Prime' beside it, left of the page content. Confirmed the branding is really on: setting ui-brand is 'suse' and <body> carries the class 'suse'; document.title is 'Rancher Prime'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell (data-testid notifications-center, aria-label 'Open notification center'): a .notification-dropdown opened, headed 'Notifications / Mark all as read', with real timestamped entries including 'Done - Today, 4:43:48 pm - The stored GitHub token was removed', which is the toast my own Disconnect raised a few minutes earlier. The bell also carries an unread marker in the screenshot.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-more",
+      "status": "not-implemented",
+      "evidence": "Same chrome sweep as 09-settings-nav-docs. A regex sweep of every element under <header> for more|ellips|dots|overflow|kebab across className, aria-label, title and data-testid returned an empty list, and the header's only buttons are the hamburger, the bell and the user avatar (visible in the header screenshot).",
+      "defect": "Rancher's header has no overflow menu and barn registers nothing into one (index.ts explains NavHeaderRight was dropped because it is a single global slot the last extension silently wins)."
+    },
+    {
+      "id": "09-settings-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Same chrome sweep as 09-settings-nav-docs. The regex sweep for grid|apps|collection|launcher over every element under <header> returned nothing, and the header screenshot shows the far right ending at the notification bell and the user avatar with no grid glyph.",
+      "defect": "Rancher has no app-collection switcher for barn to draw. Figma-only affordance."
+    }
+  ]
+}

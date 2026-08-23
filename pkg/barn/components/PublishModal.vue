@@ -1087,6 +1087,20 @@ export default {
       }
 
       await writeExtensionFile(this.extension, 'package.json', next);
+
+      // Read it back. The check above only proves the string we were about to write was right,
+      // and a write into the pod can fail without saying so: `package.json` was found root-owned
+      // in a pod whose execs run as uid 1000, so the write did nothing, the publish carried on,
+      // and the bundle went out under the old version. A publish that silently ships a number
+      // nobody chose is worse than one that refuses.
+      const back = await readExtensionFile(this.extension, 'package.json');
+
+      if (JSON.parse(back || '{}').version !== version) {
+        throw new Error(
+          `the version was not written into package.json: it still reads ${ JSON.parse(back || '{}').version || 'nothing' }. ` +
+          'Check the file is writable by the pod user.'
+        );
+      }
     },
 
     /** Put the summary under its version heading in CHANGELOG.md, newest first. */

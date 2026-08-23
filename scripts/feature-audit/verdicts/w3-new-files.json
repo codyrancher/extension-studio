@@ -1,0 +1,473 @@
+{
+  "screen": "02-new + 05-files",
+  "verdicts": [
+    {
+      "id": "02-new-card-title",
+      "status": "pass",
+      "evidence": "Loaded /dashboard/barn/extensions/new. Exactly one .new-ext__card, 820px wide at x=425 in a 1600px viewport (centred in the content area), titled \"New extension\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-card-intro",
+      "status": "pass",
+      "evidence": "The .new-ext__lede under the title reads verbatim: \"Describe what you want in your own words. The assistant writes the code, runs it against this Rancher, and shows you the result before anything is shared.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt-label",
+      "status": "pass",
+      "evidence": "The label \"What should it do?\" renders in .new-ext__label directly above the description textarea.",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt",
+      "status": "pass",
+      "evidence": "On load document.activeElement is TEXTAREA.new-ext__prompt-input and its box carries a green focus border (rgb(0,134,87)). Typed a multi-line description, submitted, and the same text came back in the brief screen query and in the created extension's BRIEF.md (\"## What you were handed / Show w3nf placement probe rows for screen 02 verification\") read out of the pod at /app/pkg/v3nf/BRIEF.md.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-label",
+      "status": "pass",
+      "evidence": "An SLabel reading \"Try\" renders immediately to the left of the three chips inside .new-ext__examples.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-cost-report",
+      "status": "pass",
+      "evidence": "Clicked the chip with an empty field: the description became \"Add a cost report per namespace.\" and the name field auto-suggested \"cost-report-per\". Clicking it with \"Base text.\" already present appended, giving \"Base text. a cost report per namespace\". Note: focus stays on the chip button (document.activeElement is .new-ext__example), it does not move into the description field as this feature's howToVerify asks.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-longhorn",
+      "status": "pass",
+      "evidence": "Clicked the chip: description became \"Add a Longhorn volume health tab.\" and the suggested name became \"longhorn-volume-health\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-fleet-drift",
+      "status": "pass",
+      "evidence": "Clicked the chip: description became \"Add a fleet drift dashboard.\" and the suggested name became \"fleet-drift-dashboard\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome-label",
+      "status": "pass",
+      "evidence": "Both lines render above the outcome textarea: \"What can someone not do today?\" as the label and \"The question a ticket usually skips.\" as the aside.",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome",
+      "status": "pass",
+      "evidence": "Typed \"W3NF OUTCOME PROBE: nobody can tell which placement the studio generated.\" into the outcome field and pressed Draft the brief. The text reached the extension: the seed ConfigMap barn-v3nf-extension carries it under \"## The problem\" in BRIEF.md, and once the pod came up /app/pkg/v3nf/BRIEF.md holds the same section (read with kubectl), and the brief screen rendered it. The second half of the promise (the assistant challenging a solution-shaped description) is wired rather than observed: the seed appends a \"## Read BRIEF.md first\" section to CLAUDE.md that instructs claude, \"If 'What changes for them' describes a solution rather than the problem in 'The problem', say so before building it.\" The pod's claude is not signed in (\"The assistant is not signed in - run /login in the terminal\"), so the challenge itself could not be watched happening.",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome-note",
+      "status": "pass",
+      "evidence": "The sparkle-marked note renders under the outcome field with the promised text about telling you when your description is a solution rather than a problem.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-label",
+      "status": "pass",
+      "evidence": "Both lines render above the four cards: \"Where should it appear?\" and \"This decides the parent route - the single hardest thing to fix later.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-cluster",
+      "status": "pass",
+      "evidence": "On load \"Inside a cluster\" is the only card with .new-ext__option--selected (green border rgb(62,140,79), tint rgb(238,245,239), aria-pressed=true). Clicked each other card and the selection moved to it alone, then clicked back and it returned. Submitting with it selected generated a product.ts with inStore: 'cluster', showClusterSwitcher: true and no cluster: '_' param, and a routing/index.ts whose md5 differs from the other three placements.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-top-level",
+      "status": "pass",
+      "evidence": "Clicked \"Top-level nav\": it became the only selected card. Submitting generated product.ts with inStore: 'management', showClusterSwitcher: false and route params { cluster: '_' }, a header comment \"Where it appears: its own entry in the global menu\", and BRIEF.md \"Parent route: `root`\". md5 of product.ts differs from all three other placements.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-resource",
+      "status": "pass",
+      "evidence": "Clicked \"On a resource\": it became the only selected card and a follow-up \"On which resource?\" input appeared ([data-testid=new-ext-resource]); the other three cards show no follow-up. Typed \"pod\" and submitted: the generated product.ts adds TAB_RESOURCE = 'pod' and TAB_LABEL = 'V3nf', and index.ts (unique to this placement, md5 13976054...) registers plugin.addTab(TabLocation.RESOURCE_DETAIL, { resource: [TAB_RESOURCE] }, ...). BRIEF.md says \"A tab on the detail page of `pod`, registered with `plugin.addTab` in `index.ts`.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-unsure",
+      "status": "pass",
+      "evidence": "Clicked \"Not sure yet\" and submitted. The generated product.ts is a distinct file (md5 44935f84...) headed \"Where it appears: NOT DECIDED YET\" and listing the three alternatives as a comment, and BRIEF.md's \"Where it appears\" section says \"Parent route: `undecided` ... Not decided ... pick one of c-cluster, root or resource-detail\". The deferral to the assistant is real and complete: the seed's CLAUDE.md says \"If 'Where it appears' says `undecided`, choose a placement before writing any UI, change product.ts and routing/index.ts to match, and write the choice and the reason into that section.\" The brief therefore names a question rather than a chosen placement with a reason, which is what this card can honestly produce before the assistant has run; the assistant actually picking was not observed because the pod's claude is not signed in.",
+      "defect": null
+    },
+    {
+      "id": "02-new-name",
+      "status": "pass",
+      "evidence": "Typed \"Add a page for the fleet drift dashboard\" and the Name field filled itself with \"fleet-drift-dashboard\". Overwrote it with \"v3nf\" and then kept typing in the description: the name stayed \"v3nf\" rather than being re-suggested. Submitting created the extension under that edited name - kubectl shows configmap/deployment/service barn-v3nf-extension and the pod's package directory is /app/pkg/v3nf with PRODUCT_NAME = 'v3nf'.",
+      "defect": null
+    },
+    {
+      "id": "02-new-name-hint",
+      "status": "pass",
+      "evidence": "The hint \"Suggested from your description - editable\" renders under the Name field.",
+      "defect": null
+    },
+    {
+      "id": "02-new-target",
+      "status": "not-implemented",
+      "evidence": "\"Build and preview against\" reads \"local - v1.36.1+k3s1\", and both halves are real: the same values come back from /v1/management.cattle.io.clusters/local (displayName \"local\", status.version.gitVersion \"v1.36.1+k3s1\"). But it is not a picker. The element is <div class=\"new-ext__box new-ext__box--static\" data-testid=\"new-ext-target\">; clicking it opened nothing (0 listboxes, poppers or menu lists afterwards and the text was unchanged) and there is no <select> or vue-select toggle anywhere in .new-ext__details.",
+      "defect": "The design draws a cluster picker and the feature kind is \"select\"; the product ships a static readout. new-extension.vue states the reason in its header comment - every extension pod is created in the local cluster, so a list of other clusters would list places the build cannot go - and the hint under the field says \"Not a choice: every extension pod this Studio creates lives in this cluster, so there is nowhere else to point it.\" So the readout is honest and correct, but the promised control does not exist. This needs a design decision (drop the picker from the design, or make placement targetable) rather than a code fix."
+    },
+    {
+      "id": "02-new-target-hint",
+      "status": "pass",
+      "evidence": "The hint renders under the target field: \"Changes only ever run here until you publish. Not a choice: every extension pod this Studio creates lives in this cluster, so there is nowhere else to point it.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-git-note",
+      "status": "pass",
+      "evidence": "The grey panel renders with the GitHub mark (i.s-icon.icon-github) and the text \"No GitHub connection needed to start. You can connect one later when you want to keep the source or publish to the catalog.\" The flow does complete with no connection configured: the barn-settings Secret holds 0 data keys and barn-studio-settings has \"github\": null, and the v3nf extension was created anyway.",
+      "defect": null
+    },
+    {
+      "id": "02-new-connect-github",
+      "status": "pass",
+      "evidence": "Clicked \"Connect GitHub\": a modal opened in place (no navigation, URL unchanged) titled \"Connect GitHub\" with a token field, an explicit \"No GitHub token is stored\" state and a link to all Studio settings. Closing it returned to the form with everything intact - description \"w3nf keep-my-typing probe\", outcome \"w3nf outcome typing probe\", name \"w3nf-typed-name\" and the \"On a resource\" card still selected.",
+      "defect": null
+    },
+    {
+      "id": "02-new-footer-note",
+      "status": "pass",
+      "evidence": "The footer copy renders to the left of the buttons: \"Next: agree a one-page brief. It takes about a minute and becomes the reviewer's checklist. You are recorded in it as the person who asked, which is what the outcome sign-off later checks against.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-cancel",
+      "status": "pass",
+      "evidence": "Filled the description and set the name to \"v3nf-cancel-probe\", clicked Cancel: the route became /dashboard/barn/extensions and the home table rendered. Nothing was created - kubectl -n barn get cm found no barn-v3nf-cancel-probe-extension.",
+      "defect": null
+    },
+    {
+      "id": "02-new-import-instead",
+      "status": "pass",
+      "evidence": "Clicked \"Import a repo instead\": the ImportExtensionModal opened with its three steps (\"Connect GitHub\", \"Choose a repository\", \"Branch and name\"), the same dialog screen 01 opens. Escape closed it and the typed description and name were still in the form.",
+      "defect": null
+    },
+    {
+      "id": "02-new-draft-brief",
+      "status": "pass",
+      "evidence": "Filled description, outcome, placement and name \"v3nf\" and clicked the green sparkle button. It created the extension (configmap, deployment and service barn-v3nf-extension appeared, the pod came up) and routed to /dashboard/barn/extensions/v3nf/brief with the typed prompt, outcome and placement=c-cluster in the query. The brief screen rendered the typed description and outcome, and the extension's BRIEF.md - read out of the pod - contains them under \"## What you were handed\" and \"## The problem\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-menu",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=top-level-menu] at the top of the rail: .side-menu went from \"menu-close\" to \"menu-open\" and aria-expanded from false to true; clicking again put both back.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house link in the rail: /dashboard/home with h1 \"Welcome to Rancher Prime\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Clicked the pinned cluster entry [data-testid=menu-cluster-local]: /dashboard/c/local/explorer#cluster-events with h1 \"Cluster Dashboard\". The rail lists this Rancher's real clusters rather than the design's LT1/CD2/AFT, which is the honest version of the same control.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-extensions",
+      "status": "pass",
+      "evidence": "On /dashboard/barn/extensions/new the \"Extension Studio\" rail entry carries class \"option active-menu-link\" with background rgb(2,89,55) and white text, while a sibling entry (Continuous Delivery) is transparent with green text. The selected treatment is present in both the collapsed and expanded rail.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-server",
+      "status": "pass",
+      "evidence": "Clicked the Cluster Management entry: /dashboard/c/_/manager/provisioning.cattle.io.cluster with h1 \"Clusters\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-gear",
+      "status": "pass",
+      "evidence": "Clicked Global Settings: /dashboard/c/local/settings/management.cattle.io.setting with h1 \"Settings\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-book",
+      "status": "not-implemented",
+      "evidence": "Enumerated every icon in the rail: pin, cluster-management, fleet, extension, harvester, gear, user, extension, globe. There is no book or docs icon, and no rail entry navigating to documentation or a catalog. Nothing in pkg/barn draws the rail - it is Rancher's own side menu - so there is no selector or component to look for.",
+      "defect": "The design draws a book icon in the rail. Rancher's side menu has no docs entry, so this would have to be added to Rancher itself or dropped from the design."
+    },
+    {
+      "id": "02-new-nav-user",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=nav_header_showUserMenu]: a dropdown opened reading \"admin / Default Admin / Preferences / Account & API Keys / Log Out\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-about",
+      "status": "pass",
+      "evidence": "Clicked \"About\" in the rail footer: /dashboard/about with h1 \"About\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-logo",
+      "status": "fail",
+      "evidence": "The product logo is <img data-testid=\"side-menu__brand-img\"> inside <div class=\"side-menu-logo\">. It has no ancestor <a> (element.closest('a') is null). Clicking it left the URL at /dashboard/barn/extensions/new and did not even open or close the side menu.",
+      "defect": "The header logo is not a link and has no click handler. The design has it return to the Rancher home page. This is Rancher's own shell rather than pkg/barn, so the fix belongs upstream or the claim belongs out of the design."
+    },
+    {
+      "id": "02-new-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every a/button/[role=button]/i.icon in the header: the side-menu hamburger ([data-testid=top-level-menu], aria-label \"Expand the Application Bar\"), the notifications bell ([data-testid=notifications-center]) and the user menu ([data-testid=nav_header_showUserMenu]) with its avatar. There is no grid icon; a search for class names matching /apps|grid|dots|ellipsis|actions/ in the header returned nothing.",
+      "defect": "The design draws a grid icon opening an application switcher. Rancher's header has no such control - the nearest thing is the hamburger, which is already the nav-menu feature."
+    },
+    {
+      "id": "02-new-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell: a .notification-dropdown panel opened, 445px wide, headed \"Notifications / Mark all as read\" and listing real entries (an unread \"Verification recorded\" from today).",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header inventory as the apps switcher: there is no three-dot/kebab control in the header at all, and no element whose class matches /dots|ellipsis|more/.",
+      "defect": "The design draws a header overflow kebab. Rancher's header does not have one."
+    },
+    {
+      "id": "05-files-masthead-title",
+      "status": "pass",
+      "evidence": "Opened /dashboard/barn/extensions/v3nf/files - an extension other than the seed - and the masthead read \"v3nf\" over the eyebrow \"FILES\". On base it reads \"base\". The name is the route parameter, not a constant.",
+      "defect": null
+    },
+    {
+      "id": "05-files-state-badge",
+      "status": "pass",
+      "evidence": "On base with three uncommitted files the badge read \"Unsaved\"; git diff --name-only HEAD in the pod listed exactly three (HARNESS.md, product.ts, w3-files-conflict.txt). On v3nf, whose tree matched its only commit, the same badge read \"Live\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-chip",
+      "status": "pass",
+      "evidence": "The masthead chip read \"main\", matching git rev-parse --abbrev-ref HEAD in the pod. After switching branches in the UI the chip read \"w3-probe-branch\", which is what the pod then reported too.",
+      "defect": null
+    },
+    {
+      "id": "05-files-review-changes",
+      "status": "pass",
+      "evidence": "The button read \"Review 3 changes\" while the pod reported 3 changed files; clicking it loaded /dashboard/barn/extensions/base/review with .review__body present. The count follows the tree: it read \"Review 4 changes\" earlier with four changed files, \"Review 1 change\" on v3nf with one, and plain \"Review changes\" on v3nf with none.",
+      "defect": null
+    },
+    {
+      "id": "05-files-publish",
+      "status": "pass",
+      "evidence": "On v3nf with nothing changed the Publish button was disabled with the title \"Nothing has changed since the last commit\". Added a line to v3nf's product.ts in the pod and it enabled. Clicking it opened a confirmation modal (\"Publish v3nf ... this Rancher is pointed at the result ... Cancel / Publish to this Rancher\"); confirming routed to /dashboard/barn/editor/v3nf and the publish really ran - a UIPlugin \"v3nf\" version 0.1.0 appeared in cattle-ui-plugin-system and the workspace status strip read \"v3nf 0.1.0 installed\". Driven against an extension I created for this pass, not against base; the UIPlugin and the extension have since been deleted.",
+      "defect": null
+    },
+    {
+      "id": "05-files-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked the three-dot button at the right of the masthead: a menu opened with four items, and each does its thing. \"Refresh the tree\" re-read the tree and raised \"Re-read the file tree for base.\"; \"Copy this file's path\" put \"index.ts\" on the clipboard (read back with navigator.clipboard.readText); \"Open the workspace\" went to /dashboard/barn/editor/base with .mc-editor rendered; \"Review changes\" (labelled with the live count) went to /dashboard/barn/extensions/base/review.",
+      "defect": null
+    },
+    {
+      "id": "05-files-back-arrow",
+      "status": "pass",
+      "evidence": "Clicked the chevron at the start of the masthead on /dashboard/barn/extensions/base/files: the route became /dashboard/barn/extensions and the Studio home table rendered.",
+      "defect": null
+    },
+    {
+      "id": "05-files-panel-tabs",
+      "status": "pass",
+      "evidence": "The strip has four tabs and \"Files\" carries s-tab--selected on this screen. Assistant goes to /barn/editor/base?tab=assistant with Assistant selected, Terminal to /barn/editor/base?tab=terminal with Terminal selected, and Changes to /barn/extensions/base/review. The content genuinely changes and the selected state moves; note that three of the four navigate to another screen rather than swapping a panel underneath a strip that stays put, so on the review screen there is no strip to carry the indicator.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tab-changes-count",
+      "status": "pass",
+      "evidence": "The Changes tab carries a badge that tracks the pod. It read 4 when git reported four changed files, 3 after one was reverted, and 1 on v3nf with a single change. The badge is bound to the same count as the masthead button and the Unsaved badge, so all three agreed on every reading.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-heading",
+      "status": "pass",
+      "evidence": "A folder icon and the title \"Files\" head the tree column, above the branch row, filter and tree. The word is rendered in sentence case (text-transform: none) rather than the design's \"FILES\"; the masthead eyebrow beside the extension name is the uppercased one.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-sort",
+      "status": "pass",
+      "evidence": "Clicked the glyph at the right of the FILES heading: a menu opened with \"Name - folders first, then A to Z - current\" and \"Changed first - uncommitted files at the top\". Picking \"Changed first\" reordered the loose files from .gitignore, babel.config.js, BRIEF.md, CLAUDE.md, HARNESS.md ... to BRIEF.md, HARNESS.md, product.ts, .gitignore, babel.config.js ... - the three files git reports as changed moved to the top. Picking \"Name\" put the original order back.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-select-file",
+      "status": "pass",
+      "evidence": "Clicked product.ts in the tree: the editor header changed from \"index.ts\" to \"product.ts\", the provenance line from \"Last commit by barn, 2 days ago - 14 lines - committed\" to \"Last commit by barn, 2 days ago - 30 lines - uncommitted changes\", the pane from 14 to 30 numbered lines, and the --current highlight moved off index.ts onto product.ts.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-expand-folder",
+      "status": "pass",
+      "evidence": "Clicked the \"pages\" folder row: Home.vue disappeared from the tree listing. Clicked it again and Home.vue came back.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-change-marks",
+      "status": "pass",
+      "evidence": "Read the badge on every tree row against git. HARNESS.md (untracked) showed \"new\" on green rgb(62,140,79); product.ts and BRIEF.md (modified) showed \"edited\" on amber rgb(201,162,39); untouched files had no badge. Added a fourth changed file of my own (w3-files-conflict.txt) and it gained an \"edited\" badge, and lost it again after Revert. The \"gone\" badge now renders too: deleting a tracked file in the pod put w3-files-probe.txt in the tree with a \"gone\" badge on red rgb(246,71,71), which is only possible because the listing unions in the paths git reports deleted.",
+      "defect": null
+    },
+    {
+      "id": "05-files-code-view",
+      "status": "pass",
+      "evidence": "Byte-compared the rendered pane against the pod for three file types. Concatenated the textContent of every .files__code-line and compared with the file read out of the pod through base64: pages/Home.vue (898 bytes, md5 81b58fca42e5605ed1854cb85f7d16c1), routing/index.ts (572 bytes, 0d95f0036699a7a3afe936f38841a48e) and l10n/en-us.yaml (22 bytes, b687ee105f94610fa367beed37b450d9) all matched exactly once the file's final newline is accounted for - the pane represents it as the end of the last numbered line rather than an extra empty row, which is right. Line numbers ran 1..46, 1..16 and 1..2 with no gaps, and the tokens carried keyword/string/comment/number classes.",
+      "defect": null
+    },
+    {
+      "id": "05-files-code-scroll",
+      "status": "pass",
+      "evidence": "Opened pages/Home.vue: .files__code has overflow-y auto with scrollHeight 1046 against clientHeight 413. Set scrollTop to 400 and it took it; the first fully visible row was then line 18, and the editor header, the tree column and the \"Where used\" panel all kept the same bounding-box top, so only the code moved.",
+      "defect": null
+    },
+    {
+      "id": "05-files-editor-header-path",
+      "status": "pass",
+      "evidence": "The provenance line is read per file and changes with it. index.ts: \"Last commit by barn, 2 days ago - 14 lines - committed\"; pages/Home.vue: \"... 46 lines - committed\"; l10n/en-us.yaml: \"Last commit by barn, 10 hours ago - 2 lines - committed\"; product.ts, which the harness fixture has edited: \"Last commit by barn, 2 days ago - 30 lines - uncommitted changes\". A file I committed myself read \"Last commit by w3-05-files, 16 minutes ago - 3 lines - uncommitted changes\" - the author is the real committer, not a constant.",
+      "defect": null
+    },
+    {
+      "id": "05-files-edit-file",
+      "status": "pass",
+      "evidence": "Clicked Edit on a file of my own: the read-only table was replaced by a textarea holding the file's exact contents, Save was disabled until the text changed. Typed a new line and pressed Save; kubectl cat in the pod then returned the edited text byte for byte, the editor went back to read-only and the tree row gained an \"edited\" badge. (An earlier run appeared to fail here; that was my fixture - I had created the file with a root-owned kubectl exec, and the pod-side write runs as uid 1000, so the redirect could not open it. With node ownership the write lands every time.)",
+      "defect": null
+    },
+    {
+      "id": "05-files-revert-file",
+      "status": "pass",
+      "evidence": "Two cases. Modified file: appended a line to my file in the pod, opened it, clicked Revert and confirmed \"Revert it\" - the pod's copy went back to exactly git show HEAD:<path> and the \"edited\" badge cleared. Deleted file: removed a tracked file in the pod, opened its GONE row, clicked Revert (the confirm button reads \"Restore it\" and the modal says \"was deleted. Reverting writes it back into the pod as its last commit left it\") - the file reappeared in the pod with its committed contents, the badge cleared and the pane rendered it. The \"already committed deletion\" branch of the message could not be reached: it needs a published baseline older than the deletion, and this pod has no refs/barn baseline ref, so changedFiles measures from HEAD and a committed deletion produces no gone row at all.",
+      "defect": null
+    },
+    {
+      "id": "05-files-ask-about-file",
+      "status": "pass",
+      "evidence": "Opened a file of my own and clicked \"Ask about this file\". The screen routed to /dashboard/barn/editor/base?tab=terminal, and the question really reached the assistant: tmux capture-pane on the pod's mc-editor session shows \"Read w3-files-probe.txt in this package and explain it to somebody...\" typed into the pane. No queue file was written because a session already existed, which is the \"sent\" rather than \"queued\" path.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-heading",
+      "status": "pass",
+      "evidence": "A clock icon, the title \"History\" and an entry count head the list above the history rows. The wording is \"History\" rather than the design's \"RECENT ACTIVITY\", but the list is labelled and the count is live.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-metadata",
+      "status": "pass",
+      "evidence": "Compared every row against the pod. git log gave 243abea|w3-05-files verification probe files|w3-05-files|20 minutes ago, 24b3922|Remove verify-05-files.md...|barn|10 hours ago, e0948e9|...|barn|11 hours ago, 2abd586, 94f0478, 5814a08, 8a704fb|The seeded extension|barn|2 days ago - and the UI listed exactly those short SHAs, subjects, authors and relative times in the same order. Snapshots are interleaved by time and shown as \"snapshot ... automatic - <when>\" with no author, which is the distinction the row exists to draw, and a snapshot commit is hung off HEAD so a plain log walk cannot see it.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-open-entry",
+      "status": "pass",
+      "evidence": "Clicked \"8a704fb The seeded extension\". The middle column switched to that commit's patch in the DiffView, headed \"8a704fb | The seeded extension | barn - 2 days ago\" with a \"Back to index.ts\" way out, and reported \"11 files +279-0\" starting .gitignore +1, CLAUDE.md +97 - which matches git show --stat 8a704fb in the pod. Clicking a snapshot row works the same way and showed the three files that snapshot captured.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-working-changes",
+      "status": "pass",
+      "evidence": "Clicked the top \"Working changes\" row. The column opened the uncommitted diff headed \"working | Working changes | 3 files not yet committed - now\" with \"Review them\" and \"Back to...\" buttons, listing HARNESS.md +3, product.ts +2 and w3-files-conflict.txt +2-1. git status --porcelain in the pod at the same moment reported exactly those three paths, and the count and \"now\" move with the tree.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-select",
+      "status": "pass",
+      "evidence": "Clicked the branch row: a menu listed the branches with the checked-out one marked \"checked out\" and disabled. Created a second branch in the pod and it appeared; picking \"w3-probe-branch\" checked it out for real (git rev-parse --abbrev-ref HEAD in the pod returned w3-probe-branch), the masthead chip, the selector and the subtitle all followed (\"2 branches in the pod\"), and the columns reloaded. Switched back to main the same way. The subtitle does not report sync state against origin as the promise says - it says so out loud: \"sync with origin is not read here\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-where-used-panel",
+      "status": "pass",
+      "evidence": "The right column is headed \"Where used\" and its contents are per file. For pages/Home.vue: a \"Where it surfaces\" section naming route /base/c/local/home plus one reference row. For product.ts: no surface section, the note \"product.ts does not render a page of its own...\", and a different reference row. Selecting a different file changed both halves.",
+      "defect": null
+    },
+    {
+      "id": "05-files-preview-thumb",
+      "status": "pass",
+      "evidence": "Clicked \"Show the running extension\" with pages/Home.vue open: an iframe 307x192 loaded /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/ and rendered the extension's own live dashboard (its document body listed the Base product in the nav). It is not a fixed image and it is absent entirely for a file that renders no page. It is labelled with an SChip reading \"local\" and the route /base/c/local/home. Caveat: the frame shows the extension's app root rather than the file's own route, which the panel's note explains - the dev server has no history fallback, so a direct link to the route would 404.",
+      "defect": null
+    },
+    {
+      "id": "05-files-open-live-preview",
+      "status": "pass",
+      "evidence": "Clicked \"Open the live preview\" and caught the popup: a new tab opened on https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/, the extension's real running dev server through the service proxy, and the page rendered (title \"Rancher Prime - Homepage\", the Base product in its nav). Same caveat as the thumbnail: it lands on the app root (/proxy/home) rather than the file's route, which the panel says is deliberate.",
+      "defect": null
+    },
+    {
+      "id": "05-files-references-heading",
+      "status": "pass",
+      "evidence": "An SLabel heads the reference rows, naming the open file - \"REFERENCES TO INDEX.TS\", \"REFERENCES TO PRODUCT.TS\" - and it changes with the selection. The design word is \"Referenced by\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-reference-reasons",
+      "status": "pass",
+      "evidence": "Every row carries a reason read off the matched line, not just a path. For pages/Home.vue the single row is \"routing/index.ts:3 / IMPORTS IT / import Home from '../pages/Home.vue';\". For index.ts the rows are two CLAUDE.md hits both reading \"DESCRIBES IT IN A TABLE\" with the matching table line quoted underneath. The list is different for every file I opened.",
+      "defect": null
+    },
+    {
+      "id": "05-files-open-reference",
+      "status": "pass",
+      "evidence": "With pages/Home.vue open, clicked the \"routing/index.ts:3 IMPORTS IT\" row. The editor header became \"routing/index.ts\", the pane loaded that file and the tree's --current highlight moved to it.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-menu",
+      "status": "pass",
+      "evidence": "On /dashboard/barn/extensions/base/files clicked the hamburger at the top-left: .side-menu went from menu-close to menu-open (width 70 to 300) and aria-expanded flipped to true; clicking again closed it.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house link in the rail from the Files screen: /dashboard/home with h1 \"Welcome to Rancher Prime\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Clicked the pinned local cluster from the Files screen: /dashboard/c/local/explorer#cluster-events with h1 \"Cluster Dashboard\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-rail-icons",
+      "status": "pass",
+      "evidence": "From /dashboard/barn/extensions/base/files each rail icon changes area: server to /c/_/manager/provisioning.cattle.io.cluster (h1 \"Clusters\"), gear to /c/local/settings/management.cattle.io.setting (h1 \"Settings\"), the person icon to the account dropdown, and the Extension Studio entry stays highlighted while on this screen (class \"option active-menu-link\", background rgb(2,89,55), white text, against transparent/green for its siblings). There is no book icon in the rail - see 02-new-nav-book.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-about",
+      "status": "pass",
+      "evidence": "Clicked \"About\" in the rail footer from the Files screen: /dashboard/about with h1 \"About\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell from the Files screen: the notification dropdown opened and listed my own actions from this session - \"Switched branch / Now on main.\", \"Switched branch / Now on w3-probe-branch.\", \"Reverted w3-files-conflict.txt\" - so it is live rather than a static panel.",
+      "defect": null
+    },
+    {
+      "id": "05-files-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every a/button/[role=button]/i.icon in the header on this route: the side-menu hamburger, the notifications bell and the user menu with its avatar. No grid icon, and no header element whose class matches /apps|grid/.",
+      "defect": "Same as 02-new-header-apps: the design draws an app-collection grid in the header and Rancher's header has no such control."
+    },
+    {
+      "id": "05-files-header-more",
+      "status": "not-implemented",
+      "evidence": "Same header inventory: no three-dot control in the top bar on this route. The only three-dot menu on the screen is the one at the end of the workspace masthead, which is a different feature (05-files-masthead-more) and does work.",
+      "defect": "Same as 02-new-header-more: the design draws a header overflow kebab that Rancher's header does not have."
+    }
+  ]
+}

@@ -39,7 +39,7 @@ import {
 } from '../extensions';
 import {
   readReview, gateFrom, distributionGate, currentSigner, whoAsked, sinceLastLook, lastLook,
-  migrateDeferral
+  migrateDeferral, sameCommit
 } from '../review';
 import {
   STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
@@ -726,7 +726,12 @@ export default {
       }
 
       const commits = history.filter((h) => h.kind === 'commit');
-      const at = commits.findIndex((h) => h.ref === code.sha);
+      // `sameCommit`, not `===`. `listHistory` reports `%h` and a sign-off stores the full forty
+      // characters that `resolveCommit` writes, so a string compare never matched and every real
+      // sign-off produced "the branch has moved past the commit you approved" on a clean tree.
+      // This is the same abbreviated-versus-full bug that stopped the distribution gate opening;
+      // `sameCommit` exists so there is one answer to it rather than one per screen.
+      const at = commits.findIndex((h) => sameCommit(h.ref, code.sha));
 
       if (at === 0 && !changes) {
         return null;

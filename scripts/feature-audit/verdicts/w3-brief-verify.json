@@ -1,0 +1,455 @@
+{
+  "screen": "10-brief + 13-verify",
+  "verdicts": [
+    {
+      "id": "10-brief-title",
+      "status": "pass",
+      "evidence": "Masthead on /barn/extensions/base/brief renders `.brief__title` = \"base\" and `.brief__eyebrow` = \"Brief · step 1 of 2 before any code is written\", which is the step label exactly as drawn.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-status-chip",
+      "status": "pass",
+      "evidence": "With no agreement in the file the chip (data-testid brief-status) read \"Draft - not yet agreed\" with i.icon-history. Clicked \"Agree and start building\": BRIEF.md gained `_Agreed in the Extension Studio on 2026-08-23._` (exactly one line, the footer sentence still appearing once), and on reload the chip read \"Agreed 2026-08-23\" with i.icon-checkmark and className s-chip--success. Restored the file afterwards.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-editable-note",
+      "status": "pass",
+      "evidence": "The note under \"What the assistant thinks you are solving\" reads \"Drafted from what you typed and from what is already in this Rancher. Edit anything - this is your brief, not its.\" Then proved the four fields honour it: appended a marker to each of the four textareas, waited for the autosave (\"Saved 04:38 PM\"), reloaded, and all four came back with their markers. See the four field verdicts.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-problem",
+      "status": "pass",
+      "evidence": "Typed \" [w3-problem]\" at the end of \"The problem\". Masthead went to \"Saved 04:38 PM\"; BRIEF.md's `## The problem` ended \"...they open Grafana or guess. [w3-problem]\"; reloaded the page and the textarea came back with the marker.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-who",
+      "status": "pass",
+      "evidence": "Typed \" [w3-who]\" into \"Who has it\". `## Who has it` in BRIEF.md became \"Whoever is on call, in the first two minutes of an incident. [w3-who]\" and it survived a reload. This is also the field used for the autosave-preservation diff below.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-changes",
+      "status": "pass",
+      "evidence": "Typed \" [w3-changes]\" into \"What changes for them\"; `## What changes for them` carried it in BRIEF.md and it survived a reload.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-not-doing",
+      "status": "pass",
+      "evidence": "Typed \" [w3-notdoing]\" into \"What we are deliberately not doing\"; the section in BRIEF.md read \"No alerting, and no history beyond 24 hours. Both belong in monitoring. [w3-notdoing]\" and it survived a reload.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-list",
+      "status": "pass",
+      "evidence": "Four numbered rows render with `.brief__ac-box` reading 1,2,3,4 and their text from `## How we will know it worked`. Appended \" [w3-crit2]\" to criterion 2: the file line became \"- [ ] It renders with metrics-server absent, and says why [w3-crit2]\" and the edit was still there after a reload. Note the tick was dropped when the wording changed, which is deliberate (criteriaBody keys the tick on the criterion text).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-intro",
+      "status": "pass",
+      "evidence": "The note under the \"How we will know it worked\" heading renders \"These become the checklist the reviewer and the requester tick off. Phrase each one as something you could watch a person do.\" - the checklist claim and the coaching, both. It is not decoration: the same four criteria are what screen 13 walks, which I confirmed by reordering them here and seeing screen 13 follow the new order.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-add",
+      "status": "pass",
+      "evidence": "There IS an add control: a ghost \"Add another\" button with a plus icon at the foot of the criteria card. Clicked it: a fifth empty row appeared with box \"5\", typed \"w3 added criterion five\", and after the autosave BRIEF.md's checklist held \"- [ ] w3 added criterion five\" as a fifth line. Reloaded and the fifth row came back numbered 5. The list can be extended, not only edited.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-row-menu",
+      "status": "pass",
+      "evidence": "Every row carries an SMenu trigger with aria-label \"Actions for criterion N\". Opened criterion 3's: Move up, Move down, and a danger item \"Delete this criterion\". Clicked Move up: the inputs reordered from [tab appears, metrics-server absent, 24-hour trend, nothing moves] to [tab appears, 24-hour trend, metrics-server absent, nothing moves], and BRIEF.md reordered with each tick following its own criterion text (\"- [x] The tab appears...\", \"- [ ] A 24-hour trend...\", \"- [x] It renders with metrics-server absent...\"). Criterion 1's menu has Move up disabled. Moved it back down and the order and file were restored.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-roles",
+      "status": "pass",
+      "evidence": "Four chips with data-testid brief-role-cluster-operator / -support-engineer / -platform-admin / -app-developer. Starting from a brief whose `## Written for` held \"- Support engineer\" the support chip loaded as s-chip--info with an i.icon-checkmark and the other three as s-chip--default with no tick. Clicked \"Platform admin\": it gained the tick and the accent fill, and after the autosave the section read \"- Support engineer\\n- Platform admin\" (chip order, not click order). Reloaded: both came back ticked. Clicking a ticked chip removes the tick and the line.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-questions-intro",
+      "status": "pass",
+      "evidence": "The card head under \"What the assistant cannot decide\" renders \"The most useful thing on this screen. Ask before you build, not after. Every question here lives in BRIEF.md, so it survives this page and is read by whatever reads the brief next.\"",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-blocking",
+      "status": "pass",
+      "evidence": "Fixed since the last pass: the second line exists. With `- **Blocking** w3 blocking: what should happen when metrics-server is missing?` and an indented `  Why: ...` line in BRIEF.md, the card rendered with className \"brief__question brief__question--blocking\", a chip reading \"Blocking\" (s-chip--error, i.icon-alert), the question in .brief__question-text AND the rationale in .brief__question-why (data-testid brief-question-why). The card now has four children (head, text, why, actions) instead of three. It is visually distinct: background rgb(253,236,236) with a 3px left border rgb(246,71,71) against rgb(247,248,250) on a non-blocking card. Wrote a why from the UI too (\"Say why it matters\" -> textarea -> Save) and it round-tripped to the file as `  Why: ...` and back.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-worth-1",
+      "status": "pass",
+      "evidence": "A \"Worth asking\" card renders with chip s-chip--default and i.icon-search, the question text, and the supporting line underneath. Added the why through the UI: clicked brief-why-1, typed \"w3 why-worth: nothing in the brief says which window, and the wrong one hides the incident.\", saved, and BRIEF.md gained the indented `  Why:` line under that question; reloading the page brought the line back onto the card. Clicking the chip toggles the card to Blocking and back, and the file follows (`- **Blocking** ...` <-> `- **Worth asking** ...`).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-worth-2",
+      "status": "pass",
+      "evidence": "Held three questions at once - one Blocking and two \"Worth asking\" - and all three rendered as separate cards with the blocking one sorted first. The second \"Worth asking\" card (added from the input, so it took the default severity) rendered with its own chip, question and its own optional why line, so the risk/rationale line is per card rather than shared. Removing it with \"Remove this question\" took it out of the DOM and out of `## Open questions`. The one gap: nothing seeds the design's specific question about the Conditions column - the list only ever holds what a person typed or what the pod assistant wrote into the file.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-answer-myself",
+      "status": "pass",
+      "evidence": "Clicked brief-answer-myself-0 on the blocking question: a labelled textarea appeared with Cancel and \"Save the answer\" (brief-save-answer-0). Typed an answer and saved: the card moved out of the open list into an \"Answered\" card (chip \"Answered\", i.icon-checkmark, tone success) showing the question, its why and the answer, with \"Reopen\" as its only button; the header count chip went from \"2 open\" (s-chip--warning, icon-alert) to \"1 open\" (s-chip--success, icon-checkmark). BRIEF.md gained `  Answer: w3 answer: say \"no metrics-server\" and link the docs.` indented under its question. Reloaded: the answered card came back from the file with the count still at 1. \"Reopen\" put it back to 2 open and removed the Answer line from the file.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ask-requester",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button on the card straight off the live DOM: the severity chip, \"Remove this question\", \"Answer it myself\" and \"Say why it matters\" / \"Edit why it matters\". A scan of every button on the page for /requester|ask the/ returned []. `grep -rn \"requester\" pkg/barn --include=*.vue --include=*.ts` hits only comments. There is now a requester - the brief records one under `## Who asked` and the card names them (\"These are for Default Admin, who asked for this\") - but nothing to send with.",
+      "defect": "No per-question send control. The card says why in as many words: Rancher has no messaging between users and this Studio has no ticket to comment on, so the requester is shown and the send is deliberately absent. The nearest thing is the card-level \"Ask what is unclear\", which goes to the pod assistant, not to a person."
+    },
+    {
+      "id": "10-brief-send-questions",
+      "status": "not-implemented",
+      "evidence": "Scanned every button on the page for the word \"question\": []. The design's masthead button exists only as a read-only count chip in the card header (data-testid brief-open-count), which does carry the live count - I watched it read \"2 open\", \"1 open\", \"3 open\" and \"2 open\" as I answered, added and removed questions - but it is a chip, not a button, and it sends nothing.",
+      "defect": "The live-count half of the promise is delivered; the send half does not exist. Same root as 10-brief-ask-requester."
+    },
+    {
+      "id": "10-brief-insight",
+      "status": "fail",
+      "evidence": "The callout (data-testid brief-insight) renders with the accent it is meant to have - background rgb(234,244,251), 3px left border rgb(61,152,211) - in both of its states. With no `## The challenge` in the file it is headed \"Nobody has argued with this yet\" and the body says the Studio cannot tell you whether the request names a solution because nothing here has read it. With a `## The challenge` section in the file it is headed \"The assistant argued with this\", shows i.icon-ai and prints that section verbatim as the argument. So the render half is real and I saw it. The generating half does not complete: pressing \"Ask it to argue with this\" (brief-ask-challenge) really does reach the pod - I captured the tmux pane in barn-base-extension and the full prompt is there - but claude answers \"Not logged in · Please run /login\" (no credential in /app/.home/.claude), so no `## The challenge` is ever written and the callout on base's own brief says nobody has argued.",
+      "defect": "Nothing in the Studio itself weighs the request against the problem statement, so the callout asks for the argument instead of asserting one. It can carry an argument the assistant writes into `## The challenge`, but the pod assistant has no credential in this environment, so on every real brief here the callout is the honest \"nobody has argued yet\" rather than the design's \"this ticket asked for a solution, and here is why building it as written misses the point\"."
+    },
+    {
+      "id": "10-brief-ticket",
+      "status": "fail",
+      "evidence": "The card is headed \"What you were handed\". Two thirds of the design's ticket line now have a source and render: with `## Who asked` holding \"local://user-btc48 - Default Admin, on 2026-08-19.\" the raised line (data-testid brief-raised) read \"Asked for by Default Admin · 4 days ago local://user-btc48\", and the quoted request (data-testid brief-request) printed `## What you were handed` verbatim. With that section removed the same line reads \"Nobody is recorded as having asked for this. The brief has no ## Who asked section...\" rather than naming whoever has the page open. There is no id element anywhere in the card, and the card note says why: \"There is no ticket system behind this Studio, so there is no id - but the brief records who asked and when.\"",
+      "defect": "The ticket id has no source in the product and is deliberately not shown. Also, base's own brief predates `## What you were handed`, so opening it directly shows \"Nothing was carried through from the description step.\" instead of the request the brief was written from."
+    },
+    {
+      "id": "10-brief-prior-art-intro",
+      "status": "pass",
+      "evidence": "The card head renders \"A word search over the source of every extension in this Studio.\", and the info banner names the terms it will use (\"mid-incident, degradation, operator, pressure, grafana\" - derived from the brief's own title and problem) and states \"It is a word search, not an understanding of them: no hits means nobody used these words.\" The claim is honest: pressing the button ran a real grep across the other extensions' pods and returned real file:line hits.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-look",
+      "status": "pass",
+      "evidence": "Ran \"Look for prior art\": two groups came back, demo (BRIEF.md:4) and nodehealth (BRIEF.md:4). Clicked \"Look at it\" (data-testid brief-look-at-it) on the demo hit: the URL became /dashboard/barn/extensions/demo/files?file=BRIEF.md, the Files screen rendered (.files__body present) for the demo extension, and it opened BRIEF.md rather than the package default.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-reuse",
+      "status": "pass",
+      "evidence": "Clicked \"Reuse this\" (data-testid brief-reuse) on the demo BRIEF.md:4 hit: the label became \"Reusing this\", a \"This brief says to reuse\" block appeared listing \"demo · BRIEF.md:4\", and after the autosave `## Prior art we are reusing` read \"Look at these before writing the same thing again, and say in the code where it came from.\" followed by \"- demo BRIEF.md:4\". That is the file CLAUDE.md points the pod assistant at, so the choice reaches the agent. Clicked again: back to \"Reuse this\" and the section back to `_nothing chosen_`. The label is the generalised \"Reuse this\" rather than the design's \"Reuse its chart\" because there is no chart entry to adopt.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-dashboard",
+      "status": "not-implemented",
+      "evidence": "The card is a fixed-string grep over the source of the other extensions in this Studio (findPriorArt in extensions.ts runs grep inside each extension's pod). Running it returned only demo/BRIEF.md:4 and nodehealth/BRIEF.md:4 - source hits, no Rancher pages. A text scan of the loaded page for /Cluster dashboard/i returned false, and `grep -rn \"Cluster dashboard\" pkg/barn` finds nothing.",
+      "defect": "No named entry for the existing cluster dashboard, and no source for the editorial half of it (what it does and does not cover). Nothing in the product can enumerate or describe Rancher's own screens."
+    },
+    {
+      "id": "10-brief-prior-art-longhorn",
+      "status": "not-implemented",
+      "evidence": "`grep -rn \"longhorn\" pkg/barn` returns nothing and a text scan of the loaded card for /longhorn/i returned false. The live card only ever lists grep hits per extension (observed groups: demo, nodehealth); no longhorn-capacity extension is installed in this Studio.",
+      "defect": "No named entry for an installed extension that already draws the same pattern, and no consistency note - the card is a word search and says so."
+    },
+    {
+      "id": "10-brief-agree",
+      "status": "pass",
+      "evidence": "Clicked \"Agree and start building\". BRIEF.md gained exactly one `_Agreed in the Extension Studio on 2026-08-23._` under the existing footer sentence (a diff of the whole 2.1KB file against the version before the click showed that one added line and nothing else - the verification block, the hand-written afterword and every other section untouched), and the router landed on /dashboard/barn/editor/base with .mc-editor rendered. Reopening the brief showed the chip as \"Agreed 2026-08-23\".",
+      "defect": null
+    },
+    {
+      "id": "10-brief-skip",
+      "status": "pass",
+      "evidence": "Clicked \"Skip the brief\": landed on /dashboard/barn/editor/base with .mc-editor rendered, and BRIEF.md was byte-identical to what it was before the click (no agreement recorded), so the brief really was bypassed rather than accepted.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-back",
+      "status": "pass",
+      "evidence": "Clicked the left-arrow (aria-label \"Back\") in the masthead: the URL became /dashboard/barn/extensions and the Studio home table rendered (.studio-home__table present).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-scroll",
+      "status": "pass",
+      "evidence": "In a 950px viewport the body scroller `.brief__scroll` has scrollHeight 1386 against clientHeight 784. Set scrollTop to 400: it moved to 400 while `.brief__masthead` stayed at viewport top 55px and the \"Agree and start building\" button stayed fully inside the viewport. The two columns scroll, the masthead does not.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-menu",
+      "status": "pass",
+      "evidence": "Clicked the hamburger at the top left: the slide-out `.side-menu` opened with 10 `.option` entries (Home, Local Cluster, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings) plus the About link. Escape closes it again.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-selected",
+      "status": "pass",
+      "evidence": "With the slide-out open, exactly one entry carried an active class: \"Extension Studio\" (className \"option active-menu-link\"); the other nine were plain \"option\". Same result on /barn/extensions/base/verification.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-home",
+      "status": "pass",
+      "evidence": "Clicked \"Home\" in the rail from the brief: the URL became /dashboard/home and the page heading read \"Welcome to Rancher Prime\" - Rancher's home page.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-server",
+      "status": "pass",
+      "evidence": "Clicked \"Cluster Management\": the URL became /dashboard/c/_/manager/provisioning.cattle.io.cluster with heading \"Clusters\".",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-gear",
+      "status": "pass",
+      "evidence": "Clicked \"Global Settings\" (the entry carrying .icon-globe; the rail's single .icon-gear is the Base product): the URL became /dashboard/c/local/settings/management.cattle.io.setting with heading \"Settings\".",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-cluster-chips",
+      "status": "pass",
+      "evidence": "This Rancher has one cluster, so the rail draws one cluster shortcut rather than the design's three (LT1, CD2, AFT). Clicked it: the URL became /dashboard/c/local/explorer#cluster-events and the page heading read \"Cluster Dashboard\". The chip opens its cluster; there is only one to open.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-about",
+      "status": "pass",
+      "evidence": "The About link sits at the foot of the slide-out with href /dashboard/about. Clicked it: the URL became https://magic-closet-rancher/dashboard/about and the about page rendered.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-book",
+      "status": "not-implemented",
+      "evidence": "Enumerated every rail entry and its icon classes: cluster-management, fleet, extension, harvester, gear, user, globe, pin - no book. `.side-menu [class*=book], .side-menu [class*=docs]` matched 0 elements.",
+      "defect": "There is no book/docs entry in Rancher's rail on this instance, so the design's docs icon has nothing behind it. This is Rancher chrome, not the Studio's to add."
+    },
+    {
+      "id": "10-brief-rail-user",
+      "status": "pass",
+      "evidence": "The account menu is reachable and real: clicked the avatar button in the header (aria-label \"Open user menu\") and a popover opened reading \"admin / Default Admin / Preferences / Account & API Keys / Log Out\". Worth recording that in this Rancher the control is the header avatar, not a person icon at the foot of the rail as the design draws it; the rail's only .icon-user entry is \"Users & Authentication\", which is a product page rather than an account menu.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-header-bell",
+      "status": "pass",
+      "evidence": "Clicked the header bell (aria-label \"Open notification center\"): a .notification-dropdown opened, visible and populated - \"Notifications / Mark all as read / Done Today, 3:58:41 pm Verification recorded / Done Today, 3:37:55 pm Verification recorded / Asked the assistant ...\", i.e. real notifications from this Studio's own actions rather than an empty shell.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button inside `header`: \"Local Cluster icon local\", \"Open notification center\", \"Open user menu\" - plus two logo imgs and the avatar. `header [class*=apps], header .icon-apps, header [class*=grid]` matched 0 elements.",
+      "defect": "No grid launcher in the header. The nearest equivalent is the hamburger slide-out, whose top section is the global apps list, but that is not the control the design draws. Rancher chrome."
+    },
+    {
+      "id": "10-brief-header-more",
+      "status": "not-implemented",
+      "evidence": "Same enumeration: three header buttons, none an overflow. `header .icon-actions, header [class*=overflow]` matched 0 elements. The four .icon-actions on the page are the per-criterion menus inside the brief card (aria-label \"Actions for criterion 1..4\"), which resolve to closest(\"header\") = null.",
+      "defect": "No three-dot control in the header. Global actions live in the user menu. Rancher chrome."
+    },
+    {
+      "id": "10-brief-header-logo",
+      "status": "blocked",
+      "evidence": "The header renders Rancher's own logo (img src .../img/rancher-logo.db10c962.svg, alt \"Logo\"/\"Main menu Rancher logo\") and a scan of the whole page text for \"SUSE\" and \"Rancher Prime\" both returned false. `kubectl get settings.management.cattle.io ui-pl` shows the default value `rancher`, so this instance is community Rancher, not Prime. Switching branding is a per-project sidecar setting that recreates the Rancher container from an empty cluster, which would destroy the base extension pod and every other verifier's work in flight, so I did not flip it.",
+      "defect": "Not a Studio defect - the header belongs to Rancher. Unresolved because Prime branding cannot be switched on without wrecking the shared environment. Re-check on a Prime instance."
+    },
+    {
+      "id": "13-verify-identity",
+      "status": "pass",
+      "evidence": "Both lines render. `.verify__title` reads \"base\" with `.verify__version` \"v0.1.0\" beside it (read out of the extension's package.json), and `[data-testid=verify-role]` reads \"Verification · outcome sign-off · admin\". The design's \"you raised RANCHER-4821\" is replaced by the signed-in user, because there is no ticket in this product; the role - the outcome sign-off - is stated.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-nav-rail",
+      "status": "pass",
+      "evidence": "Loaded /barn/extensions/base/verification, opened the slide-out and read every `.side-menu .option`: exactly one carried an active class, \"Extension Studio\" (option active-menu-link). Same rail, same entries as on the brief.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-back",
+      "status": "pass",
+      "evidence": "Clicked the masthead left arrow (aria-label \"Back to the queue\"): the URL became /dashboard/barn/review and the queue rendered (.queue__list present).",
+      "defect": null
+    },
+    {
+      "id": "13-verify-open-brief",
+      "status": "pass",
+      "evidence": "Clicked \"Open the brief\" in the masthead: the URL became /dashboard/barn/extensions/base/brief and .brief__columns rendered, so the criteria's source document opens without leaving the flow.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-framing",
+      "status": "pass",
+      "evidence": "The accented banner (data-testid verify-framing, s-banner--success) renders above the criteria list with the lead \"You are checking whether this does the job, not whether the code is any good\" and the body \"Reading the code is a separate step, on the review screen, and not this one. Answer each criterion against what you can see in the preview on the right. Nothing here changes the extension: the only thing you can change from this screen is the record of what you found.\" - which is the \"you are not reading code\" and \"you cannot break anything\" pair. It also quotes the brief's problem statement underneath.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-text",
+      "status": "pass",
+      "evidence": "Four criterion cards render, one per card, each a full sentence about what a person can do: \"The tab appears under the cluster nav without a reload\", \"It renders with metrics-server absent, and says why\", \"A 24-hour trend is readable at a glance\", \"Nothing on the existing cluster page moves or changes\". They are parsed out of `## How we will know it worked` in BRIEF.md - the same list screen 10 edits and screen 12 summarises - and I confirmed that by reordering the criteria on screen 10 and seeing this screen walk them in the new order.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-progress-chip",
+      "status": "pass",
+      "evidence": "The chip (data-testid verify-progress) counts settled criteria. It read 2/4 with two answered; pressing Yes on criterion 3 took it to 3/4; pressing Can't tell on the same criterion took it back to 2/4 (a Can't tell does not settle); pressing Yes on the fourth took it to 4/4.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-verdict",
+      "status": "pass",
+      "evidence": "Each criterion has three segments with role=group. Clicking Yes on criterion 3 set aria-pressed=true on Yes and false on the other two; clicking No moved it to No only; clicking Can't tell moved it to Can't tell only - never more than one at a time. The selected colours are Yes green (badge rgb(62,140,79), card untinted), No red (badge rgb(246,71,71), card background rgb(253,236,236)), Can't tell warning amber (badge rgb(201,162,39), card untinted). The progress chip and the footer moved with every press: \"3 of 4 met, 1 still to look at\" -> \"2 of 4 met, 1 not met, 1 still to look at\" -> \"2 of 4 met, 1 could not be judged, 1 still to look at\". Pressing the pressed segment again clears it back to unanswered.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-verdict-cant-tell",
+      "status": "pass",
+      "evidence": "Set criterion 3 to Can't tell and checked all four claims. The counter did not increment (3/4 -> 2/4 when Yes became Can't tell). The footer reported it separately from a No: \"2 of 4 met, 1 could not be judged, 1 still to look at.\" The badge stayed the plain criterion number \"3\" with no tick and no cross. And it does not block: with the other three answered Yes and this one Can't tell, the footer read \"3 of 4 met, 1 could not be judged. Nothing is holding the sign-off open.\" and \"Sign off on the outcome\" was enabled - where a single No disables it with \"1 criterion is answered No.\" One divergence worth recording: the badge is warning amber rgb(201,162,39), not grey. It is not red and not the Yes green, and grey rgb(242,243,245) is kept for \"nobody has looked at this\", which is the distinction the screen is built around.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-badge",
+      "status": "pass",
+      "evidence": "Drove one criterion through all four states and read the badge each time: unanswered = plain number \"3\" on rgb(242,243,245); Yes = i.icon-checkmark on rgb(62,140,79); No = i.icon-close on rgb(246,71,71); Can't tell = plain number \"3\" on rgb(201,162,39). Colour and glyph both follow the verdict.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-failed-styling",
+      "status": "pass",
+      "evidence": "Set criterion 3 to No: the card gained verify__criterion--fail with background rgb(253,236,236), and the expanded block appeared with all three parts - the rule sentence (.verify__failed-rule), the labelled note textarea (data-testid verify-note-2) and the \"Send this back to the assistant\" button (verify-send-back-2). Set it back to Yes: the tint went, the rule and the send-back button disappeared. (The note field stays while it has text in it, deliberately, so a written note does not become invisible saved state.)",
+      "defect": null
+    },
+    {
+      "id": "13-verify-evidence-meta",
+      "status": "pass",
+      "evidence": "Answering a criterion stamps its provenance line. With the preview driven to /about, pressing Yes on criterion 3 produced `.verify__meta` = \"Checked 04:55 PM · admin · /about\" with an eye icon - who, when and the route the preview was on. Clearing the verdict removes the line rather than leaving a route recorded against no answer. Where a criterion failed, what happened instead is carried by the note, which is written into the brief as a blockquote under that criterion's verdict line: `- **Not met** at `/home`: Nothing on the existing cluster page moves or changes` followed by `  > w3-verify persisted note: the cluster page shifted by 4px.`",
+      "defect": null
+    },
+    {
+      "id": "13-verify-note",
+      "status": "pass",
+      "evidence": "Set criterion 4 to No, typed \"w3-verify persisted note: the cluster page shifted by 4px.\" into verify-note-3, pressed \"Record the result\", navigated to /barn/review and back to the verification screen: the textarea came back with the same text, read out of BRIEF.md. The hint above it says up front where it goes: \"Recorded in BRIEF.md under this criterion when you record the result, so it is there for whoever opens the brief next. Sending it back puts it to the assistant as well.\" The author half is real - the note is in the repository file - and the assistant half is real too (see 13-verify-send-criterion-back).",
+      "defect": null
+    },
+    {
+      "id": "13-verify-blocked-summary",
+      "status": "pass",
+      "evidence": "The footer sentence counts and recounts. Four states observed on the same page: \"2 of 4 met, 2 still to look at. The sign-off waits on the ones nobody has looked at.\"; with one No, \"2 of 4 met, 1 not met, 1 still to look at. A No holds the sign-off open until it is answered Yes.\"; with that changed to Can't tell, \"2 of 4 met, 1 could not be judged, 1 still to look at.\"; with everything Yes, \"Every criterion met. Signing off records that in the brief.\" So the count of failing criteria drops to zero and the blocking sentence disappears.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-blocked-note",
+      "status": "fail",
+      "evidence": "The rule renders inline next to the failing criterion and it is precise about which of the three things it holds: \"A No holds the outcome sign-off open until it is answered Yes; a \\\"Can't tell\\\" does not. The sign-off is one of the two answers the distribution gate needs, so a No holds that shut as well. It does not stop loading this into this Rancher or pushing the source to GitHub - those are deliberately ungated.\" I drove both halves. The sign-off half holds: with one criterion No the button was disabled with title \"1 criterion is answered No...\"; switching it to Can't tell enabled the button, the tint and the rule sentence went, and the footer read \"Nothing is holding the sign-off open.\" The gate half is now real too: signing off writes signoffs.outcome into the barn-review-base ConfigMap that review.ts's distributionGate() reads, and changing a verdict deletes it again (verified against the live object).",
+      "defect": "The design's rule is about publishing and the product's main publish path is ungated by design. editor.vue's publishTo() sends `local` through publishExtension (cross-screen rule 2: \"Deliberately ungated, forever\") and `github` through handOverForReview, and only `distribute` goes through assertGateOpen. So a No blocks distributing a reviewed packet, not loading the extension into this Rancher. The screen says exactly that, which is honest, but it is not the promise the design makes."
+    },
+    {
+      "id": "13-verify-sign-off",
+      "status": "pass",
+      "evidence": "signOutcome() has a call site now and I drove it end to end. With all four criteria Yes the primary button was enabled; clicking it wrote signoffs.outcome into the barn-review-base ConfigMap FIRST - {verdict: approved, principal: local://user-btc48, name: Default Admin, at: 2026-08-23T17:01:19.636Z, sha: 243abea9..., note: the page-level note, packet: 0} - and only then the brief line \"Outcome signed off by Default Admin on 2026-08-23.\" The masthead badge became \"Signed off 2026-08-23\", the footer's outcome row filled in, and the footer sentence became \"Signed off on 2026-08-23 by Default Admin. Changing a verdict takes the sign-off back.\" With a criterion set to No the button is disabled and its title says which criteria are holding it; a forced click on the disabled button wrote nothing to the ConfigMap. The requester rule is enforced as well: with `## Who asked` naming local://someone-else and all four criteria Yes, the button stayed disabled with title \"The brief records local://someone-else as the person who asked for this, and the outcome sign-off is theirs to give. You are signed in as local://user-btc48.\", and a forced click left the ConfigMap's signoffs empty.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-signoff-status",
+      "status": "pass",
+      "evidence": "Implemented since the last pass, and read from the record rather than asserted. The footer draws two rows (data-testid verify-signoffs, verify-gate-code and verify-gate-outcome). With a code sign-off on record the code row showed a filled dot with an i.icon-checkmark and \"Code review: W3 Code Reviewer · 1 day ago\" (data-done=yes) while the outcome row showed an empty dot and \"Outcome sign-off: you · in progress\" (data-done=no). Signing off flipped the outcome row to a filled dot and \"Default Admin · just now\". With no code sign-off the code row says \"not signed off\" rather than implying one, and when the brief names another requester the outcome row says \"waiting on local://someone-else\" instead of \"you · in progress\".",
+      "defect": null
+    },
+    {
+      "id": "13-verify-code-approved-chip",
+      "status": "pass",
+      "evidence": "Implemented since the last pass. The masthead carries data-testid verify-code-gate, read out of the review record: with a code sign-off present it read \"Code approved by W3 Code Reviewer\" as s-chip--success with i.icon-checkmark, and its title said \"Approved 1 day ago against 243abea91a97827b146b4852f6a1a709d5eacba1. Your job here is the outcome: whether it does what the brief said it would.\" - which is the \"the code gate is already closed by somebody else, your job is only the outcome\" the design asks for. I also saw its honest states: with the record empty it reads \"Code not reviewed yet\" (subtle, clock icon), and the code path also covers changes-requested and a sign-off given against an earlier commit.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-show-me",
+      "status": "pass",
+      "evidence": "Drove the preview to /about, answered criterion 3 Yes there (its meta line recorded \"· /about\"), then took the preview elsewhere with the address field so it was showing /home. Pressed \"Show me\" on criterion 3: the preview address went back to /about, the iframe re-rendered the /about page of the running dev server, and the pane header changed to \"Criterion 3\" with the criterion's own text beside it. Pressing \"Show me\" on criterion 1 moved the header to \"Criterion 1\". The header wording is \"Criterion 3\" rather than the design's \"Checking criterion 3\".",
+      "defect": null
+    },
+    {
+      "id": "13-verify-preview-context",
+      "status": "pass",
+      "evidence": "The pane header (data-testid verify-preview-context) reads \"The extension, running\" until a criterion is pinned, then names the one it is showing - \"Criterion 3\" with `.verify__showing` carrying that criterion's full sentence - and it follows every \"Show me\" press. The live dot `.verify__dot` renders without the --off modifier while the dev server is answering, and its title reads \"The dev server is answering\".",
+      "defect": null
+    },
+    {
+      "id": "13-verify-rendered-preview",
+      "status": "pass",
+      "evidence": "The pane is a real iframe, not an image: src = /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/, and reading into its contentDocument gave document.title \"Rancher Prime - About\", a live #app root and body text showing the dashboard nav with the \"Base\" product in it - i.e. the extension's own dev server with the build compiled in. Typing a path into the address field navigates it (/home -> /about -> /home), which a static image cannot do.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-preview-popout",
+      "status": "pass",
+      "evidence": "The external-link control in the preview header is an anchor rather than a button (.preview-panel__popout, title \"Open this page on its own\", target=_blank, href /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/about - note the href tracks the preview's current path). Clicked it: a new tab opened at exactly that URL and rendered the same page standalone, outside the panel.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-send-criterion-back",
+      "status": "pass",
+      "evidence": "Set criterion 4 to No, typed the note \"w3-verify persisted note: the cluster page shifted by 4px.\" and clicked \"Send this back to the assistant\" (verify-send-back-3). Captured the pod's tmux pane before and after: afterwards it holds the prompt in full - 'Verification of the base extension found this acceptance criterion not met: \"Nothing on the existing cluster page moves or changes\". It was checked at /home. The reviewer\\'s note: \"w3-verify persisted note: the cluster page shifted by 4px.\". Work out why it is not met and fix it. Do not edit BRIEF.md - the verdicts are recorded by the reviewer.' So the criterion, its route and the note all reach the assistant. Two things short of the full promise, neither a new finding: nothing on the row records that it was sent (the only feedback is a toast), and the pod's claude replies \"Not logged in · Please run /login\", so it cannot start work - that is the environment, not the screen.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-drift",
+      "status": "pass",
+      "evidence": "The card is automatic - it runs off the working diff on load, with no button to press - and I drove all three of its live states by changing only the brief's non-goals. With non-goals that no added line mentions it is a green banner naming the terms it searched. With non-goals set to words that DO appear in the added lines outside BRIEF.md, it turned into an amber banner (border rgb(201,162,39)) reading \"This change adds lines that mention what the brief said it was deliberately not doing. A word match is not proof of anything - it is a place to look.\", with a row per hit naming the term and the files (\"fixture / HARNESS.md, product.ts\", \"harness / HARNESS.md, product.ts\"). With the section blank it says there is nothing to measure against. The heading is \"Scope\" with a \"4 files changed\" chip. Two divergences from the design worth recording: there is no \"found automatically\" tag anywhere on the card (the check is automatic, it just is not labelled that way), and what it flags is added lines matching the brief's own non-goals rather than \"behaviour no criterion covers\" - the card says so, and the code explains that the design's version would flag every file on every change.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-accept",
+      "status": "not-implemented",
+      "evidence": "`.verify__scope button` matched 0 elements in all three states I put the card into (clear, drifted, unstated). The card is a heading, a chip, a banner and a term list. `grep -rn \"Add it to the brief\" pkg/barn` returns 0.",
+      "defect": "The drift warning has no actions. There is no way to amend the brief from here, so an accepted drift stays flagged."
+    },
+    {
+      "id": "13-verify-scope-remove",
+      "status": "not-implemented",
+      "evidence": "Same enumeration, including while the card was in its drifted state with two hits showing: no buttons anywhere in `.verify__scope`. The only outbound action on the screen is the per-criterion \"Send this back to the assistant\", which lives in the failed-criterion block.",
+      "defect": "No reject action on the scope card. Nothing on screen 13 can request a change that strips a behaviour."
+    },
+    {
+      "id": "13-verify-capture-evidence",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button under `.verify`: Back to the queue, Open the brief, Yes/No/Can't tell x4, Show me x4, Back to the workspace, the preview's Back/Forward/Reload and its width chip, Ask the assistant to check, Record the result, Sign off on the outcome. No capture control. `grep -rn \"Capture this as evidence\" pkg/barn` returns 0.",
+      "defect": "No way to snapshot the preview. The provenance line exists but is written by pressing a verdict - it records the clock and the preview's route at that moment, which is not an artefact anybody can look at later."
+    },
+    {
+      "id": "13-verify-attach-screenshot",
+      "status": "not-implemented",
+      "evidence": "`document.querySelectorAll(\".verify input[type=file]\")` returned 0 on the loaded screen, and `grep -rn 'type=\"file\"' pkg/barn --include=*.vue` finds exactly one, in components/studio/AssistantPanel.vue, a different screen. `grep -rn \"Attach a screenshot\" pkg/barn` returns 0.",
+      "defect": "No upload control and no attachment model. A verdict can carry a typed note, a route and a timestamp; it cannot carry a file."
+    },
+    {
+      "id": "13-verify-evidence-explainer",
+      "status": "not-implemented",
+      "evidence": "A text scan of the whole `.verify` element for \"take your word for it\" returned false, and `grep -rn \"take your word\" pkg/barn` returns 0. There is no capture button for such a sentence to sit above. What the screen does say is different: the framing banner explains the job, and the note hint says the note is \"Recorded in BRIEF.md under this criterion when you record the result\".",
+      "defect": "The sentence is not in the product. Nothing explains that captured evidence travels with the verdict, because nothing is captured."
+    },
+    {
+      "id": "13-verify-cluster-select",
+      "status": "not-implemented",
+      "evidence": "`.verify select, .verify [role=combobox], .verify .vs__dropdown-toggle` matched 0 elements. The preview panel's only controls are Back, Forward, Reload, a path field, a width chip and the pop-out link. The preview is the extension's own dev server inside its pod (proxied at /k8s/clusters/local/.../barn-base-extension:8005/proxy/), which has no notion of a target cluster, and `grep -rn \"imported-eu\" pkg/barn` returns 0.",
+      "defect": "No cluster chooser and no annotation about the current cluster. The preview is bound to one dev server; pointing it at another cluster is not something the product can do."
+    },
+    {
+      "id": "13-verify-send-list-back",
+      "status": "not-implemented",
+      "evidence": "A text scan of `.verify` for \"Send the whole list\" returned false and `grep -rn \"Send the whole list\" pkg/barn` returns 0; the button enumeration above has no such control. The two footer actions are \"Ask the assistant to check\" (which puts the outstanding criteria to the pod's claude and explicitly does not move the change) and \"Record the result\".",
+      "defect": "No single action returns the whole list to the author, and there is no per-change queue state for it to move into."
+    },
+    {
+      "id": "13-verify-header-actions",
+      "status": "fail",
+      "evidence": "One of the three. Enumerated `header button` on /barn/extensions/base/verification: \"Local Cluster icon local\", \"Open notification center\", \"Open user menu\". The bell opens the notification centre (a populated .notification-dropdown). `header [class*=apps], header .icon-apps` matched 0 elements and there is no three-dot control in the header - screen 13 has no .icon-actions on the page at all.",
+      "defect": "Notifications is reachable; the overflow menu and the app collection do not exist in this Rancher's header. Rancher chrome, not the Studio."
+    }
+  ]
+}
