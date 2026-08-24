@@ -71,6 +71,7 @@ import {
   assistantPermissions, devServerLog, interruptAssistant, assistantConversation, assistantModel,
   setAssistantModel, assistantMode, cycleAssistantMode
 } from '../../extensions';
+import { accumulatingPacket } from '../../review';
 
 /**
  * Where an attached file lands in the pod.
@@ -114,6 +115,7 @@ const TURN_LIMIT = 25;
  * the compile's own output, which is what the strip's label names. The pane says it has been
  * tidied rather than calling it verbatim.
  */
+// eslint-disable-next-line no-control-regex -- the escape character is what is being stripped
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 const PROGRESS = /^\[\s*\d{1,3}%\]/;
 
@@ -158,6 +160,15 @@ const MODE_LABELS = {
 
 /** How often the mode is re-read. It changes under you: shift+tab in the pane is all it takes. */
 const MODE_POLL_MS = 20000;
+
+/**
+ * How often the review packet's accumulation is re-read.
+ *
+ * A minute, for the reason the changes count is a minute: it shells into the pod, and what it
+ * counts moves when a turn ends rather than continuously. It is also re-read after this
+ * composer sends something, which is the moment somebody is most likely to be watching it.
+ */
+const ACCUMULATION_POLL_MS = 60000;
 
 export default {
   name: 'AssistantPanel',
@@ -288,6 +299,14 @@ export default {
       modeInfo:   null,
       modeBusy:   '',
       modeTimer:  null,
+      /**
+       * What has been gathered for the next review packet, as `accumulatingPacket` answered it.
+       *
+       * `null` until the first read: "nothing has accumulated" and "nobody has asked yet" are
+       * different sentences and the strip says which.
+       */
+      accumulation:      null,
+      accumulationTimer: null,
       sendTimer:  null,
       // Ticked so that "2 minutes ago" on a turn counts up rather than freezing at what it
       // said when the pod was last read.
@@ -667,6 +686,83 @@ export default {
     },
 
     /**
+     * Where the two permission readings disagree, said out loud rather than in a tooltip.
+     *
+     * Cross-screen rule 18 asks for the permission mode to be one state in two places. It is
+     * not one state, and it cannot be made into one from here: the chip above changes the mode
+     * the *running* session is in, by pressing shift+tab in the pane the way a person would,
+     * and the settings page reports the mode claude is *started* in, which is an argument in
+     * `pod/claude-session.sh` - a file seeded from this bundle into a ConfigMap that
+     * `ensureDefaultExtension()` writes again on every page load. Anything written there is
+     * overwritten by the next visit, so no control anywhere in this product can persist it.
+     *
+     * What was actually wrong is that the product did not say so. Changing the mode here left
+     * the two screens reporting different things with nothing on either of them to explain it,
+     * and the explanation was in the chip's `title` where a person driving the product never
+     * sees it. So when the two readings disagree, this is the sentence that appears under the
+     * strip, naming both values, where each is read from, and which of them settings shows.
+     *
+     * Empty whenever they agree, whenever either has not been read, and whenever there is no
+     * session - a strip that carried a standing paragraph about a distinction that is not
+     * currently biting would be noise.
+     */
+    modeSplit() {
+      const live = this.modeInfo;
+      const perms = this.permissions;
+
+      if (!live?.read || !live.session || !live.mode || !perms?.read || !perms.mode) {
+        return '';
+      }
+
+      const running = MODE_LABELS[live.mode] || live.mode;
+      const starts = PERMISSION_LABELS[perms.mode] || perms.mode;
+
+      if (running === starts) {
+        return '';
+      }
+
+      return [
+        `The session running in this pod is in "${ running }", which is what the chip above reports and what claude's own status line says.`,
+        `It was started in "${ starts }", which is what Studio settings reports and what the session comes back on if it restarts.`,
+        'Two readings of two different things, and neither screen can change the other: the mode a session starts in is an argument in pod/claude-session.sh, which is seeded from this bundle and written again on every page load.',
+      ].join(' ');
+    },
+
+    /**
+     * The review packet, while it is still accumulating.
+     *
+     * Cross-screen rule 6: "the review packet accumulates quietly in the background. It is only
+     * assembled and handed to a reviewer at the push to a repository." The product obeyed both
+     * halves and showed neither, which from the outside is indistinguishable from a packet
+     * conjured at the push out of whatever happens to be in the tree.
+     *
+     * So the workspace says what has been gathered so far and that none of it is in anybody's
+     * queue. It is a reading, not a record: `accumulatingPacket` counts the pod's commits, its
+     * changed files and the prompts in its provenance log every time it is asked, so what is on
+     * screen is the accumulation itself rather than a number this component has been keeping.
+     */
+    accumulationNote() {
+      const a = this.accumulation;
+
+      if (!a) {
+        return 'Reading what has accumulated for the next review packet.';
+      }
+
+      if (!a.read) {
+        return a.sentence;
+      }
+
+      // The prompts are the half with no other home, so where they exist but no turn ended,
+      // say that: it is the difference between "nothing was captured" and "everything was
+      // captured and none of it could be tied to a line of the diff".
+      const unended = a.turns && !a.ended
+        ? ' None of those turns has an end recorded, so the prompts are kept but no line of the diff can be traced back to one.'
+        : '';
+
+      return `${ a.sentence }${ unended }`;
+    },
+
+    /**
      * The modes the chip's menu offers, and what each does to your files.
      *
      * Targets rather than a claim: each one presses shift+tab until claude's status line says
@@ -815,6 +911,9 @@ export default {
 
     this.refreshTurns();
     this.turnsTimer = setInterval(() => this.refreshTurns(), TURNS_POLL_MS);
+
+    this.refreshAccumulation();
+    this.accumulationTimer = setInterval(() => this.refreshAccumulation(), ACCUMULATION_POLL_MS);
     this.nowTimer = setInterval(() => {
       this.now = Date.now();
     }, 1000);
@@ -825,6 +924,7 @@ export default {
     clearInterval(this.loginTimer);
     clearInterval(this.turnsTimer);
     clearInterval(this.modeTimer);
+    clearInterval(this.accumulationTimer);
     clearInterval(this.nowTimer);
     clearTimeout(this.sendTimer);
   },
@@ -865,8 +965,10 @@ export default {
       this.refreshModel();
       this.podTurns = [];
       this.podRead = false;
+      this.accumulation = null;
       this.refreshLogin();
       this.refreshTurns();
+      this.refreshAccumulation();
       // The paths belonged to the extension that was open; none of them means anything in the
       // next one's pod.
       this.context = [];
@@ -885,6 +987,22 @@ export default {
     async refreshLogin() {
       this.login = await assistantLogin(this.extension)
         .catch(() => ({ read: false, signedIn: false, account: '' }));
+    },
+
+    /**
+     * Re-read what has been gathered for the next packet.
+     *
+     * Guarded on the extension the same way `refreshPermissions` is: this is three reads into a
+     * pod and the extension can change under a slow one, and an answer about the pod somebody
+     * has just navigated away from is worse than no answer at all.
+     */
+    async refreshAccumulation() {
+      const asked = this.extension;
+      const answer = await accumulatingPacket(asked).catch(() => null);
+
+      if (asked === this.extension && answer) {
+        this.accumulation = answer;
+      }
     },
 
     async refreshPermissions() {
@@ -1335,7 +1453,12 @@ export default {
       // Ask the pod again shortly, so the turn stops being "not recorded yet" as soon as it is
       // recorded rather than at the end of the poll it happened to land in.
       clearTimeout(this.sendTimer);
-      this.sendTimer = setTimeout(() => this.refreshTurns(), SEND_SETTLE_MS);
+      this.sendTimer = setTimeout(() => {
+        this.refreshTurns();
+        // The prompt just sent is material the next packet will carry, so the count that says
+        // so should move when it is sent rather than a minute later.
+        this.refreshAccumulation();
+      }, SEND_SETTLE_MS);
     },
 
     /**
@@ -1564,6 +1687,20 @@ export default {
       />
     </div>
 
+    <!--
+      The two permission readings, when they disagree. On the strip rather than in the chip's
+      tooltip, because the disagreement is between this screen and the settings page and a
+      person driving them has no reason to hover anything.
+    -->
+    <div
+      v-if="modeSplit"
+      class="assistant-panel__split"
+      data-testid="barn-permission-split"
+    >
+      <SIcon name="alert" :size="13" />
+      <span>{{ modeSplit }}</span>
+    </div>
+
     <!-- content. Every tab stays mounted: the terminal is a live session, and unmounting it
          to look at a file would end whatever claude was in the middle of. -->
     <div class="assistant-panel__body">
@@ -1682,6 +1819,17 @@ export default {
             Open the terminal
           </SButton>
         </SEmpty>
+
+        <!--
+          What the reviewer will get, while it is still being gathered (cross-screen rule 6).
+          Outside the stream's v-if on purpose: an extension with no recorded turn still
+          accumulates commits and files, and "nothing has accumulated yet" is a reading worth
+          having. It is the same reading after a reload, because it is read from the pod.
+        -->
+        <div class="assistant-panel__gap" data-testid="barn-review-accumulation">
+          <SIcon name="compare" :size="13" />
+          <span>{{ accumulationNote }}</span>
+        </div>
       </div>
 
       <div v-show="tab === 'files'" class="assistant-panel__pane">
@@ -1901,6 +2049,19 @@ export default {
   }
 
   &__grow { flex: 1 1 auto; }
+
+  // The disagreement between the running permission mode and the one the pod starts in.
+  &__split {
+    display:       flex;
+    align-items:   flex-start;
+    gap:           6px;
+    padding:       var(--studio-space-8) var(--studio-space-16);
+    background:    var(--studio-warning-bg);
+    border-bottom: 1px solid var(--studio-warning);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
+    flex:          0 0 auto;
+  }
 
   // The standing note under the last turn: what the stream is not showing, and why.
   &__gap {

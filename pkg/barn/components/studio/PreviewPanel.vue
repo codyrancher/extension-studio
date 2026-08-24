@@ -561,10 +561,18 @@ export default {
         this.$refs.frame?.contentWindow?.location?.reload();
         this.loadedAt = Date.now();
       } catch {
-        // Cross-origin or mid-navigation: re-assigning src reloads it either way.
+        // Cross-origin or mid-navigation: `contentWindow.location` throws, and assigning `src` to
+        // itself is what reloads the frame. It reads as a no-op and is not: setting the property
+        // starts a navigation even when the value is unchanged, and the getter returns the
+        // resolved absolute URL, so this is the one reload available without same-origin access.
+        //
+        // Kept as the plain self-assignment rather than laundered through a temporary variable,
+        // because a temporary would hide from the next reader exactly what the lint rule is
+        // pointing at, and the rule is right that it looks wrong.
         const f = this.$refs.frame;
 
         if (f) {
+          // eslint-disable-next-line no-self-assign
           f.src = f.src;
         }
       }

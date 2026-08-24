@@ -11,9 +11,33 @@
 //
 //   - It does not offer the permission level, the preview target, access or the sign-off
 //     policy. Exactly one surface edits those, and it is the page.
-//   - It does keep the token, because the four callers open this from inside something - an
-//     import, a create, a review that cannot ask the assistant - and the design puts connecting
+//   - It does keep the token, because the callers open this from inside something - a create, a
+//     hand-over, a review that cannot open a pull request - and the design puts connecting
 //     inside those flows rather than sending somebody away and hoping they come back.
+//
+// That last point was reopened once, on the reading that a dialog writing the same Secret as the
+// settings page is a duplicate the redesign removes. It is a duplicate surface and it earns its
+// place, and the evidence is on the screens rather than in the argument:
+//
+//   - Screen 02's "Connect GitHub" sits in a form somebody has already typed a name, a
+//     description, an outcome and a placement into. Its acceptance is literally that returning
+//     from the connection flow keeps the form's contents, which a route to /barn/settings cannot
+//     do: leaving unmounts the page and the form with it.
+//   - The hand-over dialog's "Add a token in settings" is the same shape one step later - a
+//     repository typed, a push one credential short - and the editor reopens it on close for
+//     exactly that reason.
+//   - The import dialog already paid for the other answer. It used to link away, and taking the
+//     link threw away everything typed into it; the field moved inline and the link went.
+//
+// So the duplication that matters is not two surfaces asking for a credential. It is two surfaces
+// deciding *differently* what happens to it, and that one is closed: both go through
+// `connectGithub`/`disconnectGithub` in studio-settings.ts, into one Secret, in one shape.
+//
+// The one caller that does not clear this bar is the editor masthead's gear
+// (`barn-editor-settings-button`, aria-label "Editor settings"), which opens the dialog from a
+// toolbar with nothing in flight and nothing to lose. That is the "bare token modal from the
+// toolbar" screen 09 replaces, and it is a change to EditorMasthead.vue and pages/editor.vue
+// rather than to this file.
 //   - It has no Save button, the same as the page: Enter stores, Disconnect removes, and both
 //     happen when you do them.
 //
@@ -226,6 +250,20 @@ export default {
         it to the repositories you want it to touch.
       </p>
 
+      <!--
+        What this dialog is, said on the dialog. It is here so nobody reads a token field in a
+        modal as a second settings surface: it is the one credential you can be stopped by, asked
+        where you were stopped, and it writes the same Secret through the same code path the page
+        does. Everything else on screen 09 is only on screen 09.
+      -->
+      <p class="editor-settings__scope" data-testid="barn-settings-scope">
+        This is the credential and nothing else. The assistant's permission level, where previews
+        run, who can use Studio and what needs sign-off are on the
+        <a href="#" data-testid="barn-settings-scope-link" @click.prevent="openSettings">Studio settings page</a>,
+        which is also where this token can be managed when you are not in the middle of something.
+        Both write the same Secret in this Rancher, by the same path, so they cannot disagree.
+      </p>
+
       <div v-if="!loading" class="editor-settings__state">
         <SIcon name="github" :size="16" />
 
@@ -340,6 +378,14 @@ export default {
     font:   var(--studio-body-13);
     color:  var(--studio-text-secondary);
     margin: 0;
+  }
+
+  &__scope {
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-tertiary);
+    margin: 0;
+
+    a { color: var(--studio-text-link); }
   }
 
   &__state {

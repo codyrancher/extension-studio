@@ -35,14 +35,17 @@ import {
 } from '../components/ui';
 import { rancherFetch } from '../api';
 import {
-  EXT_NS, extensionObject, listExtensions, githubIdentity, SETTINGS_SECRET
+  EXT_NS, extensionObject, listExtensions, githubIdentity, assistantLogin, SETTINGS_SECRET
 } from '../extensions';
 import {
   LEVELS, DEFAULT_POLICY, SETTINGS_OBJECT, STUDIO_NEEDS, TokenRejected, asSentence, githubErrorText,
   readStudioSettings, writeStudioSettings, connectGithub, disconnectGithub, githubConnected, detectPermission,
   connectionSummary, tokenRejected, readRole
 } from '../studio-settings';
-import { STUDIO_ROUTE } from '../editor-product';
+import {
+  STUDIO_ROUTE, STUDIO_PAGE_ACTIONS, STUDIO_ACTION_SETTINGS, handleStudioPageAction
+} from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import { toastError, toastSuccess } from '../toast';
 
 // The same cluster every other object in this product lives in. Written out rather than
@@ -175,6 +178,16 @@ export default {
     SButton, SBanner, SCard, SChip, SIcon, SField
   },
 
+  /**
+   * Rancher's header kebab, which this screen drew nothing into (Figma 53:1740).
+   *
+   * Same reason as the other four Studio pages: `Header.vue` renders `HeaderPageActionMenu`
+   * whenever the mounted page has committed a non-empty `pageActions`, and the `plain` layout
+   * these routes use commits none - so on this route the kebab the design draws was missing
+   * because nothing had filled it in. See editor-product.ts for what is in the menu and why.
+   */
+  mixins: [pageActionsMixin],
+
   data() {
     return {
       loading: true,
@@ -201,8 +214,12 @@ export default {
       tokenError:    '',
       disconnecting: false,
 
-      // What the assistant may do without asking.
-      permission: { level: '', detail: '' },
+      // What the assistant may do without asking, and whether it can do anything at all.
+      // `assistantsRead` is separate from an empty list because "no pod answered" and "there
+      // are no pods" are different sentences.
+      permission:    { level: '', detail: '' },
+      assistants:    [],
+      assistantsRead: false,
 
       // Where previews run.
       cluster:    { name: 'local', version: '' },
@@ -232,6 +249,95 @@ export default {
     },
 
     /**
+     * Whether the assistant has a credential to work with, said the way the workspace says it.
+     *
+     * The same fact in two places used to be two different facts. The workspace's session strip
+     * reports the claude in the extension's pod (`assistantLogin`), and this page reported only
+     * the GitHub token - so a reader who came here to find out why nothing was answering their
+     * prompts found a green "Connected" about a different credential entirely. Two surfaces
+     * disagreeing about "the connection" is the failure the one-place rule exists to stop, and
+     * the fix is for this page to state the assistant's connection rather than for the strip to
+     * stop stating it: the strip is where somebody is when it matters.
+     *
+     * Read per pod and not once, because that is how the credential is held. The strip answers
+     * for the extension you are looking at; this page has no extension, so it asks every pod and
+     * only says one sentence when they agree. A mixed answer names the ones that are signed in
+     * rather than rounding to either end of it.
+     *
+     * `tone`: on | warn | off, which are the three the row's dot already has.
+     */
+    assistantState() {
+      if (!this.assistantsRead) {
+        return {
+          tone:   'off',
+          label:  'Reading the assistant sessions',
+          detail: 'Asking each extension pod whether its claude has a credential to work with.',
+        };
+      }
+
+      if (!this.assistants.length) {
+        return {
+          tone:   'off',
+          label:  'No extension to ask',
+          detail: 'The assistant runs in an extension\'s pod, and this Rancher has no extension, so there is no session to report.',
+        };
+      }
+
+      const read = this.assistants.filter((each) => each.login.read);
+      const inCount = read.filter((each) => each.login.signedIn);
+
+      if (!read.length) {
+        return {
+          tone:   'off',
+          label:  'Cannot tell whether the assistant is signed in',
+          detail: `No pod answered when asked about its claude credentials (${ this.assistants.map((each) => each.name).join(', ') }), so this says nothing rather than guessing.`,
+        };
+      }
+
+      const unread = this.assistants.length - read.length;
+      const aside = unread ? ` ${ unread } more pod${ unread === 1 ? '' : 's' } did not answer.` : '';
+
+      if (!inCount.length) {
+        return {
+          tone:   'warn',
+          label:  'The assistant is not signed in',
+          detail: `No credential in any of these pods (${ read.map((each) => each.name).join(', ') }): no OAuth credentials file, no API key in the environment and no account in .claude.json. Every prompt sent from the workspace comes back "Not logged in", and the workspace's own session strip says the same. Run /login in the terminal there; this page cannot do it, because the credential lives in the pod.${ aside }`,
+        };
+      }
+
+      const named = inCount.map((each) => each.login.account).filter(Boolean);
+      const who = named.length ? ` as ${ [...new Set(named)].join(', ') }` : '';
+
+      if (inCount.length === read.length) {
+        return {
+          tone:   'on',
+          label:  `The assistant is signed in${ who }`,
+          detail: `Read from the credential the claude in each pod is running with (${ read.map((each) => each.name).join(', ') }). An API key names nobody, so a signed-in pod with no address here is running on one.${ aside }`,
+        };
+      }
+
+      const out = read.filter((each) => !each.login.signedIn).map((each) => each.name);
+
+      return {
+        tone:   'warn',
+        label:  `Signed in${ who } in some pods, not all`,
+        detail: `${ inCount.map((each) => each.name).join(', ') } ${ inCount.length === 1 ? 'has' : 'have' } a credential; ${ out.join(', ') } ${ out.length === 1 ? 'does' : 'do' } not, so prompts sent from ${ out.length === 1 ? 'that workspace' : 'those workspaces' } come back "Not logged in". The credential is per pod, so /login has to be run in each.${ aside }`,
+      };
+    },
+
+    /**
+     * What the header kebab offers here.
+     *
+     * Minus "Studio settings", because this is Studio settings. A menu item that navigates to
+     * the page you are standing on is a control that does nothing, and the review queue filters
+     * its own entry out for the same reason. Filtered from the shared list rather than declared
+     * as a second one, so the labels and destinations cannot drift between screens.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS.filter((each) => each.action !== STUDIO_ACTION_SETTINGS);
+    },
+
+    /**
      * The three calls Studio is made of, said once.
      *
      * Read off `STUDIO_NEEDS` rather than typed out, so the sentence in the banner and the rule
@@ -242,6 +348,28 @@ export default {
       const labels = STUDIO_NEEDS.map((need) => need.label);
 
       return `${ labels.slice(0, -1).join(', ') } and ${ labels[labels.length - 1] }`;
+    },
+
+    /**
+     * The custom row's answer, which has one state the fixed rows do not: nothing chosen yet.
+     *
+     * That is not "no", and it must not be drawn as one - the row is a question with no subject
+     * until a role is picked.
+     */
+    customAnswer() {
+      if (this.customLoading) {
+        return {
+          state: 'reading', tone: 'unknown', icon: 'info', label: 'Reading'
+        };
+      }
+
+      if (!this.customReading) {
+        return {
+          state: 'unasked', tone: 'unknown', icon: 'info', label: 'Not asked'
+        };
+      }
+
+      return this.answerFor(this.customReading.reading);
     },
 
     settingsSecret() {
@@ -354,7 +482,12 @@ export default {
       // The slower ones, after the page is on the screen. Each is a read of something outside
       // this browser - the pods, Rancher's role bindings, and GitHub by way of a pod - and none
       // of them is worth making the card wait.
-      await Promise.all([this.readDevServers(), this.readAccess(), this.readIdentity(), this.reconcileFixedCells()]);
+      await Promise.all([
+        this.readDevServers().then(() => this.readAssistantLogins()),
+        this.readAccess(),
+        this.readIdentity(),
+        this.reconcileFixedCells(),
+      ]);
     },
 
     /**
@@ -661,6 +794,22 @@ export default {
     },
 
     /**
+     * Whether the claude in each extension's pod has a credential, one exec each.
+     *
+     * After `readDevServers` rather than beside it, so it asks the pods that list found rather
+     * than listing them a second time. Each answer is allowed to fail on its own: one pod that
+     * will not exec must not turn the whole row into "cannot tell".
+     */
+    async readAssistantLogins() {
+      this.assistants = await Promise.all(this.devServers.map(async(server) => ({
+        name:  server.name,
+        login: await assistantLogin(server.name).catch(() => ({ read: false, signedIn: false, account: '' })),
+      })));
+
+      this.assistantsRead = true;
+    },
+
+    /**
      * Bounce one dev server by deleting its pod, which is what a Deployment makes a restart.
      *
      * The tree and node_modules are on the node rather than in the pod (see hostCachePath), so
@@ -749,13 +898,22 @@ export default {
           label:   'Administrators',
           count:   this.sayPeople(admins),
           allowed: true,
-          detail:  'Global role admin, which is cluster-admin on every cluster this Rancher has. Ticked because Rancher already says so; nothing here granted it and nothing here can take it away.',
+          // "always" is the word the design puts on this row (21:906), and it is the one row
+          // where it is literally true: the global role is cluster-admin everywhere, so there
+          // is no reading to do and nothing that could come back other than yes.
+          answer:  {
+            state: 'always', tone: 'yes', icon: 'check', label: 'Always'
+          },
+          role:   { resource: 'management.cattle.io.globalrole', id: 'admin' },
+          detail: 'Global role admin, which is cluster-admin on every cluster this Rancher has. Shown as met because Rancher already says so; nothing here granted it and nothing here can take it away.',
         },
         {
           id:      'cluster-owners',
           label:   'Cluster Owners',
           count:   this.sayPeople(owners.count),
           allowed: owners.reading ? owners.reading.capable : false,
+          answer:  this.answerFor(owners.reading),
+          role:    { resource: 'management.cattle.io.roletemplate', id: 'cluster-owner' },
           detail:  `On the local cluster. ${ this.roleSentence(owners.reading) }`,
         },
         {
@@ -763,6 +921,8 @@ export default {
           label:   'Cluster Members',
           count:   this.sayPeople(members.count),
           allowed: members.reading ? members.reading.capable : false,
+          answer:  this.answerFor(members.reading),
+          role:    { resource: 'management.cattle.io.roletemplate', id: 'cluster-member' },
           detail:  `On the local cluster. ${ this.roleSentence(members.reading) }`,
         },
       ];
@@ -826,12 +986,52 @@ export default {
     },
 
     /**
+     * The same reading as a glyph and a word, for the left of the row.
+     *
+     * Three states, and the third is the one that has to stay separate: "nobody could read this
+     * role's rules" is not "this role is short of something". It gets its own glyph and its own
+     * word so an unread role cannot be misread as a refused one.
+     */
+    answerFor(reading) {
+      if (!reading) {
+        return {
+          state: 'unread', tone: 'unknown', icon: 'info', label: 'Not read'
+        };
+      }
+
+      return reading.capable ?
+        {
+          state: 'yes', tone: 'yes', icon: 'check', label: 'Can use Studio'
+        } :
+        {
+          state: 'no', tone: 'no', icon: 'warning', label: 'Cannot use Studio'
+        };
+    },
+
+    /**
+     * Rancher's own page for the role behind a row.
+     *
+     * The one real action this card has. Studio cannot grant or revoke - see the banner - but
+     * the rules that decide the answer are editable in this Rancher, and sending somebody there
+     * is honest in a way a dead checkbox is not: the page they land on is the page that would
+     * change the answer, with Rancher's own warnings on it. `local` rather than a resolved
+     * cluster id because Rancher's auth product is pinned to `local` (shell/config/product/auth)
+     * and every other object in this product lives there too.
+     */
+    openRole(role) {
+      this.$router.push({
+        name:   'c-cluster-auth-roles-resource-id',
+        params: { cluster: 'local', resource: role.resource, id: role.id },
+      });
+    },
+
+    /**
      * A reading, as the sentence under the row.
      *
      * Three outcomes and they are three different facts: the role can do all of it, the role is
      * missing some of it (and which), or nobody could read the role's rules. The third must not
-     * be worded like the second - an unticked row over an unread role is not a statement that
-     * the role is short of anything.
+     * be worded like the second - "not read" over an unread role is not a statement that the
+     * role is short of anything.
      */
     roleSentence(reading) {
       if (!reading) {
@@ -839,7 +1039,7 @@ export default {
       }
 
       if (reading.capable) {
-        return `Rancher's RBAC lets this role ${ this.needsSentence }, so somebody holding it can use Studio. Ticked because that is already true, not because anything here granted it.`;
+        return `Rancher's RBAC lets this role ${ this.needsSentence }, so somebody holding it can use Studio. That is already true; nothing here granted it and nothing here can take it away.`;
       }
 
       const missing = reading.missing.length > 1 ?
@@ -883,6 +1083,10 @@ export default {
     },
 
     // -------------------------------------------------------------- navigation
+
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
 
     openStudio() {
       this.$router.push({ name: STUDIO_ROUTE });
@@ -1153,6 +1357,26 @@ export default {
       <!-- What the assistant may do without asking (21:847) -->
       <SCard title="What the assistant may do without asking" icon="sparkle" data-testid="settings-permission">
         <div class="settings__section">
+          <!--
+            Before the levels, because it is the prior question: a level says what the assistant
+            may do without asking, and this says whether it can do anything at all. It is also
+            the row that makes this page and the workspace's session strip agree - they read the
+            same thing from the same pods, and until now only the strip said so. The GitHub card
+            above is a different credential and stays a different card.
+          -->
+          <div class="settings__row" data-testid="settings-assistant-session">
+            <span class="settings__dot" :class="`settings__dot--${ assistantState.tone }`" />
+
+            <div class="settings__row-text">
+              <p class="settings__row-head" data-testid="settings-assistant-login">
+                {{ assistantState.label }}
+              </p>
+              <p class="settings__row-note">
+                {{ assistantState.detail }}
+              </p>
+            </div>
+          </div>
+
           <SBanner type="warning" data-testid="settings-permission-fixed">
             Not settable, and not per user. {{ permission.detail }} The flag is one line of
             <code>claude-session.sh</code> in the extension's seed ConfigMap, and Studio rewrites
@@ -1288,23 +1512,26 @@ export default {
           </p>
 
           <SBanner type="warning" data-testid="settings-access-ungated">
-            Studio has no allow-list, and these ticks are a reading of Rancher's rather than a
-            grant of Studio's. Opening the pages is ungated - they are registered with no
-            permission gate, so anybody signed in can reach them - and everything after that is
-            Kubernetes RBAC, because every read and write goes through the cluster proxy carrying
-            the session of whoever is looking. So each row asks that role's own rules whether
-            somebody holding it could {{ needsSentence }} - the third of those being the terminal,
-            which is how every file in an extension gets written. A role that cannot gets a
-            Studio that renders and then 403s.
+            Every row here is a question asked of Rancher, not a switch Studio owns. Opening the
+            pages is ungated - they are registered with no permission gate, so anybody signed in
+            can reach them - and everything after that is Kubernetes RBAC, because every read and
+            write goes through the cluster proxy carrying the session of whoever is looking. So
+            each row asks that role's own rules whether somebody holding it could
+            {{ needsSentence }} - the third of those being the terminal, which is how every file
+            in an extension gets written. A role that cannot gets a Studio that renders and then
+            403s.
             <template v-if="accessNote"> {{ accessNote }}</template>
           </SBanner>
 
           <SBanner type="info" data-testid="settings-access-no-grant">
-            There is no tickable version of this. A grant would have to write the role's rules,
-            and the third of the three is exec into a pod bound to cluster-admin - so ticking
+            The design draws these as checkboxes and there is nothing for a checkbox to write.
+            Studio has no allow-list, so a grant would have to widen the role itself - and the
+            third of the three needs is exec into a pod bound to cluster-admin, so granting
             "Cluster Members" would quietly make every cluster member an administrator of this
-            cluster. That belongs in Rancher's own role editor, with Rancher's own warnings on
-            it, and not behind a checkbox on a settings page.
+            cluster. That change belongs in Rancher's own role editor, with Rancher's own
+            warnings on it, which is where "Rules" on each row goes. So these rows answer rather
+            than offer: a control that cannot act is worse here than a reading that is plainly a
+            reading.
           </SBanner>
 
           <div
@@ -1314,19 +1541,24 @@ export default {
             :data-testid="`settings-access-${ row.id }`"
           >
             <!--
-              Disabled on purpose, and the title says why on the control itself rather than only
-              in the banner above it. The testid is on the input rather than on the row, because
-              the reading is what somebody checking this has to be able to address.
+              An answer, not a control. This used to be a disabled checkbox and that was the
+              wrong shape twice over: a checkbox is a promise that ticking it does something,
+              and greying it out says "not now" where the truth is "not ever, from here". The
+              same glyph pair the model card uses says the same thing without offering
+              anything. The testid stays on this element - it is the reading somebody checking
+              the row has to be able to address - and `data-answer` carries the state a
+              `checked` property used to.
             -->
-            <input
-              type="checkbox"
-              class="settings__checkbox"
-              disabled
-              :checked="row.allowed"
-              :aria-label="row.label"
+            <span
+              class="settings__answer"
+              :class="`settings__answer--${ row.answer.tone }`"
               :data-testid="`settings-access-${ row.id }-check`"
-              title="A reading of Rancher's own RBAC, not a setting. Granting it would mean editing the role itself, and one of the three is exec into a cluster-admin pod."
+              :data-answer="row.answer.state"
+              :aria-label="`${ row.label }: ${ row.answer.label }`"
             >
+              <SIcon :name="row.answer.icon" :size="14" />
+              {{ row.answer.label }}
+            </span>
 
             <div class="settings__row-text">
               <p class="settings__row-head">
@@ -1336,6 +1568,23 @@ export default {
                 {{ row.detail }}
               </p>
             </div>
+
+            <!--
+              The real action the row can offer. Studio cannot grant or revoke this, but the
+              rules that decide it are a page in this Rancher, so the row points at it rather
+              than at a control of its own. That is also where the warnings about widening a
+              role live, which is the argument in the banner above made navigable.
+            -->
+            <SButton
+              v-if="row.role"
+              variant="ghost"
+              size="sm"
+              icon="external"
+              :data-testid="`settings-access-${ row.id }-rules`"
+              @click="openRole(row.role)"
+            >
+              Rules
+            </SButton>
 
             <span v-if="row.count" class="settings__count" :data-testid="`settings-access-${ row.id }-count`">
               {{ row.count }}
@@ -1349,15 +1598,16 @@ export default {
             answering it, which is the only honest thing left for it to be.
           -->
           <div class="settings__row settings__row--tight" data-testid="settings-access-custom-role">
-            <input
-              type="checkbox"
-              class="settings__checkbox"
-              disabled
-              :checked="!!customReading && !!customReading.reading && customReading.reading.capable"
-              aria-label="Custom role"
+            <span
+              class="settings__answer"
+              :class="`settings__answer--${ customAnswer.tone }`"
               data-testid="settings-access-custom-role-check"
-              title="A reading of the chosen role's own RBAC, not a setting."
+              :data-answer="customAnswer.state"
+              :aria-label="`Custom role: ${ customAnswer.label }`"
             >
+              <SIcon :name="customAnswer.icon" :size="14" />
+              {{ customAnswer.label }}
+            </span>
 
             <div class="settings__row-text">
               <p class="settings__row-head">
@@ -1376,6 +1626,17 @@ export default {
                 </template>
               </p>
             </div>
+
+            <SButton
+              v-if="customReading"
+              variant="ghost"
+              size="sm"
+              icon="external"
+              data-testid="settings-access-custom-role-rules"
+              @click="openRole({ resource: 'management.cattle.io.roletemplate', id: customReading.id })"
+            >
+              Rules
+            </SButton>
 
             <select
               class="settings__select"
@@ -1819,10 +2080,26 @@ export default {
     }
   }
 
-  &__radio,
-  &__checkbox {
+  &__radio {
     margin: 2px 0 0;
     flex:   0 0 auto;
+  }
+
+  // The access rows' answer. Reads as a state and not as a control: no box, no focus ring,
+  // nothing to click. Same glyph pair as the model card below, so "met" and "not met" look the
+  // same wherever this page states one.
+  &__answer {
+    display:     inline-flex;
+    align-items: center;
+    gap:         var(--studio-space-4);
+    flex:        0 0 auto;
+    min-width:   124px;
+    margin:      2px 0 0;
+    font:        var(--studio-caption-12);
+
+    &--yes     { color: var(--studio-success); }
+    &--no      { color: var(--studio-warning); }
+    &--unknown { color: var(--studio-text-tertiary); }
   }
 
   &__option-text {

@@ -42,7 +42,10 @@ import {
   DEFAULT_EXTENSION
 } from '../extensions';
 import { highlight } from '../highlight';
-import { EDITOR_ROUTE, STUDIO_ROUTE, REVIEW_ROUTE } from '../editor-product';
+import {
+  EDITOR_ROUTE, STUDIO_ROUTE, REVIEW_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+} from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -272,7 +275,7 @@ export default {
     SButton, SBadge, SChip, SIcon, SEmpty, STabs, SLabel, SMenu, SModal, FileTree, DiffView
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -345,6 +348,22 @@ export default {
   },
 
   computed: {
+    /**
+     * What Rancher's header kebab offers here (Figma 53:1802).
+     *
+     * Distinct from this screen's own masthead kebab (22:888), which acts on the extension.
+     * This is the one in Rancher's top bar, and barn does not draw it: Rancher's
+     * `HeaderPageActionMenu` is already there and shows itself whenever the mounted page has
+     * committed a non-empty `pageActions`. Screens 01, 02, 03 and 11 commit them and get the
+     * kebab; this screen committed none, which is the whole reason it had none. Read by
+     * @shell/mixins/page-actions, which commits on `created` and clears on `beforeUnmount`,
+     * so the menu is this page's rather than every page in Rancher's. The list lives in
+     * editor-product.ts; see the note there for why those three and nothing invented.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
+    },
+
     extension() {
       return this.$route.params.extension || DEFAULT_EXTENSION;
     },
@@ -603,6 +622,11 @@ export default {
   },
 
   methods: {
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
+
     async load() {
       // A freshly created extension has no repository yet, and every reading on this screen
       // is a git reading - so without this the screen is simply empty, with nothing saying

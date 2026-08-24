@@ -59,12 +59,16 @@ import {
 import DiffView from './DiffView.vue';
 import {
   changedFiles, publishedVersion, workingDiff, changeProvenance,
-  readExtensionFile, writeExtensionFile
+  readExtensionFile, writeExtensionFile, readSettings
 } from '../extensions';
 import {
   readReview, gateFrom, distributionGate, distributionDestinations
 } from '../review';
 import { readStudioSettings, DEFAULT_POLICY, LEVELS } from '../studio-settings';
+// Imported, not copied. These scanners also run on screen 12's automated-checks column, and two
+// copies of a credential regex is how two surfaces quietly stop agreeing about what counts as a
+// secret. The same mistake was made once already this project, with the GitHub error helper.
+import { scanCredentials, scanUnstableApis } from '../change-checks';
 import { readFailure } from '../publish-failure';
 import { REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, BUILD_FAILED_ROUTE } from '../editor-product';
 
@@ -113,7 +117,7 @@ const TARGETS = [
     requires:  'No sign-off',
     requiresIcon: '',
     available: true,
-    note:      'Hands the change over for review: it assembles a packet, pushes it as a branch of its own and opens a pull request. The next dialog asks which repository, and for a token if there is not one yet.',
+    note:      'Hands the change over for review: it assembles a packet, puts it in the review queue for somebody to sign, and pushes it as a branch with a pull request when there is a GitHub connection to push it with. The next dialog asks which repository.',
     // Corrected against the code rather than against the design. `handOverForReview()` pushes
     // `barn/<extension>/<n>` and opens a PR against the default branch, and
     // `publishExtensionToGithub()` now throws when it is called with no branch at all, so there
@@ -319,118 +323,6 @@ function patchFiles(patch) {
  * `ghp_` followed by forty characters is a GitHub token and nothing else. The generic
  * `secret: "..."` pattern is last and is the one that needs the placeholder guard below.
  */
-const CREDENTIALS = [
-  [/\bghp_[A-Za-z0-9]{20,}/, 'a GitHub personal access token'],
-  [/\bgithub_pat_[A-Za-z0-9_]{20,}/, 'a GitHub fine-grained token'],
-  [/\bgh[opsu]_[A-Za-z0-9]{20,}/, 'a GitHub token'],
-  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/, 'an AWS access key id'],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'a private key'],
-  [/\bxox[abprs]-[A-Za-z0-9-]{10,}/, 'a Slack token'],
-  [/\b(?:client-key-data|client-certificate-data):\s*[A-Za-z0-9+/=]{40,}/, 'kubeconfig client credentials'],
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/, 'a JSON web token'],
-  [/\bAuthorization:\s*(?:Bearer|Basic|basic)\s+[A-Za-z0-9+/=._~-]{16,}/, 'an Authorization header with a value in it'],
-  [/(?:password|passwd|secret|token|api[-_]?key)["']?\s*[:=]\s*["']([^"'\s]{16,})["']/i, 'a hard-coded credential'],
-];
-
-/**
- * Values that match the generic pattern and are not credentials.
- *
- * A scan that cries wolf on `token: "${GITHUB_TOKEN}"` is a scan people learn to click past, and
- * the row would then be worse than no row at all. The last rule is the one that earns its keep:
- * `SETTINGS_SECRET = 'barn-settings'` is a constant naming an object, and swept over this
- * package's own source it was the only thing the generic pattern got wrong.
- *
- * Only the generic rule consults this. The prefix-shaped patterns capture nothing, so they land
- * here as `undefined` and are never excused - a literal `ghp_` followed by thirty-six characters
- * has no innocent reading.
- */
-function isPlaceholder(value) {
-  if (!value) {
-    return false;
-  }
-
-  // An interpolation or a template hole: whatever is secret is somewhere else.
-  if (/[$<>{}]/.test(value)) {
-    return true;
-  }
-
-  if (/^(?:x+|\*+|\.+|changeme|password|redacted|your[-_.]?\w*|example\w*|placeholder|todo)$/i.test(value)) {
-    return true;
-  }
-
-  // A url, which is a location and not a credential.
-  if (/^[a-z]+:\/\//i.test(value)) {
-    return true;
-  }
-
-  // A slug, a path or a dotted name - `barn-settings`, `owner/name`, `catalog.cattle.io`. The
-  // separator is required, so a run of lowercase hex with nothing in it still counts as a find.
-  return /^[a-z][a-z0-9]*(?:[-_./][a-z0-9]+)+$/.test(value);
-}
-
-/**
- * Tokens, keys and kubeconfig credentials in the added lines of a patch.
- *
- * The finding never carries the matched text. This result is rendered into a dialog and would be
- * shoulder-read, screenshotted into a PR and pasted into a chat, which is the same reasoning
- * that makes `publishExtensionToGithub` scrub its own log before returning it.
- */
-function scanCredentials(patch) {
-  const found = [];
-
-  for (const { path, line, text } of addedLines(patch)) {
-    for (const [pattern, what] of CREDENTIALS) {
-      const match = pattern.exec(text);
-
-      if (!match || isPlaceholder(match[1])) {
-        continue;
-      }
-
-      found.push({ path, line, what });
-      break;
-    }
-  }
-
-  return found;
-}
-
-/**
- * Alpha and beta Kubernetes group-versions in the added lines.
- *
- * The frame's example is `metrics.k8s.io/v1beta1 may change between Kubernetes minors`, and that
- * is exactly the class this finds: an API whose group-version says out loud that it is not
- * settled. It is not a general dependency audit and the row does not claim to be one.
- *
- * The group half is any dotted name rather than a list of known suffixes, because the list gets
- * this wrong: `cluster.x-k8s.io/v1alpha4` is a cluster-api group and does not end in `.k8s.io`,
- * so a suffix list quietly misses the APIs most likely to move.
- */
-const UNSTABLE = /\b([a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+)\/(v\d+(?:alpha|beta)\d*)\b/g;
-
-function scanUnstableApis(patch) {
-  const found = [];
-  const seen = new Set();
-
-  for (const { path, line, text } of addedLines(patch)) {
-    UNSTABLE.lastIndex = 0;
-
-    let match = UNSTABLE.exec(text);
-
-    while (match) {
-      const api = `${ match[1] }/${ match[2] }`;
-
-      if (!seen.has(api)) {
-        seen.add(api);
-        found.push({ api, path, line });
-      }
-
-      match = UNSTABLE.exec(text);
-    }
-  }
-
-  return found;
-}
-
 /**
  * A changelog as a preamble and a list of `## <version>` sections, in file order.
  *
@@ -555,6 +447,11 @@ export default {
       // dialog behaves exactly as it did before the matrix existed.
       policy: null,
 
+      // Whether there is a GitHub connection to push a hand-over with. Null until the Secret's
+      // metadata has been read, and null when it could not be read, because "no token" and
+      // "not asked yet" are different sentences on the row.
+      githubSettings: null,
+
       saving: false,
       error:  '',
     };
@@ -581,6 +478,7 @@ export default {
 
           return {
             ...target,
+            ...(target.id === 'github' ? this.githubReach : {}),
             requires:     override?.label || target.requires,
             requiresIcon: override?.icon || target.requiresIcon,
             requiresTone: override?.tone || (target.requires === 'No sign-off' ? 'subtle' : 'warning'),
@@ -616,6 +514,37 @@ export default {
           policyNote:   policyNote(target.id, policy),
         };
       });
+    },
+
+    /**
+     * How far the hand-over will actually get, which is not a constant either.
+     *
+     * `handOverForReview()` assembles the packet first and always: the hand-over is the packet,
+     * the review record and the queue entry, and every screen that reads a hand-off reads those
+     * and not GitHub. The push and the pull request happen on top of it when there is a token to
+     * push with, and are recorded as `pushError` on the packet when there is not.
+     *
+     * So the row cannot claim a pull request before it knows whether one is possible. Until the
+     * Secret has been read it says what the destination is for; after, it says which of the two
+     * this press will do. `null` is "not read yet" and is not the same as "no token", which is
+     * why the unread state keeps the row's own words rather than guessing at either.
+     */
+    githubReach() {
+      if (!this.githubSettings) {
+        return {};
+      }
+
+      if (this.githubSettings.hasToken) {
+        return {
+          note: 'Hands the change over for review: it assembles a packet, puts it in the review queue for somebody to sign, pushes the packet as a branch of its own and opens a pull request. The next dialog asks which repository.',
+          undo: 'Nothing is merged: it lands on the branch barn/<extension>/<n> and opens a pull request against the default branch. Closing that pull request is the way back.',
+        };
+      }
+
+      return {
+        note: 'Hands the change over for review inside this cluster: it assembles a packet, writes it into the review record and puts the change in the review queue for somebody to sign. There is no GitHub token in this Studio, so nothing is pushed and no pull request records it - the packet says so, and adding a token in settings is what puts the record on GitHub as well.',
+        undo: 'Nothing leaves the cluster. The packet is numbered and kept, so handing over again makes the next one rather than replacing this one.',
+      };
     },
 
     /** The stored policy, or the defaults when it has never been written or could not be read. */
@@ -924,7 +853,12 @@ export default {
       }
 
       if (this.chosen.includes('github')) {
-        parts.push('the hand-over on GitHub merges nothing, so closing its pull request is the way back');
+        // Same reading as the row above it. With no token the hand-over never reaches GitHub, so
+        // promising a pull request to close would be a way back out of something that did not
+        // happen.
+        parts.push(this.githubSettings && !this.githubSettings.hasToken
+          ? 'the hand-over stays in this cluster and opens no pull request, so there is nothing to close: the packet is numbered and the next hand-over makes the next one'
+          : 'the hand-over on GitHub merges nothing, so closing its pull request is the way back');
       }
 
       // Two reads as "a, and b"; three as "a, b and c". Joining every pair with ", and" was
@@ -1020,6 +954,13 @@ export default {
     // cluster where nobody has been near that page.
     readStudioSettings().then(({ policy }) => {
       this.policy = policy;
+    }).catch(() => null);
+
+    // Metadata only - `readSettings` asks the apiserver for `PartialObjectMetadata`, so the
+    // token itself never comes into this page. All this row needs is whether the field is
+    // filled, and an unreadable Secret stays null rather than being read as empty.
+    readSettings(this.extension).then((settings) => {
+      this.githubSettings = settings;
     }).catch(() => null);
 
     this.failure = readFailure(this.extension);

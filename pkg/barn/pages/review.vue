@@ -41,7 +41,10 @@ import {
   baselineRef, changeProvenance, fileProvenance, DEFAULT_EXTENSION
 } from '../extensions';
 import { sameCommit } from '../review';
-import { EDITOR_ROUTE, STUDIO_ROUTE, FILES_ROUTE } from '../editor-product';
+import {
+  EDITOR_ROUTE, STUDIO_ROUTE, FILES_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+} from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -133,7 +136,7 @@ export default {
     SButton, SBadge, SChip, SIcon, SEmpty, SBanner, SModal, DiffView
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -181,6 +184,24 @@ export default {
      */
     routes() {
       return { STUDIO_ROUTE, FILES_ROUTE };
+    },
+
+    /**
+     * What Rancher's header kebab offers here (Figma 53:1492).
+     *
+     * The design draws the kebab on this frame and the Studio drew none, which four waves read
+     * as "an extension cannot put a control in Rancher's header". It can not, and it does not
+     * need to: Rancher's own `HeaderPageActionMenu` is already in that header and shows itself
+     * whenever the mounted page has committed a non-empty `pageActions`. Screens 01, 02, 03 and
+     * 11 commit them and get the kebab; this screen committed none and so had no kebab. Read by
+     * @shell/mixins/page-actions, which commits on `created` and clears on `beforeUnmount`, so
+     * the menu is this page's rather than every page in Rancher's.
+     *
+     * The whole list, unfiltered: none of the three is this screen. See editor-product.ts for
+     * why those three and nothing invented.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
     },
 
     extension() {
@@ -517,6 +538,11 @@ export default {
   },
 
   methods: {
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
+
     async load() {
       // A freshly created extension has no repository yet, and every reading on this screen
       // is a git reading - so without this the screen is simply empty, with nothing saying

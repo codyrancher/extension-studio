@@ -4552,6 +4552,83 @@ export async function previewTarget(): Promise<PreviewTarget> {
 }
 
 /**
+ * The clusters a previewed page can be about, with what each one is.
+ *
+ * Not the same question as `previewTarget` above, and the difference is the whole reason this
+ * exists. That one answers "where does the dev server run", which is `EXT_CLUSTER` and is not
+ * a choice. This one answers "which cluster is the page in the frame about", which is a choice,
+ * because the framed thing is a whole dashboard and its routes carry a cluster id: the seeded
+ * extension's own page is `/<product>/c/<cluster>/home`, and the explorer under it is
+ * `/c/<cluster>/explorer`. Pointing that at another cluster exercises the extension against
+ * another cluster's data, which is what screen 13's picker (39:1364) is for.
+ *
+ * Each entry carries what the cluster object says about itself, because the design annotates
+ * the current one with why it matters here. This cannot know which capability matters to a
+ * particular extension, so it reports what is true of every cluster - whether it is ready, what
+ * it runs on, its Kubernetes version and how many nodes it has - and leaves the reading to the
+ * person choosing.
+ */
+export interface PreviewCluster {
+  /** The cluster id, which is what goes in a route. */
+  id:       string;
+  /** What Rancher calls it on screen. */
+  name:     string;
+  ready:    boolean;
+  /** k3s, rke2, imported, ... as Rancher reports it. Empty when it does not. */
+  provider: string;
+  /** The Kubernetes version, as reported. Empty when it is not. */
+  version:  string;
+  /** How many nodes, or 0 when the cluster does not say. */
+  nodes:    number;
+}
+
+export async function previewClusters(): Promise<PreviewCluster[]> {
+  const list = await rancherFetch('/v1/management.cattle.io.clusters').catch(() => null);
+
+  if (!list) {
+    // A reading that did not happen is not "no clusters". The caller has to be able to tell
+    // the two apart, so this throws rather than answering with an empty list.
+    throw new Error('Rancher would not list its clusters');
+  }
+
+  return (list.data || [])
+    .map((c: any) => {
+      const id = c?.metadata?.name || c?.id || '';
+      const ready = (c?.status?.conditions || [])
+        .some((cond: any) => cond?.type === 'Ready' && cond?.status === 'True');
+
+      return id ? {
+        id,
+        name:     c?.spec?.displayName || id,
+        ready,
+        provider: c?.status?.provider || c?.status?.driver || '',
+        version:  c?.status?.version?.gitVersion || '',
+        nodes:    Number(c?.status?.nodeCount) || 0,
+      } : null;
+    })
+    .filter(Boolean)
+    .sort((a: PreviewCluster, b: PreviewCluster) => a.name.localeCompare(b.name));
+}
+
+/**
+ * When this extension came into existence, as the cluster recorded it.
+ *
+ * The ConfigMap holding its seed is the first object `ensureExtension` creates, so its
+ * creation timestamp is the moment the extension was made. Empty when the object cannot be
+ * read, which reads downstream as "no age known" rather than as "made just now".
+ *
+ * It is deliberately not offered as the age of a *request*. Nothing asked for an extension the
+ * Studio created by itself, and a brief that records no `## Who asked` records no date either;
+ * this is the only date about the extension that is not a guess, and screen 10 says which of
+ * the two it is showing.
+ */
+export async function extensionCreatedAt(name: string): Promise<string> {
+  const cm = await extGet('configmaps', extensionObject(name)).catch(() => null);
+
+  return cm?.metadata?.creationTimestamp || '';
+}
+
+/**
  * Interrupt whatever the assistant is doing, the way a person at the keyboard would.
  *
  * The design puts a Stop beside Send (11:347, 19:807) and the product had nothing behind it.

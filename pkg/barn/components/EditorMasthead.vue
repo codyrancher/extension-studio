@@ -123,7 +123,7 @@ export default {
     },
   },
 
-  emits: ['back', 'publish', 'publish-select', 'files', 'settings', 'refresh', 'changed'],
+  emits: ['back', 'publish', 'publish-select', 'files', 'refresh', 'changed'],
 
   data() {
     return {
@@ -955,16 +955,15 @@ export default {
       @select="$emit('publish-select', $event)"
     />
 
-    <!-- Real: what the editor itself is configured with. -->
-    <SButton
-      variant="ghost"
-      size="sm"
-      icon="gear"
-      icon-only
-      aria-label="Editor settings"
-      data-testid="barn-editor-settings-button"
-      @click="$emit('settings')"
-    />
+    <!--
+      The gear that used to sit here is gone, and its absence is the point. It opened the bare
+      token modal from the toolbar, with nothing in flight and nothing to lose - which is the
+      surface the redesign replaces with a settings page, and the only caller of that modal that
+      could not justify itself. The other three (screen 02's connect, the publish dialog's "add a
+      token", screen 12's PR chip) all open it mid-task with typed state that a navigation would
+      destroy, so they keep it. Settings now lives at /barn/settings, reachable from the header
+      kebab on every Studio screen.
+    -->
 
     <!-- Real: the other screens about this extension, and the undo of a local publish. -->
     <SMenu

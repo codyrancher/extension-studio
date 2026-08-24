@@ -44,11 +44,19 @@ Rancher's product list and the Studio owns no documentation. A grid icon injecte
 extension-authoring extension, into every page of Rancher, opening something invented, is a control
 that lies on every screen at once.
 
-**The exception, and it is instructive.** `header-more` **was** built, because the kebab is not
-something barn has to draw: Rancher renders it whenever the mounted page commits `pageActions`, and
-every Studio route used a layout that commits none. Four agents had concluded it was impossible by
-asking whether barn could draw a header control. The fifth asked whether the control already existed
-and was empty. It did.
+**The exception, and it is instructive twice over.** `header-more` **was** built, because the kebab
+is not something barn has to draw: Rancher renders it whenever the mounted page commits
+`pageActions`, and every Studio route used a layout that commits none. Four agents had concluded it
+was impossible by asking whether barn could draw a header control. The fifth asked whether the
+control already existed and was empty. It did.
+
+The second lesson is the orchestrator's. Having learnt "the logo and the app grid are Rancher's", I
+generalised it to "the header items are Rancher's" and told a later agent that screens 04 and 05
+were settled and not to re-litigate them. That was wrong: their `header-more` is the same
+page-actions mechanism four sibling screens already ship, and recording it as chrome would have
+written a falsehood into the audit while its siblings shipped the control. The agent implemented it
+anyway and said why. **A conclusion that was right about four items is not thereby right about the
+fifth**, and an instruction to stop looking is worth resisting when the code says otherwise.
 
 **Verdict:** the remaining chrome items are Rancher's, not gaps in this product. The logo in
 particular has been confirmed four times: it is a bare `<img>` in the shell, wrapped in a link only
@@ -95,8 +103,20 @@ is no other source for the assistant's prose at all.
   displayed "recorded and not obeyed". Everything worked, and it was still wrong: the product was
   offering a choice it had already decided to ignore, and labelling the lie honestly does not stop it
   being one. The design fixes the developer load as ungated, so no value could change anything.
-- **The "Your part" column on the review queue.** It rendered the same sentence on every row as
-  though it varied. What it was really saying is a property of the whole screen, so it moved to the
-  lede.
+- **The "Your part" column on the review queue.** The removal stands, but the original argument for
+  it was wrong and is worth stating correctly, because an agent checked it against the code rather
+  than inheriting it.
+
+  The claim was that the column "printed the same sentence on every row". It did not.
+  `review-queue.vue` models four parts and chips three of them: Blocked, Not handed over, and
+  Outcome sign-off. Only the ordinary code-review row is bare. The accurate argument is narrower and
+  survives: the chip marks the exception, and on an ordinary row a "Code review" pill would say
+  exactly what the button beside it already says - `actionLabel()` returns "Open the brief" when
+  blocked, "Sign off" when the outcome is outstanding, and "Review" otherwise. Every row does say
+  which of the two questions is being asked; it says it in the control rather than in a pill next to
+  the control.
+
+  Note the design has the same redundancy, drawing both the pill and the action button on one row.
+  So the promise is stale in its literal form and satisfied in substance.
 
 **Verdict:** deleting a control is a legitimate outcome, and this product has now done it five times.

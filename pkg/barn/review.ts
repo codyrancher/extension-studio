@@ -24,9 +24,10 @@ import { rancherFetch } from './api';
 import {
   EXT_NS, runInPackage, readExtensionFile, readSettings, publishExtensionToGithub,
   createPullRequest, commentOnPullRequest, githubDefaultBranch, provenanceFor,
-  findOpenPullRequest, extensionSource, parseGithubSource,
-  BASELINE_OCI_REF, BASELINE_LOCAL_REF, PublishError,
-  type PublishProgress, type GithubPublishResult, type ChangedFile,
+  findOpenPullRequest, extensionSource, parseGithubSource, assistantTurns,
+  BASELINE_OCI_REF, BASELINE_LOCAL_REF,
+  type PublishProgress, type GithubPublishResult, type ChangedFile, type AssistantTurn,
+  type ChangeAttribution,
 } from './extensions';
 
 // The same cluster and the same base path `extensions.ts` addresses, which does not export it.
@@ -101,6 +102,18 @@ export interface PacketRecord {
    * instead of working it out from an empty section in the pull request.
    */
   brief?: boolean;
+  /**
+   * How many recorded prompts the packet swept up, and from when.
+   *
+   * Cross-screen rule 6: the material accumulates in the background while the author works and
+   * is only assembled at the push. This is the count of that material as it stood at the
+   * assembly, kept on the record so the queue and screen 12 can say what was gathered without
+   * an exec into a pod that may since have been restarted. `undefined` is a packet written
+   * before this was recorded, which is not the same fact as zero.
+   */
+  turns?:      number;
+  /** The instant the accumulation is counted from: the previous packet, or the baseline commit. */
+  turnsSince?: string;
   /** `owner/name`, when it reached GitHub. */
   repo:   string;
   pr:     { number: number; url: string } | null;
@@ -605,6 +618,8 @@ export interface Packet extends PacketRecord {
 interface PodPackets {
   head:    string;
   base:    string;
+  /** When the baseline commit was made. The instant the accumulation since it is counted from. */
+  baseAt:  string;
   brief:   boolean;
   /**
    * True when the working tree holds something HEAD does not.
@@ -624,10 +639,12 @@ async function readPodPackets(extension: string): Promise<PodPackets> {
     'test -f BRIEF.md && echo BRIEF=yes',
     `echo "HEAD=$(git rev-parse --verify -q HEAD)"`,
     [
-      `echo "BASE=$(git rev-parse --verify -q ${ BASELINE_OCI_REF }`,
+      `BARN_BASE=$(git rev-parse --verify -q ${ BASELINE_OCI_REF }`,
       `|| git rev-parse --verify -q ${ BASELINE_LOCAL_REF }`,
-      '|| git rev-parse --verify -q HEAD)"',
+      '|| git rev-parse --verify -q HEAD)',
     ].join(' '),
+    'echo "BASE=$BARN_BASE"',
+    'echo "BASEAT=$(git log -1 --format=%cI $BARN_BASE 2>/dev/null)"',
     [
       'echo "DIRTY=$({ git diff --name-only --no-renames HEAD 2>/dev/null',
       '; git ls-files -o --exclude-standard 2>/dev/null ; } | head -1)"',
@@ -646,12 +663,213 @@ async function readPodPackets(extension: string): Promise<PodPackets> {
   });
 
   return {
-    head:  (/HEAD=(\S+)/.exec(out)?.[1] || '').trim(),
-    base:  (/BASE=(\S+)/.exec(out)?.[1] || '').trim(),
-    brief: out.includes('BRIEF=yes'),
-    dirty: !!(/DIRTY=(\S+)/.exec(out)?.[1] || '').trim(),
+    head:   (/HEAD=(\S+)/.exec(out)?.[1] || '').trim(),
+    base:   (/BASE=(\S+)/.exec(out)?.[1] || '').trim(),
+    baseAt: (/BASEAT=(\S+)/.exec(out)?.[1] || '').trim(),
+    brief:  out.includes('BRIEF=yes'),
+    dirty:  !!(/DIRTY=(\S+)/.exec(out)?.[1] || '').trim(),
     packets,
   };
+}
+
+/**
+ * What the pod has gathered since the last hand-over, and what a packet made now would carry.
+ *
+ * Cross-screen rule 6 has two halves and they are usually confused for each other. The half
+ * about *timing* - nothing reaches a reviewer until the push - was already true: the queue
+ * lists hand-overs (`handedOverExtensions`) and iteration is ungated. The half about
+ * *material* - "everything a reviewer will need is captured continuously while the author
+ * works" - was true in the pod and invisible everywhere else, so from the outside the product
+ * looked like it assembled a packet out of nothing at the moment of the push.
+ *
+ * This is that material, counted. Nothing here is stored: it is read out of the pod every time
+ * it is asked for, which is the point - it is the accumulation itself, not a copy of it. What
+ * it counts:
+ *
+ *   commits   what has been committed since the baseline. The assistant's Stop hook commits
+ *             each turn as it ends, so this is normally one per turn that changed anything.
+ *   files     what differs from the baseline, including work still in the tree. A hand-over
+ *             sweeps that in, so it is part of what would be handed over.
+ *   turns     prompts the pod recorded (`/app/.barn/provenance.jsonl`) since the baseline was
+ *             made. This is the material that has no other home: a prompt is recorded when it
+ *             is submitted, long before anybody decides to ask for a review.
+ *
+ * `turns` is bounded by time rather than by commit on purpose, and the bound is reported.
+ * Attributing a turn to a commit needs the turn's `Barn-Turn:` trailer, which only exists for
+ * turns that *ended* - and a pod whose claude is signed out records every prompt and ends no
+ * turn at all. Counting those is the difference between "nothing was captured" and "eleven
+ * prompts were captured and none of them could be tied to a line", which are different facts.
+ */
+export interface Accumulation {
+  /** False when the pod could not be asked. Everything else is then meaningless. */
+  read:     boolean;
+  /** The number the next packet would get. */
+  next:     number;
+  /** The commit the next packet's diff would be collapsed against (rule 7). */
+  base:     string;
+  /** When that commit was made, which is what `turns` is counted from. */
+  since:    string;
+  commits:  number;
+  files:    number;
+  turns:    number;
+  /** Of those turns, how many the pod also recorded an end for. */
+  ended:    number;
+  /** Work in the tree that no commit holds yet. A hand-over sweeps it in. */
+  dirty:    boolean;
+  brief:    boolean;
+  /** True once something has been handed over, so this is accumulation since that packet. */
+  handedOver: boolean;
+  /** A whole sentence. A count with no sentence around it is not a reading anybody can use. */
+  sentence: string;
+}
+
+export async function accumulatingPacket(extension: string): Promise<Accumulation> {
+  const empty: Accumulation = {
+    read:     false,
+    next:     0,
+    base:     '',
+    since:    '',
+    commits:  0,
+    files:    0,
+    turns:    0,
+    ended:    0,
+    dirty:    false,
+    brief:    false,
+    handedOver: false,
+    sentence: 'The pod could not be asked what has accumulated since the last hand-over, so nothing here is known.',
+  };
+
+  const [record, state] = await Promise.all([
+    readReview(extension).catch(() => null),
+    readPodPackets(extension).catch(() => null),
+  ]);
+
+  if (!state || (!state.head && !state.dirty)) {
+    return empty;
+  }
+
+  const numbers = Object.keys(state.packets).map(Number)
+    .concat(Object.keys(record?.packets || {}).map(Number))
+    .filter((n) => n > 0);
+  const latest = numbers.length ? Math.max(...numbers) : 0;
+  // Counted from the previous hand-over when there is one, and from the baseline when there is
+  // not. Those are the same instant for an extension that has never been handed over, and they
+  // are not for one that has: what has accumulated is what has happened since the last time
+  // somebody was asked to look.
+  const previous = latest ? record?.packets?.[String(latest)] : null;
+  const since = previous?.at || state.baseAt || '';
+
+  const out = await runInPackage(extension, [
+    `echo "COMMITS=$(git rev-list --count ${ shellSingleQuote(state.base) }..HEAD 2>/dev/null || echo 0)"`,
+    [
+      'echo "FILES=$({ git diff --name-only --no-renames',
+      `${ shellSingleQuote(state.base) } 2>/dev/null`,
+      '; git ls-files -o --exclude-standard 2>/dev/null ; } | sort -u | wc -l)"',
+    ].join(' '),
+  ].join(' ; ')).catch(() => '');
+
+  const commits = parseInt(/COMMITS=(\d+)/.exec(out)?.[1] || '0', 10);
+  const files = parseInt(/FILES=(\d+)/.exec(out)?.[1] || '0', 10);
+
+  // The prompt log, which is the thing that has no other home. Read at the same limit the
+  // packet's own note uses, so what is counted here is what a hand-over would carry.
+  const recorded = await assistantTurns(extension, ACCUMULATED_TURN_LIMIT).catch(() => [] as AssistantTurn[]);
+  const gathered = turnsSince(recorded, since);
+  const ended = gathered.filter((t) => !!t.endedAt).length;
+
+  const nothing = !commits && !files && !gathered.length;
+  const parts = [
+    `${ commits } ${ commits === 1 ? 'commit' : 'commits' }`,
+    `${ files } ${ files === 1 ? 'file' : 'files' }`,
+    `${ gathered.length } recorded ${ gathered.length === 1 ? 'prompt' : 'prompts' }`,
+  ];
+
+  const head = latest
+    ? `Since packet ${ latest } was handed over, `
+    : 'Since the last version other people could get, ';
+
+  const sentence = nothing
+    ? `${ head }nothing has accumulated yet. What is gathered while you work is assembled into a packet and handed to a reviewer at the push, and not before.`
+    : `${ head }${ parts.join(', ') } have accumulated in the pod. None of it is in anybody's review queue: it is assembled into packet ${ latest + 1 } and handed over at the push, and not before.`;
+
+  return {
+    read:     true,
+    next:     latest + 1,
+    base:     state.base,
+    since,
+    commits,
+    files,
+    turns:    gathered.length,
+    ended,
+    dirty:    state.dirty,
+    brief:    state.brief,
+    handedOver: !!latest,
+    sentence,
+  };
+}
+
+/** How many turns the accumulation and the packet's note read back. A session, not an archive. */
+const ACCUMULATED_TURN_LIMIT = 200;
+
+/**
+ * How much of the accumulated log the packet's note keeps, and why it is not all of it.
+ *
+ * The note is written by `git notes add -F -` inside a pod exec, and a pod exec puts its whole
+ * command line in the URL's query. A note carrying two hundred prompts at four thousand
+ * characters each is most of a megabyte of URL, which the apiserver will refuse long before the
+ * shell would - and it would refuse it at the moment somebody is handing a change over, having
+ * already moved HEAD. So the note keeps an index rather than a transcript: enough turns, and
+ * enough of each prompt, to say what was gathered and to find the rest.
+ *
+ * The rest is not lost. `/app/.barn/provenance.jsonl` is the full log, it is on the hostPath
+ * and it survives a pod restart; the note's job is to say which part of it belonged to this
+ * packet, which the log by itself cannot.
+ */
+const NOTE_TURN_LIMIT = 60;
+const NOTE_PROMPT_CHARS = 240;
+
+/** The turn index a packet's note carries: what was asked, when, by whom, and where it landed. */
+function compactTurns(turns: AssistantTurn[]) {
+  return turns.slice(0, NOTE_TURN_LIMIT).map((turn) => ({
+    turn:      turn.turn,
+    at:        turn.at,
+    endedAt:   turn.endedAt,
+    screen:    turn.screen,
+    principal: turn.principal,
+    who:       turn.who,
+    commit:    turn.commit,
+    files:     turn.files,
+    prompt:    (turn.prompt || '').slice(0, NOTE_PROMPT_CHARS),
+    /** True when the prompt above is cut. A reader has to know it is reading an extract. */
+    clipped:   (turn.prompt || '').length > NOTE_PROMPT_CHARS,
+  }));
+}
+
+/**
+ * The turns recorded at or after an instant.
+ *
+ * `at` is when the prompt was submitted, which is the moment the material was captured. A turn
+ * with no `at` is one whose prompt record was lost and whose end was not, and it is kept when
+ * its end falls in the window: half a record is still a record that something happened.
+ *
+ * Parsed rather than compared as text. The two producers spell an instant differently - the
+ * hooks write `Date#toISOString` (`...T23:20:52.388Z`) and git writes `%cI`
+ * (`...T07:15:36+00:00`) - so a string comparison is right only by accident and wrong the first
+ * time the pod's clock is not on UTC. A timestamp neither side can parse drops the bound rather
+ * than silently keeping nothing.
+ */
+function turnsSince(recorded: AssistantTurn[], since: string): AssistantTurn[] {
+  const from = since ? Date.parse(since) : NaN;
+
+  if (Number.isNaN(from)) {
+    return recorded;
+  }
+
+  return recorded.filter((turn) => {
+    const at = Date.parse(turn.at || turn.endedAt || '');
+
+    return Number.isNaN(at) ? true : at >= from;
+  });
 }
 
 /**
@@ -683,7 +901,9 @@ export async function assemblePacket(extension: string): Promise<PacketRecord> {
   // Every precondition, up front, before a single byte is written to the pod. `currentSigner`
   // is in here rather than beside the write because a hand-over nobody can be attributed to is
   // refused, and finding that out after the sweep is the same bug in a smaller coat.
-  const [before, signer] = await Promise.all([readPodPackets(extension), currentSigner()]);
+  const [before, signer, existing] = await Promise.all([
+    readPodPackets(extension), currentSigner(), readReview(extension).catch(() => null),
+  ]);
 
   if (!before.head && !before.dirty) {
     throw new Error(`${ extension } has no git history in its pod, so there is nothing to hand over`);
@@ -736,7 +956,22 @@ export async function assemblePacket(extension: string): Promise<PacketRecord> {
   // The note is written before the ref, and both before anything leaves the cluster: a packet
   // that exists is a packet whose provenance is attached, so a reviewer never opens one whose
   // index has not been built yet.
-  const attribution = await provenanceFor(extension).catch(() => null);
+  //
+  // Two records of provenance, and they fail in different ways, which is why both are here.
+  // `attribution` is the line-level one: it blames each hunk back to the turn that committed
+  // it, and it is empty whenever a turn never ended - a pod whose claude is signed out records
+  // every prompt and commits none of them, so blame has nothing to resolve. `turns` is the log
+  // itself, which is the material rule 6 says accumulates in the background: it exists whether
+  // or not anything could be tied to a line, and it is what a reviewer is left with when the
+  // line-level index comes back empty. A packet that carried only the index would hand over
+  // nothing at all in exactly the case where the prompts are the only thing anybody has.
+  const previous = latest ? existing?.packets?.[String(latest)] : null;
+  const turnsSinceAt = previous?.at || state.baseAt || '';
+  const [attribution, recorded] = await Promise.all([
+    provenanceFor(extension).catch(() => null),
+    assistantTurns(extension, ACCUMULATED_TURN_LIMIT).catch(() => [] as AssistantTurn[]),
+  ]);
+  const gathered = turnsSince(recorded, turnsSinceAt);
 
   const note = JSON.stringify({
     packet: n,
@@ -751,6 +986,12 @@ export async function assemblePacket(extension: string): Promise<PacketRecord> {
     // Recorded even when it is empty, because "we looked and there was nothing" and "we never
     // looked" are different facts and the screen says which.
     attribution,
+    // The accumulation, as it stood at the assembly. `since` is the bound and is recorded with
+    // it: a count with no window around it cannot be checked by anybody later.
+    turns:  compactTurns(gathered),
+    // How many there were, before the note kept only the newest of them.
+    turnsTotal: gathered.length,
+    turnsSince: turnsSinceAt,
   });
 
   const out = await runInPackage(extension, [
@@ -776,6 +1017,8 @@ export async function assemblePacket(extension: string): Promise<PacketRecord> {
     by:      signer.principal,
     byName:  signer.name,
     brief:     state.brief,
+    turns:      gathered.length,
+    turnsSince: turnsSinceAt,
     repo:      '',
     pr:        null,
     prError:   '',
@@ -789,6 +1032,153 @@ function shellSingleQuote(value: string): string {
 }
 
 /**
+ * Read a packet's note back: what was gathered behind it, as it stood when it was assembled.
+ *
+ * The note has been written since packets existed and nothing has ever read it, which is the
+ * shape of defect this project has now hit four times - a record produced carefully and
+ * consumed by nobody, so from the outside it does not exist. Everything screen 12 shows about
+ * provenance is recomputed live from the pod, which means it is provenance about the pod as it
+ * is now and not about the packet as it was handed over: restart the pod, prune the log, move
+ * the branch, and the review surface quietly starts describing something else.
+ *
+ * This is the packet's own copy. It is a git note attached to the packet's commit, so it moves
+ * with the object, it is not in the tree, and it survives everything except deleting the
+ * repository. Three things come out of it:
+ *
+ *   brief        whether a `BRIEF.md` was in the tree at the hand-over. `null` for a packet
+ *                assembled before that was recorded, which is not the same as `false`.
+ *   attribution  the line-level index: which turn produced each hunk. Empty whenever the turns
+ *                behind the change never ended, which is every turn in a pod whose claude is
+ *                signed out.
+ *   turns        the prompt log as it stood, bounded by `turnsSince`. This is the material
+ *                cross-screen rule 6 says accumulates in the background, and it is the only
+ *                provenance a reviewer has when the line-level index comes back empty.
+ *
+ * WHO SHOULD CALL THIS: `pages/review-change.vue` (screen 12), beside the live `provenanceFor`
+ * reading it already renders. Live is the better answer while the pod still holds the change;
+ * this is the answer that is still true afterwards, and the one that says what the reviewer was
+ * actually handed.
+ */
+export interface PacketProvenance {
+  /** False when there is no packet, or no note on it, or the pod could not be asked. */
+  read:        boolean;
+  /** Why not, when it is not. Shown as-is rather than swallowed. */
+  reason:      string;
+  packet:      number;
+  sha:         string;
+  base:        string;
+  at:          string;
+  by:          string;
+  /** `null` for a packet assembled before this was recorded. */
+  brief:       boolean | null;
+  attribution: ChangeAttribution | null;
+  turns:       AssistantTurn[];
+  /** The instant `turns` is counted from. '' for a packet assembled before this was recorded. */
+  turnsSince:  string;
+  /** A whole sentence naming what the packet carried. */
+  sentence:    string;
+}
+
+const NOTE_START = 'BARN-NOTE-START';
+const NOTE_END = 'BARN-NOTE-END';
+
+export async function packetProvenance(extension: string, packet = 0): Promise<PacketProvenance> {
+  const blank = (reason: string): PacketProvenance => ({
+    read:        false,
+    reason,
+    packet,
+    sha:         '',
+    base:        '',
+    at:          '',
+    by:          '',
+    brief:       null,
+    attribution: null,
+    turns:       [],
+    turnsSince:  '',
+    sentence:    reason,
+  });
+
+  const [record, state] = await Promise.all([
+    readReview(extension).catch(() => null),
+    readPodPackets(extension).catch(() => null),
+  ]);
+
+  if (!state) {
+    return blank('This extension\'s pod could not be asked what its packets carry, so nothing here is known.');
+  }
+
+  const inPod = Object.keys(state.packets).map(Number).filter((n) => n > 0);
+  const inRecord = Object.keys(record?.packets || {}).map(Number).filter((n) => n > 0);
+  const n = packet || Math.max(0, ...inPod, ...inRecord);
+
+  if (!n) {
+    return blank('This has never been handed over, so there is no packet to have gathered anything.');
+  }
+
+  const sha = state.packets[n] || record?.packets?.[String(n)]?.sha || '';
+
+  if (!sha) {
+    return { ...blank(`Packet ${ n } names no commit in either the pod or the review record, so its note cannot be found.`), packet: n };
+  }
+
+  const out = await runInPackage(extension, [
+    `echo ${ NOTE_START }`,
+    `git notes --ref=${ PROVENANCE_NOTES } show ${ shellSingleQuote(sha) } 2>/dev/null`,
+    `echo ${ NOTE_END }`,
+  ].join(' ; ')).catch(() => '');
+
+  const body = out.split(NOTE_START).slice(1).join(NOTE_START).split(NOTE_END)[0]?.trim() || '';
+
+  if (!body) {
+    return {
+      ...blank(`Packet ${ n } carries no provenance note, so what was gathered behind it was not recorded. Packets assembled before the Studio wrote one read like this.`),
+      packet: n,
+      sha,
+    };
+  }
+
+  let note: any;
+
+  try {
+    note = JSON.parse(body);
+  } catch {
+    return { ...blank(`Packet ${ n }'s provenance note is not readable, so nothing is claimed from it.`), packet: n, sha };
+  }
+
+  const turns: AssistantTurn[] = Array.isArray(note.turns) ? note.turns : [];
+  // The note keeps the newest `NOTE_TURN_LIMIT`, so the count it recorded and the list it
+  // carries are different numbers whenever a hand-over gathered more than that. Both are said.
+  const total = typeof note.turnsTotal === 'number' ? note.turnsTotal : turns.length;
+  const attribution: ChangeAttribution | null = note.attribution || null;
+  const lines = (attribution?.files || []).reduce(
+    (count, file) => count + file.hunks.reduce((sum, hunk) => sum + hunk.unrecorded, 0), 0
+  );
+
+  const kept = total > turns.length ? ` The note keeps the newest ${ turns.length } of them; the rest are in the pod's own log.` : '';
+  const said = total
+    ? `${ total } recorded ${ total === 1 ? 'prompt' : 'prompts' } were gathered behind packet ${ n }${ note.turnsSince ? ` since ${ note.turnsSince }` : '' }.${ kept }`
+    : `No prompt was recorded behind packet ${ n }.`;
+  const traced = attribution?.available === false
+    ? ` No line of it could be traced back to a turn: ${ attribution.reason }.`
+    : (lines ? ` ${ lines } of its lines have no turn behind them.` : '');
+
+  return {
+    read:        true,
+    reason:      '',
+    packet:      n,
+    sha,
+    base:        note.base || '',
+    at:          note.at || '',
+    by:          note.by || '',
+    brief:       typeof note.brief === 'boolean' ? note.brief : null,
+    attribution,
+    turns,
+    turnsSince:  note.turnsSince || '',
+    sentence:    `${ said }${ traced }`,
+  };
+}
+
+/**
  * Hand the change over: the entry to the gate.
  *
  * Assemble the packet, push its branch, open the pull request, and write all three into the
@@ -796,17 +1186,32 @@ function shellSingleQuote(value: string): string {
  * the queue reads, so the queue stops being a list of people with dirty working trees and
  * becomes a list of changes somebody actually asked about.
  *
- * The push and the PR are separately reported. A packet whose branch is up and whose PR could
- * not be opened is a real state - a token without pull-request scope produces exactly it - and
- * it is recorded as itself rather than being rolled back or hidden.
+ * NO GITHUB CONNECTION NO LONGER REFUSES, and this is the second reversal on this function.
+ * It used to read the token and the repository first and throw before assembling anything, on
+ * the argument that a hand-over that cannot reach GitHub should not write to the pod. What that
+ * actually produced is a Studio in which the entire bottom lane of the flow map is unreachable:
+ * with no token nothing can be handed over, so nothing reaches the queue, so no code review and
+ * no outcome sign-off can be given, and the one hard gate can never be approached. A credential
+ * for a third party is not the thing that decides whether somebody in this cluster may ask a
+ * colleague to look at their change.
  *
- * What is checked before the packet exists, and why: assembling one writes to the pod (a ref, a
- * note, a branch, and the sweep of anything uncommitted). A hand-over with no token or a
- * repository that is not `owner/name` cannot possibly reach GitHub, so those two are read here,
- * before `assemblePacket`, rather than being discovered inside the push with a packet already
- * on disk. Anything that could plausibly succeed - a bad token, a repository that does not
- * exist, a token without pull-request scope - is still found by the push and recorded as
- * `pushError` on the packet it belongs to.
+ * The review lives in the cluster and the PR is a mirror of it - that is already this product's
+ * model, and `distributeExtension` says so in as many words. Screens 11, 12 and 13 read the
+ * packet out of the pod and the review record out of a ConfigMap; not one of them reads GitHub.
+ * So the hand-over now always assembles the packet, which is the hand-off, and the PR is
+ * recorded as the hand-off's record when there is a GitHub to record it on. When there is not,
+ * that fact goes on the packet as `pushError` and every screen that reads the hand-off says it:
+ * `packetPullRequest` already had the states for it (`unasked`, `none`, `failed`) and they were
+ * unreachable, because the only way to produce a packet was to have a token in the first place.
+ *
+ * What this does NOT do is pretend a pull request exists. Cross-screen rule 5 says the PR is
+ * the record of the hand-off; where there is no PR the product says there is none and why,
+ * which is the same discipline as everywhere else in it.
+ *
+ * The push and the PR are separately reported, for the cases that can plausibly succeed as much
+ * as for the one above. A packet whose branch is up and whose PR could not be opened is a real
+ * state - a token without pull-request scope produces exactly it - and each failure is recorded
+ * on the packet it belongs to rather than being rolled back or hidden.
  */
 export async function handOverForReview(
   extension: string, repo: string, onProgress?: PublishProgress
@@ -818,21 +1223,31 @@ export async function handOverForReview(
 
   const settings = await readSettings(extension).catch(() => ({ hasToken: false, repo: '' }));
 
-  if (!settings.hasToken) {
-    throw new PublishError(
-      'No GitHub token is configured, so this change cannot be handed over. Add one in the editor settings.',
-      HANDOVER_STAGES[0],
-      ''
-    );
-  }
+  // Why the packet could not go to GitHub, when it cannot. Read before the packet is assembled
+  // so the reason is the one that was true at the hand-over, and carried onto the record rather
+  // than thrown: the hand-over itself still happens.
+  let unreachable = '';
 
-  if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
-    throw new PublishError(`"${ repo }" is not owner/name`, HANDOVER_STAGES[0], '');
+  if (!settings.hasToken) {
+    unreachable = 'No GitHub token is configured in this Studio, so the packet was not pushed and no pull request records this hand-over. The change is handed over inside the cluster - the review queue and the review screens read the packet from the pod and the sign-offs from the review record - and adding a token in Studio settings and handing over again is what puts the record on GitHub.';
+  } else if (!repo || !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+    unreachable = `"${ repo }" is not owner/name, so the packet was not pushed and no pull request records this hand-over. The change is handed over inside the cluster; naming a repository and handing over again is what puts the record on GitHub.`;
   }
 
   const packet = await assemblePacket(extension);
 
   report(2);
+
+  if (unreachable) {
+    const local: PacketRecord = { ...packet, pushError: unreachable };
+
+    await updateReview(extension, (record) => ({
+      ...record,
+      packets: { ...record.packets, [local.n]: local },
+    }));
+
+    return { ...local, log: '' };
+  }
 
   let push: GithubPublishResult;
 
@@ -922,7 +1337,8 @@ export interface PacketPullRequest {
    * `recorded`    the packet carries the PR the hand-over opened. The record, read back.
    * `found`       the record had none and GitHub has an open one on the packet's branch.
    * `failed`      the hand-over tried to open one and GitHub refused. `error` says why.
-   * `none`        the packet was handed over and there is no PR for it.
+   * `none`        the packet was handed over and there is no PR for it, either because the
+   *                push never happened or because GitHub has no open one on its branch.
    * `unasked`     there is a packet with no PR recorded and nothing could ask GitHub.
    * `no-packet`   nothing has been handed over, so there is no hand-off to have a record of.
    */
@@ -983,6 +1399,18 @@ export async function packetPullRequest(extension: string): Promise<PacketPullRe
       pr:       null,
       error:    packet.prError,
       sentence: `Packet ${ n } is pushed to ${ branch }, but the pull request could not be opened: ${ packet.prError }`,
+    };
+  }
+
+  // The branch never left the cluster, so there is nothing on GitHub to ask about and asking
+  // would only produce a second, vaguer sentence. The hand-over recorded why at the time.
+  if (packet.pushError) {
+    return {
+      ...base,
+      state:    'none' as const,
+      pr:       null,
+      error:    packet.pushError,
+      sentence: `Packet ${ n } was handed over inside this cluster and no pull request records it. ${ packet.pushError }`,
     };
   }
 
@@ -1185,9 +1613,29 @@ function who(signoff: Signoff | null): string {
 
 export async function distributionGate(extension: string): Promise<DistributionGate> {
   const [record, state] = await Promise.all([readReview(extension), readPodPackets(extension)]);
-  const numbers = Object.keys(state.packets).map(Number);
+
+  // Both records, not one of them. A packet is two writes to two stores - a ref in the pod and
+  // an entry in the review ConfigMap - and the product read them in different places: the queue
+  // and screen 12 read the record (`handedOverExtensions`, `packetPullRequest`) and this read
+  // the pod. When they disagreed the product told two stories at once, and it does disagree in
+  // practice: a pod restored from a seed, a ref pruned by hand, a record written by a fixture.
+  // So the gate takes the highest packet either store knows about, and says which store is
+  // missing it rather than quietly answering "never handed over" to a screen that is at that
+  // moment displaying packet 1.
+  const inPod = Object.keys(state.packets).map(Number).filter((n) => n > 0);
+  const inRecord = Object.keys(record.packets || {}).map(Number).filter((n) => n > 0);
+  const numbers = [...inPod, ...inRecord];
   const packet = numbers.length ? Math.max(...numbers) : 0;
-  const sha = packet ? state.packets[packet] : '';
+  const sha = (packet ? state.packets[packet] : '') || (packet ? record.packets[String(packet)]?.sha : '') || '';
+
+  let discrepancy = '';
+
+  if (packet && !inPod.includes(packet)) {
+    discrepancy = ` The review record names packet ${ packet }, but ${ PACKET_REFS }/${ packet } is not in this extension's pod, so the commit it names cannot be read back there.`;
+  } else if (packet && !inRecord.includes(packet)) {
+    discrepancy = ` Packet ${ packet } is a ref in the pod with no entry in the review record, so it is not in anybody's review queue and no sign-off can be recorded against it.`;
+  }
+
   const code = record.signoffs.code || null;
   const outcome = record.signoffs.outcome || null;
   const codeStale = !!code && !covers(code, packet, sha);
@@ -1203,7 +1651,10 @@ export async function distributionGate(extension: string): Promise<DistributionG
     codeStale,
     outcomeStale,
     open:    stage === 'open',
-    reason,
+    // The discrepancy rides on every answer rather than becoming a stage of its own. It does
+    // not change what the gate decides - a packet the pod cannot show is still a packet
+    // somebody signed - and a new stage would be a value every screen's chip map has to learn.
+    reason:  `${ reason }${ discrepancy }`,
   });
 
   if (!state.brief) {

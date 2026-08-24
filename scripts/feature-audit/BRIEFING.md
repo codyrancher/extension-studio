@@ -45,7 +45,15 @@ await page.close();                                    // ALWAYS close it
 
 ## The screens and their routes
 
-Prefix every route with `https://magic-closet-rancher/dashboard`.
+**The prefix differs between the two loops, and getting it wrong costs you a run.**
+
+| where | prefix | why |
+|---|---|---|
+| the installed bundle | `https://magic-closet-rancher/dashboard` | Rancher serves the dashboard under `/dashboard` |
+| the dev server | `https://localhost:8005` | the dev server serves it at the root, with no prefix |
+
+`https://localhost:8005/dashboard/barn/editor` lands on the fail-whale, which looks like a broken
+screen rather than a wrong URL. One implementer lost two runs to it.
 
 | screen | route | ready selector |
 |---|---|---|
@@ -246,3 +254,26 @@ until ! pgrep -f '[d]rive-check'; do sleep 5; done   # the bracket keeps the pat
 
 Better still: prefer a foreground run, or `run_in_background` and let the completion notification
 arrive. A polling loop is almost never the shortest path here, and it is the one that leaks.
+
+## Lint does run here, with the audit's own config
+
+The package's `.eslintrc.js` extends `@vue/standard` and `@vue/typescript/recommended`, neither of
+which is installed, so `eslint` dies before reading a line of source. Every implementer in this
+project reported "eslint cannot run here" and worked without it.
+
+It runs with the audit's config, which uses only what is present:
+
+```bash
+cd /workspace/magic-closet/barn
+./node_modules/.bin/eslint --no-eslintrc -c scripts/feature-audit/.eslintrc.audit.js \
+  --ext .vue,.ts pkg/barn/pages/your-file.vue
+```
+
+It is a safety net, not a style gate: unused variables, undefined names, unreachable code and Vue
+template mistakes, with the stylistic rules this codebase settles differently turned off. Across the
+whole package it currently finds 2 errors and 14 warnings, so it is doing something rather than
+passing vacuously.
+
+Run it on the files you changed before you hand back. It costs a second and it catches the class of
+mistake that otherwise reaches a verifier: an unused binding left behind by a refactor is usually a
+line that was supposed to be used.

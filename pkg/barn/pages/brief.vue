@@ -29,6 +29,14 @@
 // assistant in the pod. Neither is in `ownedSections`, which is what keeps `briefDocument`
 // copying them through untouched on every autosave.
 //
+// The design's ticket card wants three facts: an id, who raised it and how long ago. The id has
+// no source and never will, and the card says so on the line the design draws it on. The other
+// two come out of `## Who asked` when it is there. When it is not - which is every extension
+// made before screen 02 started writing it, `base` included - the raiser genuinely cannot be
+// recovered, but the age can: the cluster stamped the extension's own objects when the Studio
+// created them, and that reading is shown for what it is, the age of the extension rather than
+// of a request nobody made.
+//
 // Here instead. The open questions the design draws as cards (34:1090 and the two under it) are
 // a real list, kept in BRIEF.md under `## Open questions`, marked Blocking or Worth asking, and
 // answerable in place. Two things write them: you, and the assistant - "Ask what is unclear"
@@ -67,9 +75,12 @@ import {
 import { toastSuccess, toastError } from '../toast';
 import {
   readExtensionFile, writeExtensionFile, askAssistant, assistantLogin, findPriorArt,
-  DEFAULT_EXTENSION
+  extensionCreatedAt, DEFAULT_EXTENSION
 } from '../extensions';
-import { EDITOR_ROUTE, STUDIO_ROUTE, FILES_ROUTE } from '../editor-product';
+import {
+  EDITOR_ROUTE, STUDIO_ROUTE, FILES_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+} from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -110,7 +121,7 @@ export default {
     SButton, SChip, SIcon, SBanner, SField, SLabel, SMenu
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -188,6 +199,11 @@ export default {
       // null is "the section is not in the file", which is a real answer and the one every
       // extension made before that section existed gives.
       askedBy: null,
+      // When the extension itself was made, as the cluster recorded it. Not the same fact as
+      // the date in `## Who asked` and never shown as though it were: it is the fallback for
+      // the design's "how long ago" (34:999) on a brief that predates that section, where it
+      // is the only date about this extension that is not a guess.
+      createdAt: '',
       // `## The challenge`, written into the brief by the assistant when somebody asks it to
       // argue with the request. Read-only here for the same reason.
       challenge: '',
@@ -204,6 +220,25 @@ export default {
   },
 
   computed: {
+    /**
+     * What Rancher's header kebab offers here (53:1864).
+     *
+     * The design draws a three-dot control in this frame's header and barn draws no header, so
+     * four waves read it as impossible. It is not: Rancher's own `HeaderPageActionMenu` is
+     * already there and shows itself whenever the mounted page has committed a non-empty
+     * `pageActions`. Eight Studio screens commit them and get the kebab; this one committed
+     * none, so on this route the control the design draws was simply empty. Read by
+     * @shell/mixins/page-actions, which commits on `created` and clears on `beforeUnmount`, so
+     * the menu belongs to this page rather than to every page in Rancher.
+     *
+     * The grid beside it (53:1873) and the book in the rail (53:1838) stay absent, and for a
+     * different reason: this Rancher has no app-collection popover and the Studio owns no
+     * documentation, so both would be controls pointing at something invented.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
+    },
+
     /**
      * The route names, exposed to the template.
      *
@@ -315,6 +350,34 @@ export default {
       const days = Math.round((Date.parse(
         `${ today.toISOString().slice(0, 10) }T00:00:00`
       ) - then) / 86400000);
+
+      if (days <= 0) {
+        return 'today';
+      }
+
+      return days === 1 ? 'yesterday' : `${ days } days ago`;
+    },
+
+    /**
+     * How long ago this extension was made, from the cluster's own record of it.
+     *
+     * The design's third ticket fact is an age, and on a brief with no `## Who asked` there is
+     * no date in the file to take it from. There is one outside the file: the object the
+     * Studio created when the extension came into existence. It is not the age of a request -
+     * nothing asked for an extension the Studio made by itself - so it is never printed as
+     * one, and the card labels it as what it is.
+     *
+     * Days, like `askedAge`, so the two read the same way and neither implies a precision the
+     * other has not got.
+     */
+    createdAge() {
+      const then = Date.parse(this.createdAt || '');
+
+      if (!Number.isFinite(then)) {
+        return '';
+      }
+
+      const days = Math.floor((Date.now() - then) / 86400000);
 
       if (days <= 0) {
         return 'today';
@@ -447,6 +510,11 @@ export default {
   },
 
   methods: {
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
+
     /**
      * Read the brief that already exists, if one does.
      *
@@ -464,7 +532,14 @@ export default {
      * what it has rather than blanking itself.
      */
     async load() {
-      const text = await readExtensionFile(this.extension, 'BRIEF.md').catch(() => '');
+      const [text, createdAt] = await Promise.all([
+        readExtensionFile(this.extension, 'BRIEF.md').catch(() => ''),
+        // The one fact about the age of this thing that exists whether or not anybody wrote a
+        // brief section. '' when the object cannot be read, which reads as "no age known".
+        extensionCreatedAt(this.extension).catch(() => ''),
+      ]);
+
+      this.createdAt = createdAt;
 
       if (text.trim()) {
         const sections = this.parseBrief(text);
@@ -1570,6 +1645,27 @@ export default {
               </div>
 
               <!--
+                The third of the design's three ticket facts, on a brief that has no date in it
+                to take it from. It is the age of the extension and not of a request, and it is
+                labelled as that: the two are the same thing only when somebody asked, and on a
+                brief with no requester recorded nobody did. Shown only in that case, because
+                where `## Who asked` carries a date the line above is the better answer.
+              -->
+              <p
+                v-if="!askedBy && createdAge"
+                class="brief__no-id"
+                data-testid="brief-created-age"
+                :title="`The Studio created this extension's objects at ${ createdAt }.`"
+              >
+                <SIcon name="clock" :size="13" />
+                <span>
+                  What there is instead of an age for the request: this extension was created
+                  <strong>{{ createdAge }}</strong>, as the cluster recorded it. That is the age
+                  of the extension, not of anything anybody asked for.
+                </span>
+              </p>
+
+              <!--
                 34:999's ticket id. It has no source and never will: nothing in this Studio
                 issues one and there is no tracker behind it to have issued one. Said here, on
                 its own line where the design draws the id, rather than left as an absence
@@ -1580,8 +1676,10 @@ export default {
               <p class="brief__no-id" data-testid="brief-ticket-id">
                 <SIcon name="info" :size="13" />
                 <span>
-                  There is no ticket id. Nothing behind this Studio issues one, so rather than
-                  invent a number the card records who asked and when, out of the brief itself.
+                  There is no ticket id. Nothing behind this Studio issues one and there is no
+                  tracker to have issued one, so rather than invent a number the card records
+                  <template v-if="askedBy">who asked and when, out of the brief itself.</template>
+                  <template v-else>what it does have: when this extension was made.</template>
                 </span>
               </p>
 

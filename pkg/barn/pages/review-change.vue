@@ -37,6 +37,7 @@
 // them it names the one that is missing rather than showing a number nobody can click. There is
 // still no second reviewer, so the sign-off line says that in words instead of drawing avatars
 // for people who do not exist.
+import pageActionsMixin from '@shell/mixins/page-actions';
 import {
   SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SModal, SField, SMenu
 } from '../components/ui';
@@ -47,16 +48,25 @@ import { toastSuccess, toastError } from '../toast';
 import {
   ensureRepo,
   changedFiles, fileDiff, changedFilesSince, fileDiffSince,
-  readExtensionFile, commitExtension, extensionUrl, extensionReady,
-  listBranches,
+  readExtensionFile, writeExtensionFile, commitExtension, extensionUrl, extensionReady,
+  extensionProxyPath, listBranches, baselineRef,
   deferReview, clearDeferral, changeProvenance, publishedVersion, askAssistant, provenanceFor,
+  workingDiff, assistantLogin,
   DEFAULT_EXTENSION
 } from '../extensions';
 import {
-  readReview, signCodeReview, gateFrom, addComment, markLook, sinceLastLook,
-  packetPullRequest, assessRisk
+  readReview, signCodeReview, gateFrom, addComment, markLook, sinceLastLook, markCommentSent,
+  packetPullRequest, assessRisk, originStamp, packetProvenance, accumulatingPacket
 } from '../review';
-import { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE, BRIEF_ROUTE } from '../editor-product';
+import { changeChecks, checksSummary } from '../change-checks';
+import {
+  askForDraft, readDrafts, discardDraft, draftPatch, draftSize
+} from '../review-draft';
+import { readFailure } from '../publish-failure';
+import { applyProposedFix } from '../publish-fix';
+import {
+  REVIEW_QUEUE_ROUTE, EDITOR_ROUTE, BRIEF_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+} from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -283,6 +293,60 @@ function hunkRanges(patch) {
   return out;
 }
 
+/**
+ * Put a question into the brief's `## Open questions`, in the shape screen 10 reads.
+ *
+ * The format is that screen's, not this one's: `- **Worth asking** <text>` with an indented
+ * `Why:` under it (`pages/brief.vue`, `questionsBody`). Written by hand rather than through that
+ * component's form because the form rewrites the whole document from its own state, and this
+ * screen has one question to add and no business restating the other nine sections.
+ *
+ * Three shapes of brief have to survive this. One with the section and questions in it: append.
+ * One with the section holding `_none open_`, which is how the form writes "there are none":
+ * replace that line, because leaving it above a question would render an empty state over a
+ * populated list. One with no section at all: add the heading at the end, which is where a new
+ * section can go without moving anything a reader has already got their bearings from.
+ */
+function addOpenQuestion(brief, text, why) {
+  const question = [`- **Worth asking** ${ text.trim().replace(/\s+/g, ' ') }`, `  Why: ${ why }`].join('\n');
+  const lines = (brief || '').split('\n');
+  const start = lines.findIndex((line) => /^##\s+open questions\s*$/i.test(line.trim()));
+
+  if (start < 0) {
+    const body = (brief || '').replace(/\s*$/, '');
+
+    return `${ body ? `${ body }\n\n` : '' }## Open questions\n\n${ question }\n`;
+  }
+
+  let end = lines.length;
+
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+
+  const section = lines.slice(start + 1, end);
+  const placeholder = section.findIndex((line) => /^_none open_\s*$/i.test(line.trim()));
+
+  if (placeholder >= 0) {
+    section.splice(placeholder, 1, question);
+  } else {
+    // After the last non-blank line of the section, so the question joins the list rather than
+    // landing under the blank line that separates the section from the next heading.
+    let last = section.length;
+
+    while (last > 0 && !section[last - 1].trim()) {
+      last -= 1;
+    }
+
+    section.splice(last, 0, question);
+  }
+
+  return [...lines.slice(0, start + 1), ...section, ...lines.slice(end)].join('\n');
+}
+
 /** Initials for the little avatar on a comment (38:1287). '?' when nobody was named. */
 function initials(name) {
   const words = (name || '').trim().split(/[\s._-]+/).filter(Boolean);
@@ -301,7 +365,7 @@ export default {
     SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SModal, SField, SMenu, DiffView, PreviewPanel, EditorSettingsModal
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -354,6 +418,13 @@ export default {
       prov:     {
         available: false, reason: '', base: '', baseRef: '', files: [],
       },
+      // The packet's own copy of the same question (`packetProvenance`), read from the git note
+      // the hand-over wrote. Two different facts, both worth having: `prov` is the pod as it is
+      // now, this is what the reviewer was actually handed. See `handedOver`.
+      packetProv:  null,
+      // What the pod has gathered since that hand-over (`accumulatingPacket`), which is the
+      // measure of how far the two above have drifted apart.
+      accumulation: null,
       // Which hunk's composer is open, as `<file>:<line>`, and what has been typed into it.
       composing: '',
       commentText: '',
@@ -379,6 +450,49 @@ export default {
       // slower one wins whichever it is, which puts the whole change on screen under a banner
       // saying it has been narrowed.
       diffToken:     0,
+      // The whole change as one patch, for the machine checks (38:1215). The file on screen is
+      // not enough: a check that only read what the reviewer happened to click on is a check
+      // that misses whatever they have not clicked on yet.
+      changePatch:   '',
+      l10n:          '',
+      baseline:      null,
+      failure:       null,
+      checksOpen:    true,
+      // Whether the assistant in this pod has a credential, so a draft that will never arrive
+      // can say why rather than spinning. See `assistantLogin`.
+      login:         null,
+      // The assistant's drafted fixes (38:1306), keyed by the comment each answers, read out of
+      // the pod rather than held here - see review-draft.ts for why /tmp and not the package.
+      drafts:        {},
+      draftAsking:   '',
+      draftPolling:  false,
+      draftTimer:    null,
+      // Which draft's diff is open (38:1314, "See the fix"), and the patch it renders.
+      showingDraft:  '',
+      draftDiff:     null,
+      draftLoading:  false,
+      applyingDraft: false,
+      // "Talk to the author" (38:1125), and what is being said.
+      talking:       false,
+      talkNote:      '',
+      // "This is a UX decision, not a code one" (38:1437), and the question being handed over.
+      rerouting:     false,
+      rerouteNote:   '',
+      rerouteWhy:    '',
+      rerouted:      false,
+      // The rendered-result pane's three-way switch (38:1354). `after` is the design's selected
+      // segment and the pane's own default: the dev server serving the working tree.
+      visualMode:    'after',
+      // Where the preview is pointed, reported by the panel, so the Before frame can be pointed
+      // at the same page of the installed build.
+      previewPath:   '/',
+      // The two directions of 38:1419. `inspecting` intercepts clicks inside the framed page and
+      // answers with the file that drew what was clicked; `lineTarget` is the last diff line
+      // whose file was outlined in the preview.
+      inspecting:    false,
+      inspectSays:   '',
+      activeLine:    null,
+      lineSays:      '',
     };
   },
 
@@ -542,9 +656,249 @@ export default {
       ];
     },
 
-    /** The label on Request changes, counting what is already outstanding. */
+    /**
+     * What Rancher's header kebab offers here (Figma 38:1060).
+     *
+     * The same list screens 01, 02, 03 and 11 commit, for the reason editor-product.ts gives:
+     * one menu, so the kebab cannot mean different things on different Studio screens. It was
+     * missing here for the reason it was missing on the workspace - the Studio's routes use the
+     * `plain` layout, which commits no `pageActions`, and Rancher only draws the control for a
+     * page that has committed some. So a reviewer lost the overflow menu by opening a change.
+     *
+     * Not filtered the way the queue filters it. The queue drops "Review queue" because that is
+     * the page you are on; this is not that page, and getting back to the list is the one thing
+     * a reviewer wants from a menu here.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
+    },
+
+    /**
+     * Every comment thread on this change, oldest first.
+     *
+     * A thread is one anchor - a file and a line - and every comment left on it. Grouped rather
+     * than counted flat, because two sentences about the same line are one point being made and
+     * the decision bar's count is a count of points.
+     */
+    threads() {
+      const byAnchor = new Map();
+
+      (this.review.comments || []).forEach((c) => {
+        const key = `${ c.file }:${ c.hunk }`;
+        const thread = byAnchor.get(key) || {
+          key, file: c.file, hunk: c.hunk, comments: [],
+        };
+
+        thread.comments.push(c);
+        byAnchor.set(key, thread);
+      });
+
+      return [...byAnchor.values()]
+        .map((t) => ({
+          ...t,
+          comments: t.comments.sort((a, b) => String(a.at).localeCompare(String(b.at))),
+        }))
+        .sort((a, b) => String(a.comments[0].at).localeCompare(String(b.comments[0].at)));
+    },
+
+    /**
+     * The label on Request changes (38:1442), counting the threads that would go back with it.
+     *
+     * It used to count sign-offs whose verdict was `changes-requested`, which can only ever be
+     * 0, 1 or 2 and is a count of decisions already taken rather than of points still open. The
+     * design's "(1 open)" sits beside a single open comment thread, and that is the number: how
+     * much unanswered reviewing is attached to the change the button sends back.
+     *
+     * Nothing in this product resolves a thread, so every thread is open. That is not a gap
+     * being papered over - a comment is answered by the change being made, and the next packet
+     * is where that shows - but it does mean the count only ever grows within one packet, which
+     * is what the title says out loud.
+     */
     openRequests() {
-      return [this.gate.code, this.gate.outcome].filter((s) => s?.verdict === 'changes-requested').length;
+      return this.threads.length;
+    },
+
+    /** Why the count is what it is, since a number on a button explains nothing by itself. */
+    requestTitle() {
+      const n = this.openRequests;
+      const already = [this.gate.code, this.gate.outcome].filter((s) => s?.verdict === 'changes-requested').length;
+      const bits = [
+        n
+          ? `${ n } comment thread${ n === 1 ? '' : 's' } on this change would go back with it. Nothing here marks a thread as resolved: a comment is answered by the change being made, so the count covers every thread left on this packet.`
+          : 'No comment threads have been left on this change. Sending it back records the reason you type and puts it to the assistant in this extension\'s pod.',
+      ];
+
+      if (already) {
+        bits.push(`${ already } sign-off on this change already says changes were requested.`);
+      }
+
+      return bits.join(' ');
+    },
+
+    /**
+     * The machine checks (38:1215), over the whole change rather than the file on screen.
+     *
+     * Five rows because the design draws five, and each says what it actually did. Two are a real
+     * scan of the patch, one is a real reading of the patch against this extension's translation
+     * file, and two report that they could not run and why. See change-checks.ts: the rule is
+     * that nothing which did not run is ever drawn as a pass.
+     */
+    checks() {
+      return changeChecks({
+        patch: this.changePatch,
+        l10n:  this.l10n,
+        build: {
+          installed: this.version,
+          failure:   this.failure
+            ? {
+              message: this.failure.message || 'no reason recorded',
+              at:      new Date(this.failure.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            }
+            : null,
+        },
+      });
+    },
+
+    /** Named apart from the imported `checksSummary` it calls, so neither shadows the other. */
+    checksLine() {
+      return checksSummary(this.checks);
+    },
+
+    checksTone() {
+      if (this.checks.some((c) => c.state === 'warn')) {
+        return 'warning';
+      }
+
+      return this.checks.every((c) => c.state === 'pass') ? 'success' : 'subtle';
+    },
+
+    /**
+     * Who this change is somebody's to talk to (38:1125).
+     *
+     * Three sources, in order of how much they mean. The packet's own `by` is the best of them:
+     * a hand-over is an act by a named Rancher principal and the record keeps who performed it,
+     * which is exactly "the author of the change being reviewed". Failing that, the author git
+     * recorded on the last commit. Failing both, nobody - and this screen has always refused to
+     * name an author for an uncommitted working tree, because git records none and the pod's one
+     * conversation is shared.
+     */
+    author() {
+      const packets = Object.values(this.review.packets || {});
+      const latest = packets.sort((a, b) => (a.n || 0) - (b.n || 0)).pop();
+
+      if (latest?.by || latest?.byName) {
+        return {
+          name:      latest.byName || latest.by,
+          principal: latest.by || '',
+          how:       `handed packet ${ latest.n } over for review`,
+          when:      ago(latest.at),
+        };
+      }
+
+      if (this.provenance.commit.author) {
+        return {
+          name:      this.provenance.commit.author,
+          principal: '',
+          how:       `committed ${ this.provenance.commit.sha }`,
+          when:      ago(this.provenance.commit.when),
+        };
+      }
+
+      return null;
+    },
+
+    talkChip() {
+      if (!this.author) {
+        return {
+          label:    'No author recorded',
+          disabled: true,
+          title:    'Nobody is recorded as the author of this change. Git records no author for an uncommitted working tree, and nothing has been handed over for review, so there is no name to address a message to. It gets one as soon as somebody commits or hands it over.',
+        };
+      }
+
+      return {
+        label:    'Talk to the author',
+        disabled: false,
+        title:    `${ this.author.name } ${ this.author.how } ${ this.author.when }. Rancher has no messaging, so this leaves a message for them on the change itself, with your name and the time on it, where they see it when they next open this review.`,
+      };
+    },
+
+    /**
+     * Where the Before pane can point, and what it honestly is (38:1401).
+     *
+     * The only unchanged rendering of this extension that exists anywhere is the build installed
+     * in this Rancher: a version that was published, is running, and does not have the working
+     * tree's edits in it. Nothing captures a screenshot before an edit, and nothing can render a
+     * commit that was never built, so when nothing is installed there is no Before at all and the
+     * segment says so instead of framing something else.
+     *
+     * The second half of the sentence matters as much as the first: what is installed is only the
+     * point the change is measured from when the baseline is that same installed version. When it
+     * is not - nothing published, or a hand-over since - the note says which point it really is,
+     * because "Before" implying the wrong commit is the way this pane could lie.
+     */
+    beforeAvailable() {
+      return !!this.version;
+    },
+
+    /** The dev server's own root-relative path, for the frame the overlay stacks underneath. */
+    proxyPath() {
+      return extensionProxyPath(this.extension);
+    },
+
+    beforeUrl() {
+      return this.beforeAvailable ? `/dashboard${ this.previewPath.startsWith('/') ? '' : '/' }${ this.previewPath }` : '';
+    },
+
+    beforeNote() {
+      if (!this.beforeAvailable) {
+        return 'No version of this extension is installed in this Rancher, so there is no unchanged rendering of it anywhere to show. Nothing captures a picture of a page before an edit, and a commit that was never built cannot be rendered, so Before is empty rather than guessed at.';
+      }
+
+      // `baselineRef`'s own label is a whole clause ("nothing has been published yet, so this is
+      // measured against the last commit"), which reads as an explanation and not as a noun. The
+      // note needs the noun, the same way the preview panel's marker does.
+      const noun = {
+        oci:   'the last version handed over',
+        local: 'the last version published into this Rancher',
+        head:  'the last commit in the pod',
+        none:  'nothing, because the pod has no history yet',
+      }[this.baseline?.kind] || 'a point this screen could not identify';
+
+      const same = this.baseline?.kind === 'local'
+        ? 'That is also the point the diff is measured from, so the difference between the two panes is the change.'
+        : `The diff, though, is measured from ${ noun }, so the difference between the two panes is not exactly the diff.`;
+
+      return `Before is v${ this.version }, the build installed in this Rancher, running on this Rancher's own pages. ${ same }`;
+    },
+
+    /** The comments whose answer is still out, which is what keeps the poll alive. */
+    waitingDrafts() {
+      return Object.keys(this.drafts).filter((id) => this.drafts[id] === null);
+    },
+
+    visualModes() {
+      return [
+        {
+          id: 'before', label: 'Before', disabled: !this.beforeAvailable,
+        },
+        { id: 'after', label: 'After', disabled: false },
+        {
+          id: 'overlay', label: 'Overlay', disabled: !this.beforeAvailable,
+        },
+      ];
+    },
+
+    visualNote() {
+      if (this.visualMode === 'before') {
+        return this.beforeNote;
+      }
+
+      if (this.visualMode === 'overlay') {
+        return `${ this.beforeNote } The two are stacked, the installed build under the working tree, so anything that moved shows as a doubled edge.`;
+      }
+
+      return '';
     },
 
     /** The brief split into its `##` sections, so the packet can show them as fields. */
@@ -1013,6 +1367,117 @@ export default {
       };
     },
 
+    /**
+     * What the packet carried when it was handed over, as against what the pod holds now.
+     *
+     * Two readings of one question and they answer it about different moments. `provenanceFor`
+     * asks the pod what produced the lines that are in it, which is the better answer while the
+     * pod still holds the change and the only answer for work that was never handed over. The
+     * git note `assemblePacket` writes asks what was gathered behind the packet, which is what
+     * the reviewer was actually asked to look at, and it goes on being true after the pod has
+     * been restarted, the log pruned or the branch moved.
+     *
+     * They disagree as soon as the author carries on working, and that disagreement is the
+     * useful part rather than a fault to resolve: it is the measure of how far the change has
+     * moved since somebody asked for a review of it. So both are shown, each labelled with which
+     * moment it describes, and neither is silently preferred.
+     *
+     * The note is also the only place the prompts live. Line-level attribution needs a turn that
+     * *ended*, and a pod whose claude is signed out ends none - which is every pod in this
+     * cluster - so the per-hunk strip says "no prompt recorded" and is right to. The prompts
+     * were still recorded when they were submitted, and until this was read they travelled with
+     * nothing. They are a record of what was asked for, not of which line came from which ask,
+     * and the section says exactly that so the two are never confused.
+     */
+    handedOver() {
+      const note = this.packetProv;
+
+      if (!note) {
+        return null;
+      }
+
+      if (!note.read) {
+        return { state: 'none', sentence: note.reason, turns: [] };
+      }
+
+      const turns = (note.turns || [])
+        .slice()
+        .sort((a, b) => String(a.at).localeCompare(String(b.at)))
+        .map((turn, i) => ({
+          id:     turn.turn || `t${ i }`,
+          label:  `Prompt ${ i + 1 } of ${ note.turns.length }`,
+          prompt: (turn.prompt || '').trim(),
+          when:   ago(turn.at),
+          who:    turn.who || turn.principal || '',
+          screen: turn.screen || '',
+          ended:  !!turn.commit,
+        }));
+
+      return {
+        state:    'read',
+        packet:   note.packet,
+        sha:      note.sha,
+        at:       note.at,
+        by:       note.by,
+        sentence: note.sentence,
+        turns,
+      };
+    },
+
+    /**
+     * Whether the pod has moved on since the hand-over, and by how much.
+     *
+     * Information rather than an error. A reviewer who is reading a diff of the pod while a
+     * packet sits at an older commit is reading something nobody asked them to read, and the
+     * only wrong thing to do about that is to say nothing.
+     */
+    handedOverDrift() {
+      const note = this.packetProv;
+
+      if (!note?.read || !note.sha) {
+        return '';
+      }
+
+      const head = (this.provenance.commit.sha || '').trim();
+      const moved = head && !note.sha.startsWith(head) && !head.startsWith(note.sha);
+
+      if (!moved && !this.count) {
+        return `The pod still holds exactly what packet ${ note.packet } was assembled from, so the diff below and the packet are the same change.`;
+      }
+
+      const bits = [];
+
+      if (moved) {
+        bits.push(`Packet ${ note.packet } was assembled at ${ note.sha.slice(0, 7) }${ note.at ? ` ${ ago(note.at) }` : '' } and the pod's last commit is now ${ head.slice(0, 7) }.`);
+      }
+
+      if (this.count) {
+        bits.push(`${ this.count } file${ this.count === 1 ? '' : 's' } in the pod ${ this.count === 1 ? 'is' : 'are' } uncommitted on top of that.`);
+      }
+
+      bits.push('The diff below is the pod as it is now, not the packet as it was handed over.');
+
+      if (this.accumulation?.read && this.accumulation.handedOver) {
+        bits.push(this.accumulation.sentence);
+      }
+
+      return bits.join(' ');
+    },
+
+    /**
+     * Comments about the change rather than about a line of it, oldest first.
+     *
+     * A message to the author and a point handed over as a design question are both about the
+     * change as a whole, so neither has a file or a line. They need a home that does not depend
+     * on which file is selected: hung off a file, they would be invisible until somebody clicked
+     * the right one, and hung off a line they would be claiming an anchor they have not got.
+     */
+    changeComments() {
+      return (this.review.comments || [])
+        .filter((c) => !c.file && !c.hunk)
+        .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    },
+
     /** Every comment left on the file being read, oldest first. */
     fileComments() {
       return (this.review.comments || [])
@@ -1091,11 +1556,47 @@ export default {
   },
 
   watch: {
-    selected: 'loadDiff',
+    selected(path, was) {
+      this.loadDiff();
+
+      // The outline was drawn for the file that was on screen. Leaving it there after the
+      // selection moves is an outline that claims a different file drew it.
+      if (path !== was) {
+        this.clearLine();
+      }
+    },
+
+    /**
+     * The click listener lives in the framed document, and switching mode swaps the frame.
+     *
+     * Without this, turning inspection on and then switching to Overlay leaves the listener on a
+     * hidden document and the chip saying it is on while nothing answers.
+     */
+    visualMode() {
+      this.clearLine();
+
+      if (this.inspecting) {
+        this.detachInspect();
+        this.$nextTick(() => this.attachInspect());
+      }
+    },
   },
 
   mounted() {
     this.load();
+  },
+
+  /**
+   * Leave nothing running and nothing hanging in somebody else's document.
+   *
+   * The poll is this component's and dies with it. The outline and the click listener are not:
+   * they are in the framed page, and a listener left behind on a document this screen no longer
+   * owns would go on swallowing clicks in a preview the workspace is showing.
+   */
+  beforeUnmount() {
+    this.stopPollingDrafts();
+    this.detachInspect();
+    this.clearLine();
   },
 
   methods: {
@@ -1157,6 +1658,51 @@ export default {
       if (await extensionReady(this.extension).catch(() => false)) {
         this.previewUrl = extensionUrl(this.extension);
       }
+
+      this.loadChecks();
+      this.loadDrafts();
+      this.loadPacketProvenance();
+    },
+
+    /**
+     * The packet's own provenance note, and what has piled up since it was written.
+     *
+     * After the screen is up, like the checks, and for the same reason: both are readings about
+     * the change rather than the change itself, and neither is worth a second of blank screen.
+     */
+    async loadPacketProvenance() {
+      const [note, accumulation] = await Promise.all([
+        packetProvenance(this.extension).catch((e) => ({
+          read: false, reason: e?.message || String(e), turns: [],
+        })),
+        accumulatingPacket(this.extension).catch(() => null),
+      ]);
+
+      this.packetProv = note;
+      this.accumulation = accumulation;
+    },
+
+    /**
+     * What the machine checks read, fetched after the screen is up rather than with it.
+     *
+     * `workingDiff` writes the index (`git add -A -N`, so untracked files are in the diff at
+     * all), and `index.lock` is one file: running it inside the same `Promise.all` as the other
+     * git readings is two writers on one lock, and the loser silently does nothing. So it is
+     * sequential and it is late, because a check section that is a second behind the diff costs
+     * nothing and a diff that is a second behind itself costs the whole screen.
+     */
+    async loadChecks() {
+      this.failure = readFailure(this.extension);
+
+      const [patch, l10n, baseline] = await Promise.all([
+        workingDiff(this.extension).catch(() => ''),
+        readExtensionFile(this.extension, 'l10n/en-us.yaml').catch(() => ''),
+        baselineRef(this.extension).catch(() => null),
+      ]);
+
+      this.changePatch = patch;
+      this.l10n = l10n;
+      this.baseline = baseline;
     },
 
     async loadDiff() {
@@ -1792,6 +2338,585 @@ export default {
       }
     },
 
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
+
+    // --- the assistant's drafted fix (38:1306, 38:1314) -------------------------------------
+
+    /**
+     * Read every draft this pod is holding, and learn whether the assistant can answer at all.
+     *
+     * One exec for all of them (`readDrafts`), and one for the credential, because a thread that
+     * is waiting for an answer from a signed-out claude should say that rather than spin for two
+     * minutes and time out with nothing to blame.
+     */
+    async loadDrafts() {
+      const [drafts, login] = await Promise.all([
+        readDrafts(this.extension).catch(() => ({})),
+        assistantLogin(this.extension).catch(() => null),
+      ]);
+
+      this.drafts = drafts;
+      this.login = login;
+
+      // A question asked before this page was loaded is still out, because the pod remembers
+      // being asked. Picking the watch back up is what makes the answer arrive at the screen
+      // rather than at the next reload.
+      if (this.waitingDrafts.length) {
+        this.pollDrafts();
+      }
+    },
+
+    /** Whether the pod answered and there was no credential. Three states, not two. */
+    assistantSignedOut() {
+      return !!this.login?.read && !this.login.signedIn;
+    },
+
+    /**
+     * Ask the assistant to draft an answer to one comment, without applying it.
+     *
+     * The design's block is an *unapplied* change with a size on it, which needs the answer to
+     * come back as a record rather than as prose in a terminal. review-draft.ts is how: the
+     * question asks for JSON in a file in the pod and for nothing to be edited, and the answer
+     * is read back from that file. Everything the block claims - the file, the line counts, "not
+     * applied" - is then a fact about something that exists.
+     */
+    async askDraft(comment) {
+      if (this.draftAsking) {
+        return;
+      }
+
+      this.draftAsking = comment.id;
+
+      try {
+        const origin = await originStamp('review').catch(() => undefined);
+        const how = await askForDraft(this.extension, comment, origin);
+
+        this.drafts = { ...this.drafts, [comment.id]: null };
+
+        if (!comment.sentAt) {
+          await markCommentSent(this.extension, comment.id, how).catch(() => {});
+          this.review = await readReview(this.extension).catch(() => this.review);
+        }
+
+        toastSuccess(
+          this.$store,
+          how === 'sent'
+            ? 'The assistant is drafting an answer. It has been asked to write it down rather than apply it, and it appears under the comment when it lands.'
+            : 'The workspace session is not open yet, so this is the first thing it will be asked when it opens. The draft appears under the comment when it lands.',
+          { title: 'Asked for a drafted fix' }
+        );
+
+        this.pollDrafts();
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not ask for a fix' });
+      } finally {
+        this.draftAsking = '';
+      }
+    },
+
+    /**
+     * Watch the pod for answers, and stop watching when there is nothing left to wait for.
+     *
+     * A poll rather than a subscription because there is nothing to subscribe to: the answer is a
+     * file a process in a pod writes when it is ready. One read at a time, for the reason screen
+     * 08 gives - an exec can outlast the interval and two in flight race over the same file.
+     */
+    pollDrafts() {
+      this.stopPollingDrafts();
+
+      this.draftTimer = window.setInterval(async() => {
+        if (this.draftPolling) {
+          return;
+        }
+
+        this.draftPolling = true;
+        this.drafts = { ...this.drafts, ...await readDrafts(this.extension).catch(() => ({})) };
+        this.draftPolling = false;
+
+        if (!this.waitingDrafts.length) {
+          this.stopPollingDrafts();
+        }
+      }, 4000);
+    },
+
+    stopPollingDrafts() {
+      if (this.draftTimer) {
+        window.clearInterval(this.draftTimer);
+        this.draftTimer = null;
+      }
+
+      this.draftPolling = false;
+    },
+
+    /** The draft belonging to one comment: an object, `null` while it is out, undefined for none. */
+    draftFor(comment) {
+      return this.drafts[comment.id];
+    },
+
+    /**
+     * What the draft block says, in every state it can be in (38:1306, 38:1313).
+     *
+     * Six states and not two, because "no draft" covers four different situations and a reviewer
+     * needs to know which: never asked, out and waiting, waiting with nobody to answer, answered
+     * with a change, answered with no change needed, and answered in prose.
+     */
+    draftBlock(comment) {
+      const draft = this.draftFor(comment);
+
+      if (draft === undefined) {
+        return null;
+      }
+
+      if (draft === null) {
+        return this.assistantSignedOut()
+          ? {
+            state: 'stuck',
+            title: 'The assistant cannot answer this',
+            note:  'claude in this pod is signed out, so the question is sitting in its session with nothing to read it. Run /login in the workspace terminal and ask again.',
+          }
+          : {
+            state: 'waiting',
+            title: 'The assistant is drafting an answer',
+            note:  'It has been asked to write the change down rather than make it, so nothing in the tree moves while it thinks. This block fills in when it lands.',
+          };
+      }
+
+      if (draft.fix) {
+        return {
+          state: 'drafted',
+          title: draft.headline || 'The assistant has drafted a fix',
+          note:  draft.explanation,
+          fix:   draft.fix,
+        };
+      }
+
+      if (draft.raw) {
+        return {
+          state: 'prose',
+          title: 'The assistant answered, but not with a change',
+          note:  draft.raw.slice(0, 600),
+        };
+      }
+
+      return {
+        state: 'none',
+        title: draft.headline || 'The assistant answered and proposed no change',
+        note:  draft.explanation || 'It wrote down an answer with no edit in it, so there is nothing to draft.',
+      };
+    },
+
+    /** 38:1314. Open the drafted change as a diff of the file as it stands now. */
+    async seeTheFix(comment) {
+      const draft = this.draftFor(comment);
+
+      if (!draft?.fix) {
+        return;
+      }
+
+      this.showingDraft = comment.id;
+      this.draftLoading = true;
+      this.draftDiff = await draftPatch(this.extension, draft.fix)
+        .catch((e) => ({
+          patch: '', path: '', added: 0, removed: 0, problem: e?.message || String(e),
+        }));
+      this.draftLoading = false;
+    },
+
+    closeTheFix() {
+      this.showingDraft = '';
+      this.draftDiff = null;
+    },
+
+    /** `1 file, +7 −2` for the modal's header. The design's own summary of a draft (38:1306). */
+    draftSize,
+
+    draftSizeLabel(comment) {
+      const draft = this.draftFor(comment);
+
+      return draft?.fix ? `1 file · ${ draft.fix.path }` : '';
+    },
+
+    /**
+     * Apply the drafted change, having shown it first.
+     *
+     * `applyProposedFix` rather than a write from here: it snapshots the tree before it touches
+     * anything, and it refuses out loud when the quoted text is not in the file as written, which
+     * is the guarantee that makes applying a model's suggestion reversible. The same function
+     * screens 03 and 08 apply a fix with, so the three cannot drift.
+     */
+    async applyDraft(comment) {
+      const draft = this.draftFor(comment);
+
+      if (!draft?.fix || this.applyingDraft) {
+        return;
+      }
+
+      this.applyingDraft = true;
+
+      try {
+        const path = await applyProposedFix(this.extension, draft.fix);
+
+        await discardDraft(this.extension, comment.id).catch(() => {});
+        const { [comment.id]: gone, ...rest } = this.drafts;
+
+        this.drafts = rest;
+        this.closeTheFix();
+        await this.load();
+        toastSuccess(this.$store, `${ path } changed, and the tree was snapshotted first so this can be undone.`, { title: 'Draft applied' });
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The draft was not applied' });
+      } finally {
+        this.applyingDraft = false;
+      }
+    },
+
+    // --- talk to the author (38:1125) --------------------------------------------------------
+
+    /**
+     * Leave a message for whoever the record says wrote this.
+     *
+     * There is no messaging in Rancher and this product does not invent one. What it has is the
+     * review record, which the author reads when they open the change, so the message goes there
+     * with the author's name in it, as a comment on the change as a whole (`hunk: 0`) rather than
+     * on a line, because it is about the change and not about a line of it.
+     */
+    async sendToAuthor() {
+      const note = this.talkNote.trim();
+
+      if (!note || !this.author || this.sending) {
+        return;
+      }
+
+      this.sending = true;
+
+      try {
+        await addComment(this.extension, {
+          packet: this.since?.packet || 0,
+          file:   '',
+          hunk:   0,
+          text:   `To ${ this.author.name }: ${ note }`,
+        });
+
+        this.review = await readReview(this.extension).catch(() => this.review);
+        this.talking = false;
+        this.talkNote = '';
+
+        toastSuccess(
+          this.$store,
+          `Left on the change for ${ this.author.name }, with your name and the time on it. They see it when they next open this review.`,
+          { title: 'Message left for the author' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not leave the message' });
+      } finally {
+        this.sending = false;
+      }
+    },
+
+    // --- reroute a point as a design question (38:1437) --------------------------------------
+
+    /**
+     * Hand a point off as a design question rather than blocking the code review on it.
+     *
+     * The design draws the button and does not draw where it routes. There is exactly one place
+     * in this product where a design question belongs and is already read by something: the
+     * brief's `## Open questions`, which screen 10 renders as cards, the packet quotes, and the
+     * assistant is handed before it writes anything. So that is where it goes - written into
+     * BRIEF.md in the shape screen 10 parses - and a comment is left on the change saying it
+     * went there, so the code review records that the point was moved rather than dropped.
+     *
+     * "Worth asking" rather than "Blocking", always. Screen 10 makes the same choice for a
+     * question somebody else raised, for the same reason: calling another person's question
+     * blocking is a decision that is not the asker's to take.
+     */
+    async rerouteAsDesign() {
+      const note = this.rerouteNote.trim();
+
+      if (!note || this.sending) {
+        return;
+      }
+
+      this.sending = true;
+
+      try {
+        const brief = await readExtensionFile(this.extension, 'BRIEF.md').catch(() => '');
+        const signer = await originStamp('review').catch(() => ({ name: '', principal: '' }));
+        const who = signer.name || signer.principal || 'a code reviewer';
+        const why = this.rerouteWhy.trim()
+          ? `${ this.rerouteWhy.trim().replace(/\s+/g, ' ') } Raised by ${ who } in code review.`
+          : `Raised by ${ who } in code review, as a design question rather than a code one.`;
+
+        await writeExtensionFile(this.extension, 'BRIEF.md', addOpenQuestion(brief, note, why));
+
+        await addComment(this.extension, {
+          packet: this.since?.packet || 0,
+          file:   '',
+          hunk:   0,
+          text:   `Rerouted as a design question, not a code one: ${ note } It is now an open question on the brief.`,
+        });
+
+        this.review = await readReview(this.extension).catch(() => this.review);
+        this.rerouting = false;
+        this.rerouted = true;
+        this.rerouteNote = '';
+        this.rerouteWhy = '';
+        this.brief = await readExtensionFile(this.extension, 'BRIEF.md').catch(() => this.brief);
+        this.files = await changedFiles(this.extension).catch(() => this.files);
+
+        toastSuccess(
+          this.$store,
+          'It is an open question on this extension\'s brief now, marked "Worth asking", and the change is recorded as having it moved rather than blocked on. BRIEF.md is part of the change, so it is in the diff.',
+          { title: 'Handed over as a design question' }
+        );
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'Could not hand it over' });
+      } finally {
+        this.sending = false;
+      }
+    },
+
+    // --- Before / After / Overlay (38:1354) --------------------------------------------------
+
+    setVisualMode(id) {
+      if (this.visualModes.find((m) => m.id === id)?.disabled) {
+        return;
+      }
+
+      this.visualMode = id;
+    },
+
+    /** The path the live preview is on, so the Before frame can be pointed at the same page. */
+    onPreviewRoute(path) {
+      this.previewPath = path || '/';
+    },
+
+    // --- the two directions of 38:1419 -------------------------------------------------------
+
+    /**
+     * The framed page, found by looking in this screen's own column.
+     *
+     * Deliberately a query rather than a ref into the preview component: this column holds
+     * whichever frame the current mode put there, and a lookup by shape keeps this code from
+     * depending on another component's internals.
+     */
+    frameDoc() {
+      // Always the frame showing the working tree, whichever mode put it there. The diff is
+      // about the change, so pointing at the installed build would be pointing at the wrong
+      // rendering; in Before there is no such frame on screen and the answer is honestly none.
+      const selector = {
+        after:   '.rc__preview iframe',
+        overlay: '.rc__after-frame',
+        before:  '',
+      }[this.visualMode];
+
+      if (!selector) {
+        return null;
+      }
+
+      try {
+        const frame = this.$el?.querySelector(`.rc__visual ${ selector }`);
+
+        return frame?.contentDocument || null;
+      } catch {
+        // Cross-origin, which the pod's dev server is not, or the frame is mid-navigation.
+        return null;
+      }
+    },
+
+    /**
+     * Clicking the rendered result to find the code that draws it (38:1419).
+     *
+     * The framed page is same-origin and a dev build leaves `__file` on every component's
+     * options, so an element says which file drew it - the same reading the preview's own outline
+     * is made of. What it cannot say is which *line*, so this selects the file and takes the diff
+     * to it, and the readout says that is what it did.
+     *
+     * A mode rather than an always-on listener: the preview is a working dashboard and a page
+     * that swallowed every click in it would be worse than no feature.
+     */
+    toggleInspect() {
+      this.inspecting = !this.inspecting;
+      this.inspectSays = '';
+
+      if (this.inspecting) {
+        this.attachInspect();
+      } else {
+        this.detachInspect();
+      }
+    },
+
+    attachInspect() {
+      const doc = this.frameDoc();
+
+      if (!doc) {
+        this.inspecting = false;
+        this.inspectSays = this.visualMode === 'before'
+          ? 'Before is the installed build, and the diff is about the working tree, so there is nothing here to trace back to it. Switch to After or Overlay.'
+          : 'The rendered page cannot be read from here yet. It is still loading, or it is not the pod\'s own dev server.';
+
+        return;
+      }
+
+      doc.addEventListener('click', this.onFrameClick, true);
+      doc.body?.style.setProperty('cursor', 'crosshair');
+      this.inspectSays = 'Click anything in the page below and the diff goes to the file that draws it.';
+    },
+
+    /**
+     * Every framed document in this column, whichever mode put it there.
+     *
+     * Used by the two cleanups rather than `frameDoc`, because both run after the mode has
+     * already changed: asking for "the current frame" would tidy the one that is not dirty and
+     * leave the listener and the outline on the one that is.
+     */
+    allFrameDocs() {
+      const out = [];
+
+      (this.$el?.querySelectorAll('.rc__visual iframe') || []).forEach((frame) => {
+        try {
+          if (frame.contentDocument) {
+            out.push(frame.contentDocument);
+          }
+        } catch { /* cross-origin or mid-navigation */ }
+      });
+
+      return out;
+    },
+
+    detachInspect() {
+      this.allFrameDocs().forEach((doc) => {
+        doc.removeEventListener('click', this.onFrameClick, true);
+        doc.body?.style.removeProperty('cursor');
+      });
+    },
+
+    onFrameClick(event) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      let el = event.target;
+      let file = '';
+
+      // Up the tree until something says which file drew it: the click usually lands on a leaf
+      // the component's own template does not own, a text span inside a button inside a card.
+      while (el && !file) {
+        file = el.__vueParentComponent?.type?.__file || '';
+        el = el.parentElement;
+      }
+
+      if (!file) {
+        this.inspectSays = 'Nothing there says which file drew it. That is a plain element the dev build left no component record on, or a part of Rancher\'s own shell rather than of this extension.';
+
+        return;
+      }
+
+      const match = this.paneFiles.find((f) => file === f.path || file.endsWith(`/${ f.path }`));
+
+      if (!match) {
+        this.inspectSays = `That is drawn by ${ file.replace(/^.*\/pkg\//, 'pkg/') }, which this change does not touch.`;
+
+        return;
+      }
+
+      this.selected = match.path;
+      this.inspectSays = `${ match.path } draws that. The diff on the left is now showing it - which hunk drew the element cannot be known, because nothing in the running page records a line number.`;
+    },
+
+    /**
+     * Clicking a diff line to see what it changes on screen (38:1419, the other direction).
+     *
+     * The honest half of it. Nothing maps a line of source to an element: a dev build records the
+     * file a component came from and no line, and the compiled render function keeps no trace of
+     * which template line produced which node. So what this does is outline what the *file* draws
+     * on the framed page, and say in one sentence that it is the file and not the line.
+     *
+     * One thing does get to line precision, when the line offers it. A changed template line that
+     * carries a `class="..."` or a `data-testid="..."` names something that is in the rendered
+     * document by that exact string, so a match on it is a match and not a guess. When the line
+     * has one, the outline narrows to the elements that carry it *and* were drawn by this file,
+     * and the sentence says which attribute it used.
+     */
+    onDiffLine(line) {
+      this.activeLine = line?.new ?? line?.old ?? null;
+
+      const doc = this.frameDoc();
+
+      if (!doc?.body) {
+        this.lineSays = 'The rendered page is not loaded, so there is nothing to point at yet.';
+
+        return;
+      }
+
+      const named = /(?:class|data-testid|id)="([^"]+)"/.exec(line?.text || '');
+      const selector = named
+        ? (named[0].startsWith('class') ? `.${ named[1].trim().split(/\s+/).join('.') }` : `[${ named[0].split('=')[0] }="${ named[1] }"]`)
+        : '';
+
+      const drawn = [...doc.body.querySelectorAll('*')].filter((el) => {
+        const file = el.__vueParentComponent?.type?.__file;
+
+        return !!file && (file === this.selected || file.endsWith(`/${ this.selected }`));
+      });
+
+      let targets = drawn;
+      let how = `${ this.selected } draws ${ drawn.length } block${ drawn.length === 1 ? '' : 's' } on this page. Nothing records which line drew which element, so the whole file's output is outlined rather than this one line's.`;
+
+      if (selector) {
+        const narrowed = drawn.filter((el) => {
+          try {
+            return el.matches(selector);
+          } catch {
+            return false;
+          }
+        });
+
+        if (narrowed.length) {
+          targets = narrowed;
+          how = `Outlined: ${ narrowed.length } element${ narrowed.length === 1 ? '' : 's' } matching ${ selector } and drawn by ${ this.selected }. Matched on the attribute the line itself carries, which is an exact match rather than a guess.`;
+        }
+      }
+
+      this.paintLine(doc, targets);
+      this.lineSays = targets.length
+        ? how
+        : `Nothing on the page below is drawn by ${ this.selected }. Point the preview at a page it renders and this line's output is outlined here.`;
+    },
+
+    /**
+     * Draw the outline in the framed document, and only there.
+     *
+     * A separate attribute and stylesheet from the preview panel's own change marker, so the two
+     * do not fight over the same attribute and turning one off does not lift the other.
+     */
+    paintLine(doc, elements) {
+      doc.querySelectorAll('[data-barn-line]').forEach((el) => el.removeAttribute('data-barn-line'));
+
+      if (!doc.getElementById('barn-line-style')) {
+        const style = doc.createElement('style');
+        const accent = getComputedStyle(document.body).getPropertyValue('--studio-accent-text').trim()
+          || getComputedStyle(document.body).getPropertyValue('--studio-accent').trim() || '#2C7BB0';
+
+        style.id = 'barn-line-style';
+        style.textContent = '[data-barn-line]{outline:3px dashed ' + accent + ';outline-offset:2px;border-radius:4px;}';
+        doc.head?.appendChild(style);
+      }
+
+      elements.forEach((el) => el.setAttribute('data-barn-line', ''));
+      elements[0]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    },
+
+    clearLine() {
+      this.allFrameDocs().forEach((doc) => {
+        doc.querySelectorAll('[data-barn-line]').forEach((el) => el.removeAttribute('data-barn-line'));
+        doc.getElementById('barn-line-style')?.remove();
+      });
+
+      this.activeLine = null;
+      this.lineSays = '';
+    },
   },
 };
 </script>
@@ -1839,6 +2964,23 @@ export default {
       />
 
       <span class="rc__grow" />
+
+      <!-- 38:1125. Rancher has no messaging, so this leaves a message on the change for whoever
+           the record names as its author. See `author` for where that name comes from. -->
+      <!-- The title is on the wrapper, not the button: a disabled button takes no pointer
+           events, so the one state that most needs its reason read would never show it. -->
+      <span :title="talkChip.title">
+        <SButton
+          variant="ghost"
+          size="sm"
+          icon="user"
+          data-testid="rc-talk-to-author"
+          :disabled="talkChip.disabled"
+          @click="talking = true"
+        >
+          {{ talkChip.label }}
+        </SButton>
+      </span>
 
       <!-- 38:1117: the scope, as a readout that can be changed. See `scopeLabel`. -->
       <SMenu
@@ -1940,6 +3082,122 @@ export default {
                   {{ c.text }}
                   <span class="rc__criterion-state">
                     {{ c.label }}<template v-if="c.route"> at {{ c.route }}</template>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!--
+            Comments about the change rather than about a line: a message left for the author
+            (38:1125), and a point handed over as a design question (38:1437). Here rather than
+            in the diff column because they have no line to sit beside, and in the packet because
+            that is the column that describes the change as a whole.
+          -->
+          <div v-if="changeComments.length" class="rc__section" data-testid="rc-change-comments">
+            <div class="rc__criteria-head">
+              <SLabel text="On the change as a whole" />
+              <span class="rc__group-count">{{ changeComments.length }}</span>
+            </div>
+
+            <div class="rc__section-body">
+              <div
+                v-for="c in changeComments"
+                :key="c.id"
+                class="rc__comment"
+                :data-testid="`rc-change-comment-${ c.id }`"
+              >
+                <span class="rc__avatar" :title="c.principal">{{ initials(c.name || c.principal) }}</span>
+                <div class="rc__comment-body">
+                  <div class="rc__comment-byline">{{ commentByline(c) }}</div>
+                  <div class="rc__comment-text">{{ c.text }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!--
+            What the packet carried, from the git note the hand-over wrote (38:1256's material,
+            at the level it can honestly be had at). The per-hunk strip below the diff is the
+            live reading of the pod; this is the packet's own copy, and the two describe
+            different moments. Both are labelled as which.
+          -->
+          <div v-if="handedOver" class="rc__section" data-testid="rc-handed-over">
+            <div class="rc__criteria-head">
+              <SLabel text="What was handed over" />
+              <span v-if="handedOver.state === 'read'" class="rc__group-count">
+                packet {{ handedOver.packet }}
+              </span>
+            </div>
+
+            <div class="rc__section-body">
+              <p class="rc__section-line">{{ handedOver.sentence }}</p>
+
+              <p
+                v-if="handedOverDrift"
+                class="rc__section-note"
+                data-testid="rc-handed-over-drift"
+              >
+                {{ handedOverDrift }}
+              </p>
+
+              <div
+                v-if="handedOver.turns.length"
+                class="rc__prompts"
+                data-testid="rc-packet-prompts"
+                title="The prompts the pod recorded behind this packet, read from the packet's own note rather than recomputed from the pod. They say what was asked for, in order. They do not say which line came from which ask: tying a line to a turn needs the turn to have ended in a commit, and none of these did."
+              >
+                <div
+                  v-for="turn in handedOver.turns"
+                  :key="turn.id"
+                  class="rc__prompt"
+                >
+                  <SIcon name="sparkle" :size="12" class="rc__prov-icon" />
+                  <span class="rc__prompt-text">
+                    <span class="rc__prompt-label">{{ turn.label }}</span>
+                    {{ turn.prompt || 'the prompt for that turn was not kept' }}
+                    <span class="rc__prompt-meta">
+                      <template v-if="turn.when">{{ turn.when }}</template>
+                      <template v-if="turn.screen"> · from the {{ turn.screen }} screen</template>
+                      <template v-if="!turn.ended"> · ended in no commit, so no line can be traced to it</template>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- automated checks (38:1215). Five rows, and each says what it actually did. -->
+          <div class="rc__section" data-testid="rc-checks">
+            <div class="rc__criteria-head">
+              <SLabel text="Automated checks" />
+              <SChip
+                :label="checksLine"
+                :tone="checksTone"
+                data-testid="rc-checks-summary"
+                title="What ran, what found something, and what could not run. A check that could not run is never drawn as a pass: a green tick nobody earned is the one thing on this screen a reviewer is invited to trust without reading."
+              />
+            </div>
+
+            <div class="rc__section-body">
+              <div
+                v-for="c in checks"
+                :key="c.id"
+                class="rc__check"
+                :data-testid="`rc-check-${ c.id }`"
+                :data-state="c.state"
+                :title="c.title"
+              >
+                <SIcon
+                  :name="{ pass: 'check', warn: 'alert', unknown: 'clock' }[c.state]"
+                  :size="13"
+                  :class="`rc__check-icon rc__check-icon--${ c.state }`"
+                />
+                <span class="rc__check-text">
+                  {{ c.label }}
+                  <span class="rc__check-note">{{ c.note }}</span>
+                  <span v-for="(f, i) in c.findings" :key="i" class="rc__check-finding">
+                    {{ f.path }}:{{ f.line }} · {{ f.what }}
                   </span>
                 </span>
               </div>
@@ -2053,7 +3311,19 @@ export default {
             </SButton>
           </SEmpty>
           <div v-else class="rc__code-inner">
-            <DiffView :patch="patch">
+            <!-- 38:1419, one half of it: a changed line is pressable and answers with what the
+                 file it is in draws on the page beside this. See `onDiffLine`. -->
+            <p v-if="lineSays" class="rc__line-says" data-testid="rc-line-says">
+              <SIcon name="eye" :size="12" />
+              {{ lineSays }}
+              <button type="button" class="rc__link" @click="clearLine">Clear</button>
+            </p>
+            <DiffView
+              :patch="patch"
+              link-lines
+              :active-line="activeLine"
+              @line="onDiffLine($event.line)"
+            >
               <!-- what produced this hunk (38:1256) -->
               <template #hunk-head="{ index }">
                 <div v-if="hunkProv[index] && hunkProv[index].say" class="rc__prov" :data-testid="`rc-prov-${ index }`">
@@ -2127,6 +3397,50 @@ export default {
                         <SIcon :name="commentState(c).icon" :size="11" />
                         {{ commentState(c).text }}
                       </div>
+
+                      <!-- the assistant's drafted fix (38:1306), or the reason there is none -->
+                      <div
+                        v-if="draftBlock(c)"
+                        class="rc__draft"
+                        :class="`rc__draft--${ draftBlock(c).state }`"
+                        :data-testid="`rc-draft-${ c.id }`"
+                        :data-state="draftBlock(c).state"
+                      >
+                        <div class="rc__draft-head">
+                          <SIcon :name="draftBlock(c).state === 'drafted' ? 'sparkle' : 'clock'" :size="12" />
+                          <span class="rc__draft-title">{{ draftBlock(c).title }}</span>
+                          <span v-if="draftSizeLabel(c)" class="rc__draft-size">{{ draftSizeLabel(c) }}</span>
+                        </div>
+                        <p v-if="draftBlock(c).note" class="rc__draft-note">{{ draftBlock(c).note }}</p>
+                        <div v-if="draftBlock(c).state === 'drafted'" class="rc__draft-actions">
+                          <span class="rc__draft-unapplied">
+                            Not applied. Nothing in the tree has moved, and the author approves it first.
+                          </span>
+                          <span class="rc__grow" />
+                          <SButton
+                            variant="secondary"
+                            size="sm"
+                            icon="code"
+                            :data-testid="`rc-see-the-fix-${ c.id }`"
+                            @click="seeTheFix(c)"
+                          >
+                            See the fix
+                          </SButton>
+                        </div>
+                      </div>
+
+                      <button
+                        v-else
+                        type="button"
+                        class="rc__link rc__draft-ask"
+                        :data-testid="`rc-ask-draft-${ c.id }`"
+                        :disabled="draftAsking === c.id"
+                        title="Asks the assistant in this pod to write down the smallest change that answers this comment, as a change and not as a conversation. It is told to edit nothing, so what comes back is a draft with a size on it that you can read before anybody applies it."
+                        @click="askDraft(c)"
+                      >
+                        <SIcon name="sparkle" :size="11" />
+                        {{ draftAsking === c.id ? 'Asking…' : 'Ask the assistant to draft a fix' }}
+                      </button>
                     </div>
                   </div>
 
@@ -2212,19 +3526,102 @@ export default {
         <div class="rc__panel-head">
           <SIcon name="eye" :size="14" />
           <span class="rc__panel-title">Rendered result</span>
+          <span class="rc__grow" />
+          <!-- 38:1419, the other half: click the rendered result to find its code. -->
+          <SChip
+            :label="inspecting ? 'Click a block to find its code' : 'Find the code'"
+            :tone="inspecting ? 'info' : 'subtle'"
+            icon="code"
+            clickable
+            data-testid="rc-inspect"
+            title="Turns clicks in the page below into a jump to the file that drew what you clicked. A dev build records which file each component came from and no line number, so this lands on the file rather than the hunk, and it says so when it does. Off by default because the preview is a working dashboard and a page that swallowed every click would be worse than no feature."
+            @click="toggleInspect"
+          />
         </div>
 
+        <!-- Before / After / Overlay (38:1354). Before is the build installed in this Rancher,
+             which is the only unchanged rendering of this extension that exists anywhere. -->
+        <div class="rc__segments" role="group" aria-label="Which rendering to show">
+          <button
+            v-for="m in visualModes"
+            :key="m.id"
+            type="button"
+            class="rc__segment"
+            :class="{ 'rc__segment--on': visualMode === m.id }"
+            :disabled="m.disabled"
+            :data-testid="`rc-visual-${ m.id }`"
+            :aria-pressed="visualMode === m.id"
+            @click="setVisualMode(m.id)"
+          >
+            {{ m.label }}
+          </button>
+          <span class="rc__grow" />
+          <span
+            v-if="!beforeAvailable"
+            class="rc__segment-why"
+            :title="beforeNote"
+            data-testid="rc-no-before"
+          >
+            no Before to show
+          </span>
+        </div>
+
+        <p v-if="visualNote" class="rc__visual-note" data-testid="rc-visual-note">
+          {{ visualNote }}
+        </p>
+        <p v-if="inspectSays" class="rc__visual-note" data-testid="rc-inspect-says">
+          {{ inspectSays }}
+        </p>
+
+        <!-- After (38:1361): the pod's dev server, serving the working tree. The panel, not a
+             bare frame, because its toolbar, its live readout and its own changed-block outline
+             are all readings of this same thing. -->
+        <!-- `v-show`, not `v-if`: the panel holds where the reviewer navigated to inside the
+             framed dashboard, and unmounting it to look at Before would send them back to the
+             extension's home page every time they compared the two. -->
         <PreviewPanel
           v-if="previewUrl"
+          v-show="visualMode === 'after'"
           class="rc__preview"
           :url="previewUrl"
           :extension="extension"
+          @route="onPreviewRoute"
         />
+
+        <!-- Before (38:1401), and Overlay, which is the two of them in one box. Plain frames
+             here: the toolbar belongs to the live view and a toolbar over a stack of two would
+             be a control that only reaches one of them. -->
+        <div
+          v-if="visualMode !== 'after' && beforeAvailable"
+          class="rc__stack"
+          :class="{ 'rc__stack--overlay': visualMode === 'overlay' }"
+          data-testid="rc-visual-stack"
+        >
+          <iframe
+            v-if="visualMode === 'overlay' && previewUrl"
+            class="rc__after-frame"
+            :src="`${ proxyPath }${ previewPath }`"
+            title="After: the working tree, served by this extension's dev server"
+          />
+          <iframe
+            class="rc__before-frame"
+            :src="beforeUrl"
+            data-testid="rc-before-frame"
+            title="Before: the build installed in this Rancher"
+          />
+        </div>
+
         <SEmpty
-          v-else
+          v-if="visualMode === 'after' && !previewUrl"
           icon="monitor"
           title="The preview is not up"
           message="The extension's dev server is still compiling. The rendered result appears here once it answers."
+        />
+        <SEmpty
+          v-if="visualMode !== 'after' && !beforeAvailable"
+          icon="monitor"
+          title="There is no Before"
+          :message="beforeNote"
         />
       </div>
     </div>
@@ -2251,15 +3648,32 @@ export default {
 
       <span class="rc__grow" />
 
-      <SButton
-        variant="neutral"
-        icon="undo"
-        data-testid="rc-request-changes"
-        :disabled="!count"
-        @click="requesting = true"
-      >
-        Request changes<template v-if="openRequests"> ({{ openRequests }} open)</template>
-      </SButton>
+      <!-- 38:1437. Hands a point off as a design question instead of blocking the code review
+           on it. It goes to the brief's Open questions, which is where this product already
+           keeps design questions and the only place anything reads them. -->
+      <span :title="rerouted
+        ? 'Already handed over: it is an open question on this extension\'s brief. Press again to add another.'
+        : 'Writes the point into this extension\'s BRIEF.md under Open questions, marked \'Worth asking\', where screen 10 renders it and the assistant reads it before it writes anything. The code review records that it was moved rather than dropped, and stays open.'">
+        <SButton
+          variant="neutral"
+          icon="user"
+          data-testid="rc-ux-decision"
+          @click="rerouting = true"
+        >
+          This is a UX decision, not a code one
+        </SButton>
+      </span>
+      <span :title="requestTitle">
+        <SButton
+          variant="neutral"
+          icon="undo"
+          data-testid="rc-request-changes"
+          :disabled="!count"
+          @click="requesting = true"
+        >
+          Request changes<template v-if="openRequests"> ({{ openRequests }} open)</template>
+        </SButton>
+      </span>
       <SButton
         variant="neutral"
         icon="clock"
@@ -2318,6 +3732,145 @@ export default {
           @click="sendRequest"
         >
           Send it back
+        </SButton>
+      </template>
+    </SModal>
+
+    <!-- 38:1125. A message for the author, in the only place this product has to put one. -->
+    <SModal
+      v-if="talking"
+      title="Talk to the author"
+      icon="user"
+      :width="520"
+      :busy="sending"
+      @close="talking = false"
+    >
+      <p class="rc__say">
+        <strong>{{ author && author.name }}</strong> {{ author && author.how }} {{ author && author.when }}.
+        Rancher has no messaging and this product does not invent one, so this is left on the
+        change itself, with your name and the time on it, where they see it when they next open
+        this review. Nothing is sent to the pod and nothing is emailed.
+      </p>
+
+      <SField
+        v-model="talkNote"
+        label="The message"
+        multiline
+        :rows="4"
+        placeholder="Why did this move out of the store? I want to understand before I sign it off."
+        input-testid="rc-talk-input"
+        hint="It is recorded against the change as a whole, not against a line."
+      />
+
+      <template #footer>
+        <SButton variant="neutral" :disabled="sending" @click="talking = false">
+          Cancel
+        </SButton>
+        <SButton
+          variant="primary"
+          icon="user"
+          data-testid="rc-talk-send"
+          :disabled="!talkNote.trim()"
+          :loading="sending"
+          @click="sendToAuthor"
+        >
+          Leave it for them
+        </SButton>
+      </template>
+    </SModal>
+
+    <!-- 38:1437. The point, on its way to being a design question rather than a code one. -->
+    <SModal
+      v-if="rerouting"
+      title="This is a UX decision, not a code one"
+      icon="user"
+      :width="540"
+      :busy="sending"
+      @close="rerouting = false"
+    >
+      <p class="rc__say">
+        This does not reject the change and does not sign anything off. It writes the point into
+        <strong>{{ extension }}</strong>'s brief as an open question, marked "Worth asking", which
+        is where this product keeps design questions: the brief screen renders them, the packet
+        quotes them, and the assistant is handed them before it writes anything. A comment is left
+        on the change saying it went there, so the code review records that it moved rather than
+        that it was dropped.
+      </p>
+
+      <SField
+        v-model="rerouteNote"
+        label="The question"
+        multiline
+        :rows="3"
+        placeholder="Should the threshold be shown as a number or as a band on the chart?"
+        input-testid="rc-reroute-input"
+        hint="One question. It goes into BRIEF.md exactly as written, so write it as a question somebody can answer."
+      />
+      <SField
+        v-model="rerouteWhy"
+        label="Why it matters (optional)"
+        multiline
+        :rows="2"
+        placeholder="Either reading is defensible and the choice changes what the panel is for."
+      />
+
+      <template #footer>
+        <SButton variant="neutral" :disabled="sending" @click="rerouting = false">
+          Cancel
+        </SButton>
+        <SButton
+          variant="primary"
+          icon="book"
+          data-testid="rc-reroute-send"
+          :disabled="!rerouteNote.trim()"
+          :loading="sending"
+          @click="rerouteAsDesign"
+        >
+          Put it on the brief
+        </SButton>
+      </template>
+    </SModal>
+
+    <!-- 38:1314. The drafted change, as a diff of the file as it stands now. -->
+    <SModal
+      v-if="showingDraft"
+      title="The assistant's drafted fix"
+      icon="sparkle"
+      :width="760"
+      :busy="applyingDraft"
+      @close="closeTheFix"
+    >
+      <div v-if="draftLoading" class="rc__loading">
+        <SIcon name="spinner" :size="18" class="rc__spin" />
+        Reading the file the draft names
+      </div>
+      <template v-else-if="draftDiff && draftDiff.patch">
+        <p class="rc__say">
+          <strong>{{ draftDiff.path }}</strong> · {{ draftSize(draftDiff) }}. This has not been
+          applied: it is a change the assistant wrote down when it was asked not to make one, and
+          the diff below is it, measured against the file as it is in the pod right now.
+        </p>
+        <div class="rc__draft-diff">
+          <DiffView :patch="draftDiff.patch" />
+        </div>
+      </template>
+      <SBanner v-else type="warning">
+        {{ draftDiff && draftDiff.problem }}
+      </SBanner>
+
+      <template #footer>
+        <SButton variant="neutral" :disabled="applyingDraft" @click="closeTheFix">
+          Leave it as a draft
+        </SButton>
+        <SButton
+          v-if="draftDiff && draftDiff.patch"
+          variant="primary"
+          icon="check"
+          data-testid="rc-apply-draft"
+          :loading="applyingDraft"
+          @click="applyDraft({ id: showingDraft })"
+        >
+          Apply it
         </SButton>
       </template>
     </SModal>
@@ -2392,6 +3945,78 @@ export default {
   }
 
   &__preview { flex: 1 1 auto; min-height: 0; }
+
+  // 38:1354. A segmented control, which is one control and not three buttons: one border round
+  // the set, dividers between, and the chosen segment filled.
+  &__segments {
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-8);
+    padding:       var(--studio-space-8) var(--studio-space-12);
+    border-bottom: 1px solid var(--studio-border-subtle);
+  }
+
+  &__segment {
+    padding:       var(--studio-space-4) var(--studio-space-12);
+    background:    var(--studio-surface);
+    border:        1px solid var(--studio-border);
+    font:          var(--studio-caption-12-semi);
+    color:         var(--studio-text-secondary);
+    cursor:        pointer;
+
+    &:first-of-type { border-radius: var(--studio-radius-control) 0 0 var(--studio-radius-control); }
+    &:nth-of-type(3) { border-radius: 0 var(--studio-radius-control) var(--studio-radius-control) 0; }
+    & + & { border-left: none; }
+
+    &--on {
+      background:   var(--studio-green-500);
+      border-color: var(--studio-green-500);
+      color:        var(--studio-text-inverse);
+    }
+
+    &:disabled {
+      cursor:  not-allowed;
+      opacity: 0.5;
+    }
+  }
+
+  &__segment-why {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
+  }
+
+  &__visual-note {
+    margin:  0;
+    padding: var(--studio-space-6) var(--studio-space-12);
+    font:    var(--studio-caption-12);
+    color:   var(--studio-text-tertiary);
+  }
+
+  // Before on its own, or the two stacked. In the overlay the working tree is underneath and
+  // the installed build is over it at half opacity, so anything that moved reads as a doubled
+  // edge; the top frame takes no pointer events, because clicking through to the wrong one of
+  // two identical-looking pages is the worst thing this could do.
+  &__stack {
+    position:  relative;
+    flex:      1 1 auto;
+    min-height: 0;
+
+    iframe {
+      width:  100%;
+      height: 100%;
+      border: none;
+      background: var(--studio-surface);
+    }
+  }
+
+  &__stack--overlay {
+    .rc__before-frame {
+      position:       absolute;
+      inset:          0;
+      opacity:        0.5;
+      pointer-events: none;
+    }
+  }
 
   // The floor the two rails shrink for. Without it they hold their drawn widths and the diff
   // - the whole point of the screen - is what gives way.
@@ -2505,6 +4130,74 @@ export default {
   &__criterion-state {
     font:  var(--studio-caption-12);
     color: var(--studio-text-tertiary);
+  }
+
+  // The prompts a packet carried. Quoted, because the prompt is the record and paraphrasing it
+  // would be inventing it.
+  &__prompts {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-6);
+    padding-left:   var(--studio-space-2);
+  }
+
+  &__prompt {
+    display: flex;
+    gap:     var(--studio-space-6);
+  }
+
+  &__prompt-text {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-2);
+    font:           var(--studio-body-13);
+    color:          var(--studio-text);
+  }
+
+  &__prompt-label {
+    font:  var(--studio-caption-12-semi);
+    color: var(--studio-text-secondary);
+  }
+
+  &__prompt-meta {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
+  }
+
+  // 38:1215. Same shape as a criterion, because it answers the same kind of question: a state,
+  // a name, and the words that say what the state means. The third icon - a clock - is the one
+  // the design never draws, and it is the honest half of this section: a check that could not
+  // run is neither green nor red.
+  &__check {
+    display: flex;
+    gap:     var(--studio-space-8);
+  }
+
+  &__check-icon {
+    margin-top: 2px;
+
+    &--pass    { color: var(--studio-green-500); }
+    &--warn    { color: var(--studio-warning); }
+    &--unknown { color: var(--studio-text-tertiary); }
+  }
+
+  &__check-text {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-2);
+    font:           var(--studio-body-13);
+    color:          var(--studio-text);
+  }
+
+  &__check-note {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
+  }
+
+  &__check-finding {
+    font:  var(--studio-caption-12);
+    color: var(--studio-warning);
+    word-break: break-all;
   }
 
   &__files {
@@ -2770,6 +4463,85 @@ export default {
     color:       var(--studio-text-tertiary);
 
     &--success { color: var(--studio-success); }
+  }
+
+  // 38:1306. The drafted change, under the comment it answers. Boxed, because it is not the
+  // reviewer's sentence and not the record's: it is a thing the assistant made that nobody has
+  // accepted, and the border is what says so before the words do.
+  &__draft {
+    display:        flex;
+    flex-direction: column;
+    gap:            var(--studio-space-4);
+    margin-top:     var(--studio-space-6);
+    padding:        var(--studio-space-8);
+    border:         1px dashed var(--studio-border);
+    border-radius:  var(--studio-radius-control);
+    background:     var(--studio-surface);
+  }
+
+  &__draft--drafted {
+    border-style: solid;
+    border-color: var(--studio-green-500);
+  }
+
+  &__draft-head {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-4);
+    color:       var(--studio-text);
+  }
+
+  &__draft-title {
+    font: var(--studio-caption-12-semi);
+  }
+
+  &__draft-size {
+    margin-left: auto;
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-tertiary);
+  }
+
+  &__draft-note {
+    margin: 0;
+    font:   var(--studio-caption-12);
+    color:  var(--studio-text-secondary);
+  }
+
+  &__draft-actions {
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-8);
+  }
+
+  &__draft-unapplied {
+    font:  var(--studio-caption-12);
+    color: var(--studio-text-tertiary);
+  }
+
+  &__draft-ask {
+    align-self:  flex-start;
+    display:     flex;
+    align-items: center;
+    gap:         var(--studio-space-4);
+    margin-top:  var(--studio-space-4);
+  }
+
+  &__draft-diff {
+    max-height: 46vh;
+    overflow:   auto;
+  }
+
+  // The readout over the diff when a line has been pressed (38:1419).
+  &__line-says {
+    display:       flex;
+    align-items:   center;
+    gap:           var(--studio-space-6);
+    margin:        0 0 var(--studio-space-8);
+    padding:       var(--studio-space-6) var(--studio-space-8);
+    border:        1px solid var(--studio-border-subtle);
+    border-radius: var(--studio-radius-control);
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
   }
 
   &__comment-add {

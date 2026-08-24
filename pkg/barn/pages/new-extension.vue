@@ -519,7 +519,6 @@ export default {
       v-if="importing"
       @close="importing = false"
       @create="onImported"
-      @settings="importing = false; settings = true"
     />
 
     <EditorSettingsModal

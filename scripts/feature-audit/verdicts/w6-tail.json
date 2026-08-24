@@ -1,0 +1,153 @@
+{
+  "screen": "tail",
+  "screens": [
+    "08-failed",
+    "02-new",
+    "04-review",
+    "11-queue",
+    "01-home",
+    "05-files"
+  ],
+  "verdicts": [
+    {
+      "id": "08-failed-rollback-inline",
+      "status": "pass",
+      "evidence": "Unblocked by driving it against `demo` instead of `base`, which is a pod nobody else is sitting in (the previous verdict was blocked only for want of a throwaway pod). Fixture built by hand in barn-demo-extension the way publishExtension builds it: recordBaseline's exact shell wrote refs/barn/working-build at the clean HEAD tree with subject \"Working build demo 0.0.1\", then pages/Home.vue was modified and NEW-FILE-AFTER-BUILD.txt created so the failed tree was distinguishable. With barn.publish.failure seeded for demo, /barn/extensions/demo/build-failed drew [data-testid=barn-rollback] labelled \"Roll back to the last working build (0.0.1)\" over the note \"Recorded in the pod when that publish succeeded, 36 seconds ago. It is a ref in the extension's own repository, so it is the same point for everybody and it survives this tab. 2 changed files since.\" - so the durable ref, not sessionStorage, is what it resolved. Clicked it. Afterwards, in the pod: tag barn-snap/1787531269839 \"the failed build before rolling back\" exists and holds BOTH the modified Home.vue and the new file; the working tree's Home.vue is back to the working-build content with the probe line gone; sessionStorage barn.publish.failure is null and the screen has switched to its \"No recent build failure\" empty state. The safety snapshot is taken first and the restore is real. The pod was returned to exactly the state it was found in (clean tree, no refs/barn, no snapshot tags, one commit). Driven on the dev server at :8005; the code path is unchanged by this wave, so the installed bundle should behave identically.",
+      "defect": null,
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "08-failed-rollback-masthead",
+      "status": "pass",
+      "evidence": "Same fixture, same pod, second run: pages/Home.vue dirtied again with a different marker and barn.publish.failure re-seeded for demo. On /barn/editor/demo, [data-testid=barn-rollback-masthead] read \"Roll back to the last working build (0.0.1)\" with the title \"Recorded in the pod when that publish succeeded, 3 minutes ago...\". Clicked. Afterwards: a second tag barn-snap/1787531382822 \"the failed build before rolling back\" holding the marker, Home.vue restored, sessionStorage barn.publish.failure null, and the masthead button gone (v-if=\"failure && wayBack\" follows the cleared record without anything telling it). The two affordances resolved the same point and produced the same three effects, which is what roll-back.ts owning the action buys. Pod restored to its original state afterwards. Driven on the dev server at :8005.",
+      "defect": null,
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "08-failed-undo-request",
+      "status": "not-implemented",
+      "evidence": "Re-read against the current panel and it still refuses out loud, in the place the button would be: \"There is no \\\"undo my request\\\" here. Nothing ties this failure to the request that caused it - the record holds the build's own output and no turn - and the per-turn file record the review screens read is blind to an edit made in the Terminal tab or through a shell command. Reversing \\\"the request\\\" would be reversing a guess. \\\"Undo the last change\\\" above is the honest neighbour: the most recently edited file, or the assistant's last committed turn when the tree is clean.\" Checked whether the durable working-build work changed this: it did not. refs/barn/working-build records a build, not a turn, and PublishFailure carries extension/message/log/at/stage with no prompt id, so there is still nothing that maps a failure back to the request that produced it. Cannot be honestly backed without a per-turn record that survives a Terminal-tab edit, which this product deliberately does not claim to have.",
+      "defect": "The design asks for a button that reverses the whole request rather than the last edit. Nothing in the product ties a build failure to a turn, so the panel states that in place of the button rather than shipping a guess. Not a code gap.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "08-failed-header-apps",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed live on /barn/extensions/base/build-failed: 'i.icon-apps, [data-testid=apps-menu], header [class*=grid], header [class*=apps]' matched 0, and nothing in pkg/barn adds one. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome. The app collection does not exist in this Rancher and the Studio must not invent one.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "08-failed-rail-book",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed: no docs or book entry in the rail on any Studio route ('.side-menu [class*=book], .side-menu [class*=docs], nav [class*=book]' matched 0 on all five screens swept). DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome, and the Studio owns no documentation to point it at.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "02-new-header-more",
+      "status": "pass",
+      "evidence": "The previous verdict is stale. new-extension.vue already mixes in @shell/mixins/page-actions and returns STUDIO_PAGE_ACTIONS, so Rancher's own HeaderPageActionMenu shows itself on this route. Driven on /barn/extensions/new: [data-testid=page-actions-menu-action-button] count 1, inside <header>, and clicking it opens a dropdown reading exactly [\"Review queue\",\"Studio settings\",\"Installed extensions\"]. The earlier enumeration missed it because it filtered header descendants by class name rather than by that testid. Driven on the dev server at :8005.",
+      "defect": null,
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "02-new-header-apps",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed on /barn/extensions/new: the apps/grid query matched 0. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "02-new-nav-book",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed on /barn/extensions/new: no book or docs entry in the rail. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "02-new-header-logo",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed a fifth time on /barn/extensions/new: [data-testid=header__brand-img] is a bare <img> whose closest('a') is null, so there is nothing to click. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once. The logo specifically is a bare <img> in Rancher's shell, wrapped in a link only under isSingleProduct, with no slot, prop or action location an extension can reach. Recorded not-implemented rather than fail: the product implements nothing here, so there is no barn behaviour that is broken.",
+      "defect": "Rancher shell chrome with no extension seam. Not barn code and not reachable from barn.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "02-new-target",
+      "status": "not-implemented",
+      "evidence": "Read the code and the note it prints rather than re-driving the box. [data-testid=new-ext-target] is deliberately static and [data-testid=new-ext-target-note] is a reading, not a claim: it counts the clusters this Rancher actually manages and says why none of them is a choice - \"the Studio's namespace, its pods and the proxy the preview is served through are all here, so the build cannot run there\". Both halves of the value (\"local\", the k3s version) come from /v1/management.cattle.io.clusters/local. A picker here would list places the build genuinely cannot go, which is the kind of control this product has already deleted three times. Cannot be honestly backed as a picker without moving the Studio's namespace, pods and preview proxy into the target cluster, which is a product change and not a screen fix.",
+      "defect": "The design draws a cluster picker; every extension pod the Studio creates lives in the local cluster, so the product ships an honest static readout with the reason underneath. A design departure, not a code gap.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "04-review-header-more",
+      "status": "pass",
+      "evidence": "Implemented. The previous verdict was right about the cause and wrong about it being chrome: the kebab is Rancher's HeaderPageActionMenu, which shows itself whenever the mounted page has committed a non-empty pageActions, and screens 01, 02, 03 and 11 already get it that way (DEPARTURES.md #2 records this exact exception - \"the fifth agent asked whether the control already existed and was empty. It did.\"). review.vue committed none. It now mixes in @shell/mixins/page-actions, returns the unfiltered STUDIO_PAGE_ACTIONS, and dispatches through the shared handleStudioPageAction so the labels and destinations cannot drift from the other screens. Driven on /barn/extensions/base/review: the kebab appears in the header, opens [\"Review queue\",\"Studio settings\",\"Installed extensions\"], and \"Review queue\" navigated to /barn/review. Checked it does not leak: after leaving the Studio, /home's kebab reads [\"Set as login page\",\"Show/Hide Banner\"] and /c/local/explorer's reads [\"Set as login page\"], i.e. Rancher's own, because the mixin clears on beforeUnmount. Driven on the dev server at :8005; not yet in the installed bundle.",
+      "defect": null,
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "04-review-header-apps",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed on /barn/extensions/base/review: the apps/grid query matched 0. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "05-files-header-more",
+      "status": "pass",
+      "evidence": "Implemented, the same way and for the same reason as 04-review-header-more: files.vue committed no pageActions, so Rancher's header kebab had nothing to show. It now mixes in @shell/mixins/page-actions and returns STUDIO_PAGE_ACTIONS. This is the header kebab, distinct from the workspace masthead's own three-dot at 22:888, which is unchanged. Driven on /barn/extensions/base/files: the kebab opens [\"Review queue\",\"Studio settings\",\"Installed extensions\"]; \"Studio settings\" navigated to /barn/settings and \"Installed extensions\" to /c/local/uiplugins. The screen still reaches its ready selector .files__body with no console errors. Driven on the dev server at :8005; not yet in the installed bundle.",
+      "defect": null,
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "05-files-header-apps",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed on /barn/extensions/base/files: the apps/grid query matched 0. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "11-queue-header-actions",
+      "status": "not-implemented",
+      "evidence": "Two of the three are real and work: the bell opens the notification centre, and the header kebab on /barn/review opens [\"Studio settings\",\"Installed extensions\"] (the queue filters \"Review queue\" out of the shared list because that is the page you are standing on). The third, the app collection, does not exist as a control anywhere in this Rancher - queried on all five screens for i.icon-apps, [data-testid=apps-menu], header [class*=grid] and header [class*=apps], all 0. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once. Recorded not-implemented rather than fail because the missing third is not a broken barn control, it is a Rancher control that does not exist; the two barn can reach are both working.",
+      "defect": "The app collection grid the design draws is not a control this Rancher has, and the Studio must not invent one. The other two header actions work.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "11-queue-row-your-part",
+      "status": "not-implemented",
+      "evidence": "Settled by reading the promise and the departure against the current code. DEPARTURES.md #5 records the column's removal as a considered decision, and the removal stands - but its stated premise (\"it rendered the same sentence on every row\") is now imprecise, because review-queue.vue models four parts (partFor(): blocked, handover, outcome, code) and renders a chip for three of them: \"Blocked\" (lock), \"Not handed over\" (upload) and \"Outcome sign-off\" (eye). Only the ordinary code-review row carries no chip. Drove all four states to confirm that. So the accurate argument for the removal is the narrower one the code comment makes: the chip is reserved for the rows that are not the ordinary case, and on an ordinary row a \"Code review\" pill would say exactly what the button beside it already says. The action cell is the readout - actionLabel() returns \"Open the brief\" for blocked, \"Sign off\" for outcome and \"Review\" otherwise - so every row does say which of the two questions is being asked; it says it in the control rather than in a pill next to the control. The design's promise is stale in its literal form (a pill on every row, node 36:1089) and satisfied in substance. Nothing was changed.",
+      "defect": "The \"Your part\" column was deliberately removed (DEPARTURES.md #5). Each row still says which question is being asked, through its action button plus a chip on every row that is not an ordinary code review. Re-adding a \"Code review\" pill would duplicate the button beside it.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "01-home-header-more",
+      "status": "pass",
+      "evidence": "The previous verdict is stale for the same reason as 02-new-header-more: extensions.vue already mixes in @shell/mixins/page-actions and returns STUDIO_PAGE_ACTIONS. Driven on /barn/extensions: [data-testid=page-actions-menu-action-button] count 1, inside <header>, opening [\"Review queue\",\"Studio settings\",\"Installed extensions\"]. The earlier enumeration filtered header descendants by class name and missed the testid. Driven on the dev server at :8005.",
+      "defect": null,
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "01-home-header-apps",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed on /barn/extensions: the apps/grid query matched 0. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "01-home-nav-book",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed on /barn/extensions: no book or docs entry in the rail. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once.",
+      "defect": "Rancher chrome.",
+      "verifiedAt": "2026-08-24T00:55"
+    },
+    {
+      "id": "01-home-header-logo",
+      "status": "not-implemented",
+      "evidence": "Re-confirmed on /barn/extensions: [data-testid=header__brand-img] is a bare <img> whose closest('a') is null. DEPARTURES.md #2: Rancher's own chrome is not the Studio's to fill. An extension can register a header action, but there is nothing honest to point one at - this Rancher has no app-collection popover and the Studio owns no documentation, so a grid or a book injected by the extension-authoring extension into every page of Rancher would be a control that lies on every screen at once. Recorded not-implemented rather than fail: barn implements nothing here, so there is no barn behaviour that is broken, and /dashboard/home is one rail click away.",
+      "defect": "Rancher shell chrome with no extension seam.",
+      "verifiedAt": "2026-08-24T00:55"
+    }
+  ]
+}

@@ -862,6 +862,15 @@ export default {
      */
     publishSummary(target, result) {
       if (target === 'github') {
+        // Three outcomes, not two. `handOverForReview` no longer refuses without a GitHub token:
+        // the review lives in the cluster - the packet ref, the review record, the queue, both
+        // sign-offs - and the pull request mirrors it. So a hand-over can succeed having pushed
+        // nothing, and `pushError` is the sentence that says why. Without this clause that case
+        // read as a bare "packet 2 on barn/base/2", which looks like a push that worked.
+        if (result.pushError) {
+          return `packet ${ result.n } on ${ result.branch }, in this cluster only: ${ result.pushError }`;
+        }
+
         const pr = result.pr ? `, pull request #${ result.pr.number }` : '';
         const failed = result.prError ? `. The branch is pushed, but the pull request could not be opened: ${ result.prError }` : '';
 
@@ -1071,7 +1080,6 @@ export default {
       @files="onLeftTab('changes')"
       @publish="choosingPublish = true"
       @publish-select="onPublishSelect"
-      @settings="showSettings = true"
       @refresh="onMastheadRefresh"
       @changed="changesRevision++"
     >
@@ -1287,7 +1295,6 @@ export default {
       v-if="importing"
       @close="importing = false"
       @create="onImport"
-      @settings="openSettingsFrom('import')"
     />
 
     <NewExtensionModal

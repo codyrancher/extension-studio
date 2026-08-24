@@ -28,25 +28,34 @@
 // and asks the assistant to take the behaviour back out, because in that case the author's list
 // was right and it is the code that has to move.
 //
-// Gone, and the reason matters. The design's "Capture this as evidence" (39:1385), its
-// screenshot upload (39:1306) and the sentence explaining that captured evidence travels with
-// the verdict (39:1384) are all one feature, and this product has nowhere to put an artefact:
-// a verdict lives in BRIEF.md, which is markdown in the extension's own git repository, and in
-// a ConfigMap. Writing PNGs into the source tree being reviewed is not an evidence store, it is
-// pollution of the thing under review. What the screen does capture is what it can honestly
-// capture - the clock, the person, and the route the preview was on - which is on every
-// criterion's provenance line. The cluster picker (39:1364) is out for the same reason it is
-// out on screen 02: the preview is this extension's own dev server inside its own pod, and
-// there is no other cluster for it to run in.
+// Evidence, which the design draws as three controls (39:1306, 39:1384, 39:1385) and which are
+// not one feature after all. Two of the three are here. "Capture this as evidence" records what
+// this product can honestly record about a moment - the route the frame is on, the clock, and
+// the person the apiserver names - into BRIEF.md under the criterion it is evidence for, so it
+// survives the tab, the reload and the pod, and travels in the same commit as the code; the
+// sentence above the button says exactly that. The third, the screenshot upload, is still out,
+// and its reason is about files rather than about evidence: the two stores this screen writes
+// to are the brief, which is the markdown under review, and one ConfigMap holding every
+// sign-off this extension has. A PNG in the first makes the evidence part of the thing being
+// reviewed; in the second it is a handful of screenshots from etcd's object limit, and going
+// over it takes the sign-offs with it.
+//
+// The cluster row (39:1364) had the same two facts run together and they have been separated.
+// Where the dev server runs is not a choice - it is this extension's own pod, in `local`.
+// Which cluster the framed page is *about* is one, because the frame is a whole dashboard and
+// its routes carry a cluster id, so the row is a chooser over the clusters Rancher actually
+// has and picking one navigates the frame. The annotation beside the name is what the cluster
+// object says about itself, because nothing here can know which capability a given extension
+// depends on, which is what the design's "no metrics-server" is.
 import {
-  SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SBadge
+  SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SBadge, SMenu
 } from '../components/ui';
 import PreviewPanel from '../components/studio/PreviewPanel.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
   ensureRepo,
   readExtensionFile, writeExtensionFile, extensionUrl, extensionReady, changedFiles, workingDiff,
-  changeProvenance, askAssistant, DEFAULT_EXTENSION
+  changeProvenance, askAssistant, previewClusters, DEFAULT_EXTENSION
 } from '../extensions';
 // The review record: where a decision about a change lives, so that it is readable by the
 // queue, the review screen and the publish modal without any of them opening this brief. The
@@ -54,7 +63,10 @@ import {
 import {
   readReview, updateReview, gateFrom, currentSigner, whoAsked, signOutcome
 } from '../review';
-import { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE } from '../editor-product';
+import {
+  REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+} from '../editor-product';
+import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
 
@@ -113,6 +125,37 @@ const WORD_VERDICTS = Object.fromEntries(
  * either way.
  */
 const VERDICT_LINE = /^-\s+\*\*(.+?)\*\*(?:\s+at\s+`([^`]*)`)?:\s*(.+)$/;
+
+/**
+ * One captured piece of evidence, written under the criterion it backs.
+ *
+ * `- Captured 2026-08-24 12:41 by admin at `/c/local/explorer``, as `verificationBlock` writes
+ * it. The date is in the file and only the clock is on the screen, which is what the design
+ * draws (39:1225) - a verdict read back a week later needs the day, and a reviewer looking at
+ * the row they just answered does not.
+ *
+ * It cannot collide with a verdict line: that one begins `- **`, and this one has no bold. The
+ * person is optional because Rancher will not always name the session, and the route is not,
+ * because a capture with nowhere attached to it is the thing this is for.
+ */
+const CAPTURE_LINE = /^-\s+Captured\s+([0-9]{4}-[0-9]{2}-[0-9]{2}\s+[0-9]{2}:[0-9]{2})(?:\s+by\s+(.+?))?\s+at\s+`([^`]*)`\s*$/;
+
+/**
+ * The cluster in a route inside the framed dashboard.
+ *
+ * Two shapes, because the frame is a whole dashboard: `/c/<id>/...` for Rancher's own pages,
+ * and `/<product>/c/<id>/...` for a page an extension registers, which is what the seeded
+ * extension's own home is. The optional leading segment is what tells the two apart, and it
+ * cannot swallow the `/c/` itself because the pattern requires one after it.
+ */
+const CLUSTER_IN_ROUTE = /^((?:\/[^/]+)?\/c\/)([^/]+)(.*)$/;
+
+/** `2026-08-24 12:41`, the stamp a capture line carries. */
+function stamp(at) {
+  const pad = (n) => String(n).padStart(2, '0');
+
+  return `${ at.getFullYear() }-${ pad(at.getMonth() + 1) }-${ pad(at.getDate()) } ${ pad(at.getHours()) }:${ pad(at.getMinutes()) }`;
+}
 
 /**
  * Words too common to be evidence of anything.
@@ -205,10 +248,10 @@ export default {
   name: 'BarnVerification',
 
   components: {
-    SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SBadge, PreviewPanel
+    SButton, SChip, SIcon, SEmpty, SBanner, SLabel, SBadge, SMenu, PreviewPanel
   },
 
-  mixins: [fullBleed],
+  mixins: [fullBleed, pageActionsMixin],
 
   data() {
     return {
@@ -241,7 +284,7 @@ export default {
       // longer covering the change. Same reading screen 12 signs the code half against.
       sha:        '',
       // The principal the brief records under `## Who asked`, and '' when it records nobody -
-      // which is every brief today, because nothing writes that section yet.
+      // which is every brief made before screen 02 started writing that section at creation.
       asked:      '',
       // Who the apiserver says is asking. Needed before the sign-off, not after it: the
       // requester check has to be answerable on screen rather than only in a thrown error.
@@ -250,6 +293,12 @@ export default {
       revoking:   false,
       // Which criterion the preview was last driven to, so the pane can say what it is showing.
       showing:    -1,
+      // Every cluster the framed page could be about (39:1364), and whether the list could be
+      // read at all. An empty list that was read and an unread one say different things, and
+      // the row has to be able to say which.
+      clusters:     [],
+      clustersRead: false,
+      clustersWhy:  '',
       // The criterion a "Send this back" is in flight for, by index.
       sending:    -1,
       // The drift term an accept or a reject is in flight for, by term. Two of them, because
@@ -268,6 +317,24 @@ export default {
   },
 
   computed: {
+    /**
+     * What Rancher's header kebab offers here (39:1139, 53:2050).
+     *
+     * One of the design's three header controls, and the only one that is not Rancher's to
+     * fill: `HeaderPageActionMenu` is already in that header and shows itself whenever the
+     * mounted page has committed a non-empty `pageActions`. Eight Studio screens commit them
+     * and get the kebab; this one committed none, which is the whole reason there was no
+     * three-dot control here. Read by @shell/mixins/page-actions, which commits on `created`
+     * and clears on `beforeUnmount`, so the menu belongs to this page rather than to every
+     * page in Rancher.
+     *
+     * The app-collection grid beside it stays absent: this Rancher has no app-collection
+     * popover for an entry to open, so there is nothing honest to point one at.
+     */
+    pageActions() {
+      return STUDIO_PAGE_ACTIONS;
+    },
+
     /**
      * The route names, exposed to the template.
      *
@@ -519,10 +586,11 @@ export default {
     /**
      * What the screen says about the requester check, including when there is nothing to check.
      *
-     * Nothing in the Studio writes a `## Who asked` section into a brief today, so on every
-     * extension that exists the check is inert. Saying "the requester is verified" would be a
-     * claim about a section that is never written; saying nothing at all would imply a check
-     * that is not happening. So it says which of the two it is.
+     * Screen 02 writes a `## Who asked` section at creation, so the check bites on anything
+     * made since; on an extension that predates it - including the seeded `base` - the section
+     * is absent and the check is inert. Saying "the requester is verified" would be a claim
+     * about a section that may not be there; saying nothing at all would imply a check that is
+     * not happening. So it says which of the two it is.
      */
     requesterNote() {
       if (this.requesterBlocker) {
@@ -533,12 +601,65 @@ export default {
         return 'The brief records you as the person who asked for this, so the outcome sign-off is yours to give.';
       }
 
-      return 'This brief records no `## Who asked`, and nothing in the Studio writes one yet, so the sign-off is not held to a requester. Whoever gives it is recorded by name against this commit.';
+      return 'This brief records no `## Who asked` - it was made before the Studio started recording who asked at creation - so the sign-off is not held to a requester. Whoever gives it is recorded by name against this commit.';
     },
 
     /** What the preview pane is showing, said on the pane rather than left to be inferred. */
     showingCriterion() {
       return this.criteria[this.showing] || null;
+    },
+
+    /**
+     * The cluster id in the route the preview is on, or '' when the route has none.
+     *
+     * The framed thing is a whole dashboard, so its routes carry a cluster the way the rest of
+     * Rancher's do: `/c/<id>/explorer`, and an extension's own page at `/<product>/c/<id>/...`.
+     * That id is the answer to "which cluster is this page about", and it is the only place the
+     * answer exists - nothing outside the frame is told.
+     */
+    previewCluster() {
+      return CLUSTER_IN_ROUTE.exec(this.route || '')?.[2] || '';
+    },
+
+    /** The chosen cluster as Rancher describes it, when the list has been read and holds it. */
+    previewClusterInfo() {
+      return this.clusters.find((c) => c.id === this.previewCluster) || null;
+    },
+
+    /**
+     * What the cluster row says next to the name (39:1371).
+     *
+     * The design annotates the current cluster with why it matters to this extension ("no
+     * metrics-server"). Nothing here can know which capability a given extension depends on,
+     * so the annotation is what the cluster object says about itself - which is a fact about
+     * every cluster and is the information somebody choosing between two of them needs.
+     */
+    clusterNote() {
+      const info = this.previewClusterInfo;
+
+      if (!info) {
+        return '';
+      }
+
+      const parts = [
+        info.ready ? '' : 'not ready',
+        info.provider,
+        info.version,
+        info.nodes ? `${ info.nodes } node${ info.nodes === 1 ? '' : 's' }` : '',
+      ].filter(Boolean);
+
+      return parts.join(' · ');
+    },
+
+    /** The dropdown behind the cluster row, one line per cluster this Rancher has. */
+    clusterItems() {
+      return this.clusters.map((c) => ({
+        id:       c.id,
+        label:    c.name,
+        icon:     c.id === this.previewCluster ? 'check' : 'server',
+        disabled: c.id === this.previewCluster,
+        note:     [c.ready ? '' : 'not ready', c.provider, c.version].filter(Boolean).join(' · '),
+      }));
     },
 
     /**
@@ -731,6 +852,11 @@ export default {
   },
 
   methods: {
+    /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
+    handlePageAction(action) {
+      handleStudioPageAction(this, action);
+    },
+
     async load() {
       // A freshly created extension has no repository yet, and every reading on this screen
       // is a git reading - so without this the screen is simply empty, with nothing saying
@@ -778,6 +904,19 @@ export default {
       if (await extensionReady(this.extension).catch(() => false)) {
         this.previewUrl = extensionUrl(this.extension);
       }
+
+      // After the screen is up, because the criteria are what the reviewer came for and the
+      // cluster row is furniture around the preview. A Rancher that will not answer leaves the
+      // row saying so rather than leaving it empty.
+      await previewClusters()
+        .then((list) => {
+          this.clusters = list;
+          this.clustersRead = true;
+        })
+        .catch((e) => {
+          this.clustersRead = false;
+          this.clustersWhy = e?.message || String(e);
+        });
     },
 
     /**
@@ -793,7 +932,9 @@ export default {
 
       return this.criteriaLines(brief).map(({ text, ticked }) => {
         const queue = recorded.get(text) || [];
-        const wrote = queue.length ? queue.shift() : { verdict: '', route: '', note: '' };
+        const wrote = queue.length ? queue.shift() : {
+          verdict: '', route: '', note: '', captures: [],
+        };
 
         return {
           text,
@@ -813,6 +954,10 @@ export default {
           // Where it was checked. Recorded in the file beside the verdict, so "Show me" still
           // knows where to point the preview a week later.
           route:   wrote.route || '',
+          // What was captured against this criterion (39:1385), read back out of the file.
+          // Unlike `taken` above these do survive, because they are written into the brief the
+          // moment they are taken rather than being a fact about this session.
+          captures: wrote.captures || [],
         };
       });
     },
@@ -866,6 +1011,19 @@ export default {
           continue;
         }
 
+        // A capture belongs to the verdict above it for the same reason a note does, and is
+        // read before the verdict line is tried because both start with a dash. The two cannot
+        // be confused - a verdict is bold and a capture is not - but reading this first keeps
+        // the order of the branches the same as the order of the lines in the file.
+        const captured = inList && last && CAPTURE_LINE.exec(line);
+
+        if (captured) {
+          last.captures.push({
+            at: captured[1], who: (captured[2] || '').trim(), route: captured[3],
+          });
+          continue;
+        }
+
         const m = inList && VERDICT_LINE.exec(line);
         const verdict = m && WORD_VERDICTS[m[1].trim().toLowerCase()];
 
@@ -875,7 +1033,9 @@ export default {
 
         const text = m[3].trim();
 
-        last = { verdict, route: (m[2] || '').trim(), note: '' };
+        last = {
+          verdict, route: (m[2] || '').trim(), note: '', captures: [],
+        };
         out.set(text, [...(out.get(text) || []), last]);
       }
 
@@ -989,7 +1149,11 @@ export default {
       // takes you back to. Taking the answer back takes the route with it: a route recorded
       // against no verdict is a claim that somebody checked something.
       criterion.route = off ? '' : this.route;
-      const recorded = !!this.gate.outcome;
+      // An approval, specifically. The outcome slot also holds a "changes requested" - what
+      // "Send the whole list back" records - and that is not a judgement changing a verdict
+      // invalidates: the author still has the list to work through, and the way to withdraw it
+      // is to sign off, not to touch a radio button.
+      const recorded = this.gate.outcome?.verdict === 'approved';
 
       // A sign-off is a judgement on the answers as they stood. Change one and it is no longer
       // a judgement on anything, so it goes - and the next save writes the file without it.
@@ -1053,6 +1217,63 @@ export default {
     },
 
     /**
+     * Whoever a capture is attributed to, in a form a capture line can hold.
+     *
+     * The apiserver's answer first, because that is the identity the sign-off is recorded
+     * under and the two should not name the same person two ways. Backticks and "at" are
+     * removed because they are what the line's own grammar is made of; a name this leaves
+     * empty is written as no name rather than as a guess.
+     */
+    capturedBy() {
+      const who = this.me?.name || this.me?.principal || this.signedInAs || '';
+
+      return String(who).replace(/`/g, '').replace(/\s+at\s+/gi, ' ').replace(/\s+/g, ' ').trim();
+    },
+
+    /**
+     * Capture what the preview is showing as evidence for the criterion it is showing it for
+     * (39:1385).
+     *
+     * What is captured is what can honestly be captured: the clock, the person the apiserver
+     * names, and the route the framed dashboard is on. Not a picture - see the note beside the
+     * button - and that is the whole difference between this and the design's screenshot
+     * upload, which is why the two are not one feature after all.
+     *
+     * It writes immediately rather than waiting for "Record the result". The sentence this
+     * sits under promises that what you are looking at is captured with your answer, and a
+     * capture that only exists in this tab until somebody remembers to press save is a promise
+     * the next reload breaks. `save()` writes the whole pass, so the verdicts and notes as
+     * they stand go with it, and the toast says so.
+     *
+     * It refuses rather than guessing when the preview is not on a criterion. A capture
+     * attached to whichever criterion happened to be first would be evidence pointing at the
+     * wrong row, which is worse than no evidence.
+     */
+    async captureEvidence() {
+      const criterion = this.showingCriterion;
+
+      if (!criterion || this.saving) {
+        return;
+      }
+
+      const capture = {
+        at: stamp(new Date()), who: this.capturedBy(), route: this.route || '/',
+      };
+
+      criterion.captures = [...(criterion.captures || []), capture];
+
+      const wrote = await this.save(
+        `Captured ${ capture.at.slice(11) } at ${ capture.route } against criterion ${ this.showing + 1 }`
+      );
+
+      if (!wrote) {
+        // The file is what makes a capture evidence. If it did not land, the line must not sit
+        // on the screen looking as though it did - `save` has already said why.
+        criterion.captures = (criterion.captures || []).filter((c) => c !== capture);
+      }
+    },
+
+    /**
      * Write the verdict back into the brief.
      *
      * The boxes go back into the same `- [ ]` lines they came out of, and a Verification section
@@ -1071,7 +1292,7 @@ export default {
         // `record()` below drops the sign-off line whenever `signedOff` is null; this drops the
         // matching entry. It is a safety net rather than the main path - `set()` withdraws it
         // the moment the verdict changes - and it is quiet, because that toast has been shown.
-        if (!this.signedOff && this.gate.outcome) {
+        if (!this.signedOff && this.gate.outcome?.verdict === 'approved') {
           await this.revokeOutcome(false);
         }
 
@@ -1435,11 +1656,24 @@ export default {
      * The brief is the durable half and the message is the prompt; the design draws one button
      * and this is the honest version of it.
      *
-     * What it does not do is move the change out of anybody's queue. There is no per-change
-     * queue state in this product for it to move into - the review queue is derived from the
-     * extensions that exist and their review records - so the toast says where it went rather
-     * than implying the row has left a list. The per-criterion "Send this back" is still the
-     * narrower action: one criterion, one reason.
+     * Three things, and the third is what was missing. Handing the list back is a refusal to
+     * sign the outcome off, and a refusal is a state the review record already has: screen
+     * 12's "Request changes" writes `changes-requested` into the code half, `gateFrom` reads
+     * it, the queue reads it and puts the row back on the author's side, and the distribution
+     * gate is shut on it. This screen wrote none of that, so the change stayed in the
+     * reviewer's queue reading "the outcome sign-off is still outstanding" while the list was
+     * already with the author. The design's own check is that the change leaves the reviewer's
+     * queue, and this is the state that moves it.
+     *
+     * It is written before the brief, because the record is the half the gate reads and a
+     * brief describing a hand-back the gate knows nothing about is the worse of the two
+     * failures. The per-criterion "Send this back" is still the narrower action: one criterion,
+     * one reason, and no change to the gate.
+     *
+     * There are two cases where the record cannot take it, and both are said out loud instead
+     * of failing the whole press: no commit to record it against, and a brief that names
+     * somebody else as the person whose answer the outcome is. The list still goes back in
+     * both - it is the author's to work through either way.
      */
     async sendListBack() {
       if (this.handing || !this.criteria.length) {
@@ -1449,6 +1683,7 @@ export default {
       this.handing = true;
 
       try {
+        const refused = await this.refuseOutcome();
         const wrote = await this.save('The whole pass is in BRIEF.md');
 
         if (!wrote) {
@@ -1478,15 +1713,67 @@ export default {
 
         toastSuccess(
           this.$store,
-          how === 'sent'
-            ? `All ${ this.criteria.length } verdicts are in BRIEF.md and the list has gone to the assistant working on this extension. It replies in the workspace terminal; nothing has left the review queue.`
-            : `All ${ this.criteria.length } verdicts are in BRIEF.md. No workspace session is open yet, so the list is the first thing that conversation will be asked.`,
+          [
+            `All ${ this.criteria.length } verdicts are in BRIEF.md.`,
+            refused.recorded
+              ? 'The review record has the outcome answered "changes requested" against this commit, so the queue shows the change as back with its author and the distribution gate is shut on it.'
+              : refused.why,
+            how === 'sent'
+              ? 'The list has gone to the assistant working on this extension; it replies in the workspace terminal.'
+              : 'No workspace session is open yet, so the list is the first thing that conversation will be asked.',
+          ].filter(Boolean).join(' '),
           { title: 'Sent the whole list back' }
         );
       } catch (e) {
         toastError(this.$store, e?.message || String(e), { title: 'Could not send the list back' });
       } finally {
         this.handing = false;
+      }
+    },
+
+    /**
+     * Record the refusal half of "send the whole list back".
+     *
+     * `changes-requested` in the outcome slot of the review record, against the commit the pass
+     * was taken at, with the counts as the reason - the same shape and the same function screen
+     * 12 uses for the code half, so the queue, the review screen and the publish dialog all
+     * read it without knowing which screen wrote it.
+     *
+     * It answers rather than throwing, because the two ways it can decline are both ordinary
+     * and neither should cost the reviewer the rest of the press.
+     */
+    async refuseOutcome() {
+      if (!this.sha) {
+        return {
+          recorded: false,
+          why:      'The review record was left alone: nothing in this extension is committed, so there is no commit to record the refusal against and a refusal covering nothing would read as covering everything.',
+        };
+      }
+
+      if (this.requesterBlocker) {
+        return { recorded: false, why: `The review record was left alone: ${ this.requesterBlocker }` };
+      }
+
+      const counts = [
+        this.failed ? `${ this.failed } answered No` : '',
+        this.unsure ? `${ this.unsure } could not be judged` : '',
+        this.undecided ? `${ this.undecided } not looked at` : '',
+      ].filter(Boolean).join(', ');
+
+      try {
+        const signoff = await signOutcome(this.extension, {
+          verdict: 'changes-requested',
+          sha:     this.sha,
+          note:    `The whole criteria list was handed back${ counts ? `: ${ counts }` : ' after the pass' }. The verdicts and notes are in BRIEF.md under \`## Verification\`.`,
+        });
+
+        // So the footer's two gate rows and the sign-off button are right before the reload
+        // `save()` does, rather than for the second in between.
+        this.review = { ...this.review, signoffs: { ...this.review.signoffs, outcome: signoff } };
+
+        return { recorded: true, why: '' };
+      } catch (e) {
+        return { recorded: false, why: `The review record could not be written: ${ e?.message || String(e) }` };
       }
     },
 
@@ -1594,6 +1881,16 @@ export default {
         if (c.note?.trim()) {
           c.note.trim().split('\n').forEach((line) => block.push(`  > ${ line }`));
         }
+
+        // Then what was captured against it, in the order it was captured. Indented under the
+        // verdict, so a markdown renderer nests it inside the criterion rather than starting a
+        // new list, and readable by eye in a `git diff` of the brief - which is the point of
+        // keeping evidence in the file the code is reviewed with.
+        (c.captures || []).forEach((cap) => {
+          const who = cap.who ? ` by ${ cap.who }` : '';
+
+          block.push(`  - Captured ${ cap.at }${ who } at \`${ cap.route }\``);
+        });
       });
 
       if (this.notes.trim()) {
@@ -1642,6 +1939,40 @@ export default {
           { title: 'Nowhere in particular to go' }
         );
       }
+    },
+
+    /**
+     * Point the previewed page at another cluster (39:1364).
+     *
+     * The frame is a dashboard, so the cluster is in its route: this rewrites that segment and
+     * navigates, which is the same thing typing the path into the address field would do. What
+     * it does not do, and says it does not, is move the dev server - that runs in this
+     * extension's own pod, in `local`, wherever the page it serves is pointed.
+     *
+     * A route with no cluster in it (the extension's own start page, for one) has nothing to
+     * rewrite, so this takes the preview to that cluster's explorer instead, which is a page
+     * the framed dashboard certainly has. Either way it is a real navigation of a real
+     * dashboard and not a setting kept on this side of the frame.
+     */
+    chooseCluster(id) {
+      const panel = this.$refs.preview;
+
+      if (!id || !panel || id === this.previewCluster) {
+        return;
+      }
+
+      const m = CLUSTER_IN_ROUTE.exec(this.route || '');
+
+      panel.address = m ? `${ m[1] }${ id }${ m[3] }` : `/c/${ id }/explorer`;
+      panel.go();
+
+      toastSuccess(
+        this.$store,
+        m
+          ? `The preview is on the same page in ${ id }. The dev server has not moved - it runs in this extension's pod, in local, whichever cluster the page it serves is about.`
+          : `The route the preview was on names no cluster, so this is ${ id }'s explorer. Navigate to the extension's own page from there and the picker will follow it.`,
+        { title: `Preview pointed at ${ id }` }
+      );
     },
 
     /**
@@ -1856,6 +2187,27 @@ export default {
                       v-if="c.route"
                       class="verify__meta-route"
                     >{{ c.route }}</span>
+                  </div>
+
+                  <!--
+                    39:1225's "Captured 12:41 · you", one line per capture. Unlike the
+                    provenance line above it these are in BRIEF.md, so they are still here a
+                    week later and after a reload - which is the whole claim the sentence under
+                    the preview makes about them.
+                  -->
+                  <div
+                    v-for="(cap, ci) in c.captures"
+                    :key="`${ cap.at }-${ ci }`"
+                    class="verify__meta verify__meta--captured"
+                    :data-testid="`verify-capture-${ i }-${ ci }`"
+                    :title="`Captured ${ cap.at }${ cap.who ? ` by ${ cap.who }` : '' }, recorded in BRIEF.md under this criterion`"
+                  >
+                    <SIcon name="save" :size="12" />
+                    <span>Captured {{ cap.at.slice(11) }}</span>
+                    <span v-if="cap.who" class="verify__meta-sep">·</span>
+                    <span v-if="cap.who">{{ cap.who }}</span>
+                    <span class="verify__meta-sep">·</span>
+                    <span class="verify__meta-route">{{ cap.route }}</span>
                   </div>
                 </div>
 
@@ -2151,19 +2503,21 @@ export default {
             </SBanner>
 
             <!--
-              39:1306, 39:1384 and 39:1385 are one feature and it is not here. Said out loud
-              rather than left as an absence: the design draws an attach control, a capture
-              button and a sentence promising that what you see is captured with your answer,
-              and a reviewer who half-remembers the mock will go looking for all three.
+              39:1306 is the one of the design's three evidence controls that is still absent,
+              and it is absent for a reason that does not apply to the other two. Said out loud
+              rather than left as a gap: a reviewer who half-remembers the mock will look for an
+              attach button, and "there is no file store" is a shorter answer than a search.
             -->
             <p class="verify__evidence-note" data-testid="verify-evidence-note">
-              <strong>What a verdict can carry:</strong> your note, the clock, and the route the
-              preview was on when you answered. Not a file. There is no capture button and no
-              screenshot upload - nothing in the browser can rasterise the preview frame, and
-              the two places this screen writes to are the brief, which is markdown in the
-              repository under review, and the review record. A PNG in either makes the evidence
-              part of the thing being reviewed. If a picture is the evidence, keep it where your
-              team already keeps them and name it in the note.
+              <strong>Captured, and not captured.</strong> A capture is the route, the clock and
+              your name, written into the brief under the criterion - press
+              <em>Capture this as evidence</em> beside the preview. A file is not: the two
+              places this screen writes are BRIEF.md, which is markdown in the repository under
+              review, and the review record, which is one ConfigMap that all of this extension's
+              review state shares. A PNG in the first makes the evidence part of the thing being
+              reviewed; in the second it is a few screenshots from etcd's object limit, taking
+              the sign-offs with it when it goes over. So there is no upload. If a picture is
+              the evidence, keep it where your team already keeps them and name it in the note.
             </p>
           </template>
         </div>
@@ -2203,16 +2557,46 @@ export default {
         </div>
 
         <!--
-          39:1364 draws a cluster row with an annotation about the current one. There is no
-          chooser here and the reason is the same one screen 02 gives for its static build
-          target: this frame is the extension's own dev server inside its own pod, not a
-          deployment somewhere, so the only place it can run is where the pod runs. A list of
-          other clusters would list places the preview cannot go.
+          39:1364: the cluster row, with a chevron, so it is a chooser. Two facts live here and
+          they used to be run together as one refusal. Where the dev server RUNS is not a
+          choice - it is this extension's own pod, in `local`, and there is nowhere else to put
+          it. Which cluster the framed page is ABOUT is a choice, because the frame is a whole
+          dashboard and its routes carry a cluster id, so pointing it at another one exercises
+          the extension against that cluster's data. The row says both.
         -->
-        <p class="verify__where" data-testid="verify-preview-where">
-          Running in <strong>local</strong>, in this extension's own pod. Not a cluster you can
-          change: the frame is the pod's dev server, so it runs where the pod runs.
-        </p>
+        <div class="verify__where" data-testid="verify-preview-where">
+          <template v-if="clustersRead && clusters.length">
+            <SMenu
+              :items="clusterItems"
+              align="left"
+              aria-label="Choose the cluster the previewed page is about"
+              @select="chooseCluster"
+            >
+              <template #trigger>
+                <span class="verify__cluster" data-testid="verify-cluster-select">
+                  <SIcon name="server" :size="14" />
+                  <strong>{{ previewCluster || 'Point it at a cluster' }}</strong>
+                  <span v-if="clusterNote" class="verify__cluster-note">{{ clusterNote }}</span>
+                  <SIcon name="chevronDown" :size="12" />
+                </span>
+              </template>
+            </SMenu>
+            <span
+              class="verify__where-say"
+              title="Two different facts. Which cluster the framed page is about is in its route, and this changes it. Where the dev server runs is not: extension pods are created in local and nowhere else, so the frame is served from there whichever cluster its pages address."
+            >
+              <template v-if="previewCluster">is what this page is about.</template>
+              <template v-else>This route names no cluster; choosing one opens its explorer.</template>
+              The dev server itself always runs in <strong>local</strong>, in this extension's pod.
+            </span>
+          </template>
+          <span v-else class="verify__where-say">
+            The page in the frame is served by this extension's own pod, in <strong>local</strong>.
+            {{ clustersRead
+              ? 'Rancher lists no clusters, so there is nothing to point it at.'
+              : `Rancher would not list its clusters, so this cannot offer them: ${ clustersWhy }` }}
+          </span>
+        </div>
 
         <PreviewPanel
           v-if="previewUrl"
@@ -2228,6 +2612,35 @@ export default {
           title="The preview is not up"
           message="The dev server is still compiling. You cannot verify what you cannot look at, so this waits for it."
         />
+
+        <!--
+          39:1384 and 39:1385: the sentence, and the button under it. The design's third
+          control here is a screenshot upload (39:1306) and that one is still absent - the
+          sentence says so, and says what a capture is instead, because a reviewer who
+          half-remembers the mock will go looking for all three.
+        -->
+        <div class="verify__capture">
+          <p class="verify__capture-say" data-testid="verify-evidence-explainer">
+            What you see here is captured with your answer - the route, the clock and your name,
+            into <strong>BRIEF.md</strong> under the criterion - so nobody has to take your word
+            for it later, and the next person to touch this extension knows why it was rejected.
+            A picture is not: see the note on the left.
+          </p>
+          <SButton
+            variant="neutral"
+            size="sm"
+            icon="save"
+            data-testid="verify-capture-evidence"
+            :loading="saving"
+            :disabled="!showingCriterion || !previewUrl || saving"
+            :title="showingCriterion
+              ? `Records ${ route || '/' } against criterion ${ showing + 1 }, in BRIEF.md`
+              : 'Press Show me on a criterion first: a capture has to be evidence for something, and this cannot guess which row you mean.'"
+            @click="captureEvidence"
+          >
+            Capture this as evidence
+          </SButton>
+        </div>
       </div>
     </div>
 
@@ -2266,8 +2679,8 @@ export default {
 
         <!--
           Who the sign-off belongs to, and the honest version of that on every brief that
-          exists: nothing writes `## Who asked` yet, so the requester check has nothing to
-          check. Said rather than left out, because silence here reads as a check happening.
+          predates screen 02 recording it: there is no `## Who asked` to check against. Said
+          rather than left out, because silence here reads as a check happening.
         -->
         <p class="verify__requester" data-testid="verify-requester">
           {{ requesterNote }}
@@ -2306,7 +2719,7 @@ export default {
         data-testid="verify-send-list-back"
         :loading="handing"
         :disabled="!criteria.length || saving"
-        title="Writes every verdict, route and note into BRIEF.md, then puts the whole list to the assistant working on this extension. Nothing leaves the review queue - this product has no per-change queue state to move."
+        title="Answers the outcome question 'changes requested' in the review record, so the change goes back to its author's side of the queue and the distribution gate stays shut; writes every verdict, route, capture and note into BRIEF.md; and puts the whole list to the assistant working on this extension."
         @click="sendListBack"
       >
         Send the whole list back
@@ -2412,9 +2825,14 @@ $verdicts-edge:   1px;
 
   &__panel-title { font: var(--studio-heading-14); color: var(--studio-text); flex: 0 0 auto; }
 
-  // Where the frame is running, and why that is not a choice. Sits between the pane head and
-  // the frame, so it is read once on the way to the preview rather than competing with it.
+  // Which cluster the framed page is about, and where the pod that serves it runs. Sits
+  // between the pane head and the frame, so it is read once on the way to the preview rather
+  // than competing with it.
   &__where {
+    display:       flex;
+    align-items:   baseline;
+    flex-wrap:     wrap;
+    gap:           var(--studio-space-6);
     margin:        0;
     padding:       var(--studio-space-6) 14px;
     background:    var(--studio-surface-subtle);
@@ -2422,6 +2840,38 @@ $verdicts-edge:   1px;
     font:          var(--studio-caption-12);
     color:         var(--studio-text-tertiary);
     flex:          0 0 auto;
+  }
+
+  &__where-say { flex: 1 1 220px; min-width: 0; }
+
+  // 39:1364's row: the server glyph, the cluster, what it is, and the chevron that says it is
+  // a chooser.
+  &__cluster {
+    display:     inline-flex;
+    align-items: center;
+    gap:         var(--studio-space-6);
+    color:       var(--studio-text);
+  }
+
+  &__cluster-note { color: var(--studio-text-tertiary); font: var(--studio-caption-12); }
+
+  // 39:1384 and 39:1385, under the frame: what a capture is, and the button that takes one.
+  &__capture {
+    display:     flex;
+    align-items: flex-start;
+    gap:         var(--studio-space-8);
+    padding:     var(--studio-space-8) 14px;
+    background:  var(--studio-surface-subtle);
+    border-top:  1px solid var(--studio-border-subtle);
+    flex:        0 0 auto;
+  }
+
+  &__capture-say {
+    margin:    0;
+    flex:      1 1 auto;
+    min-width: 0;
+    font:      var(--studio-caption-12);
+    color:     var(--studio-text-tertiary);
   }
 
   // The criterion the preview is bound to, next to its number. Truncated rather than wrapped:
@@ -2638,6 +3088,10 @@ $verdicts-edge:   1px;
   }
 
   &__meta-sep { color: var(--studio-border-strong); }
+
+  // A capture is a fact in the file rather than a fact about this session, so it is drawn a
+  // shade stronger than the provenance line above it.
+  &__meta--captured { color: var(--studio-text-secondary); }
 
   &__meta-route {
     font:          var(--studio-mono-11);

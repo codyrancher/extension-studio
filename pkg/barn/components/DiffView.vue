@@ -125,7 +125,29 @@ export default {
       default:   'unified',
       validator: (v) => ['unified', 'split'].includes(v),
     },
+
+    /**
+     * Whether a line is something the caller wants pressed.
+     *
+     * Off by default, so every existing caller renders exactly what it did before. On, each
+     * changed line becomes a button-shaped row - a pointer, a hover, a title - and emits
+     * `line` with the parsed line and the hunk it is in. Only added and removed lines: a
+     * context line is not part of the change and an affordance on it would promise something
+     * about a line this patch did not touch.
+     */
+    linkLines: {
+      type:    Boolean,
+      default: false,
+    },
+
+    /** The new-file line number to mark as the one being looked at. Null for none. */
+    activeLine: {
+      type:    Number,
+      default: null,
+    },
   },
+
+  emits: ['line'],
 
   computed: {
     files() {
@@ -246,6 +268,25 @@ export default {
     sideClass(cell) {
       return `diff__row--${ cell ? cell.kind : 'blank' }`;
     },
+
+    /** Whether this particular line is one the caller wants pressed. */
+    pressable(line) {
+      return this.linkLines && (line.kind === 'add' || line.kind === 'remove');
+    },
+
+    active(line) {
+      return this.activeLine !== null && line.new === this.activeLine;
+    },
+
+    press(file, hunk, index, line) {
+      if (!this.pressable(line)) {
+        return;
+      }
+
+      this.$emit('line', {
+        file, hunk, index, line,
+      });
+    },
   },
 };
 </script>
@@ -324,7 +365,12 @@ export default {
             <tr
               v-for="(line, l) in (split ? [] : hunk.lines)"
               :key="`${ h }-${ l }`"
-              :class="`diff__row diff__row--${ line.kind }`"
+              :class="[
+                `diff__row diff__row--${ line.kind }`,
+                { 'diff__row--pressable': pressable(line), 'diff__row--active': active(line) },
+              ]"
+              :title="pressable(line) ? 'See what this line changes in the rendered result' : null"
+              @click="press(file, hunk, h, line)"
             >
               <td class="diff__gutter">
                 {{ line.old ?? '' }}
@@ -479,6 +525,22 @@ export default {
 
   &__row--note {
     color: var(--muted);
+  }
+
+  // A line the caller has made pressable (see `linkLines`). The affordance is on the row and not
+  // on a control inside it, because the thing being pressed is the line.
+  &__row--pressable {
+    cursor: pointer;
+
+    &:hover {
+      outline:        1px solid var(--studio-accent-text);
+      outline-offset: -1px;
+    }
+  }
+
+  &__row--active {
+    outline:        2px solid var(--studio-accent-text);
+    outline-offset: -2px;
   }
 
   // Side by side. The colour moves off the row and onto the cell, because in this layout the
