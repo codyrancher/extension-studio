@@ -1,0 +1,851 @@
+{
+  "screen": "w5-settings-publish (09-settings + 07-publish)",
+  "verdicts": [
+    {
+      "id": "07-publish-autosave",
+      "status": "pass",
+      "evidence": "The masthead shows a clock glyph with 'Snapshot saved 43s ago', which had become 'Snapshot saved 2m ago' two minutes later in the same session, and 'Snapshot saved 23s ago' after the next autosave. Its tooltip names the newest snapshot in the pod ('autosave 2239 on Aug 23') and says the tree is watched and snapshotted at most every 3 minutes. Opening the menu listed the real snapshot objects in the pod's git repository, newest first.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-back",
+      "status": "pass",
+      "evidence": "Closed the publish dialog and clicked the back chevron left of 'base': landed on https://magic-closet-rancher/dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-branch-chip",
+      "status": "pass",
+      "evidence": "The chip reads 'main' with a branch glyph and is the trigger of an SMenu. Clicking it opened a picker listing the pod repository's branches - one entry, 'main current'. Only one branch exists in the base pod, so there is nothing else to switch to, but the picker is real and populated from the pod.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-cancel",
+      "status": "pass",
+      "evidence": "Opened the dialog from the masthead Publish button and clicked the ghost Cancel: the dialog closed (title element count 0), the URL stayed on /barn/editor, and nothing was published - no new UIPlugin, no commit, and the pod's git status was unchanged.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-changes-summary-review",
+      "status": "pass",
+      "evidence": "The yellow strip above the composer reads '4 changes - Only you can see them. Nothing is asked of you until you publish.' with its own Review button. Clicked it: the left panel switched to the Changes tab (selected tab became 'Changes 4') showing the uncommitted diff.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-changeset",
+      "status": "pass",
+      "evidence": "The summary line read '2 files - +13 -0' and named 'HARNESS.md, product.ts', which matched `git diff --stat` in the pod exactly (HARNESS.md +3, product.ts +10). It tracked the tree as other agents changed it during the run (later reads showed 3 and 4 files with the new names). It also carries 'Nobody has reviewed this yet...' and 'Last edited 40 minutes ago.'",
+      "defect": null
+    },
+    {
+      "id": "07-publish-check-build",
+      "status": "not-implemented",
+      "evidence": "The first pre-flight row reads 'Build: not checked - Nothing compiles this extension before a publish. The build is the publish - build-pkg runs in the pod and takes minutes - so there is no compile result to tick here, and this dialog will not invent one.' tone 'unknown', info glyph.",
+      "defect": "Deliberate. Nothing in the product compiles the extension before a publish, so the row states that instead of inventing a tick and a compile time."
+    },
+    {
+      "id": "07-publish-check-credentials",
+      "status": "pass",
+      "evidence": "Baseline: 'No credentials in the diff - Scanned 2 files for tokens, keys and kubeconfigs.' with a check glyph. Proved it is a real scan: wrote verify-w5-preflight.yaml into the base pod containing a fake ghp_ token, reopened the dialog, and the row turned red with the error glyph and '1 possible credential in the diff - Scanned 4 files for tokens, keys and kubeconfigs. verify-w5-preflight.yaml:3 looks like a GitHub personal access token.' It names the file and line and never echoes what it matched. File removed afterwards.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-check-unstable-api",
+      "status": "pass",
+      "evidence": "Same seeded file declared apiVersion: metrics.k8s.io/v1beta1. The third row went from a check to the alert glyph (class publish-modal__check--warn) reading 'Uses an unstable API - metrics.k8s.io/v1beta1 (verify-w5-preflight.yaml:1). An alpha or beta group-version can change or disappear between Kubernetes minors... This is a warning: it does not stop the publish.' With that warning showing I ticked a destination and the Publish button was enabled and read 'Publish to 1 place'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-composer",
+      "status": "pass",
+      "evidence": "Typed into the multi-line field: the text appeared, and clicking Send delivered it - the marker string appeared as a new 'You' turn in the activity stream and the composer cleared.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-composer-keyboard",
+      "status": "pass",
+      "evidence": "Focused the composer, typed a line, pressed Shift+Enter and typed more: the field value became 'w5-settings-publish probe line one\\nline two' - a line break was inserted and nothing was sent. The hint under the field says 'Shift + Enter for a new line'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-add",
+      "status": "pass",
+      "evidence": "Clicked the '+ Add' chip: a modal opened headed 'Add a file to the context' with a 'Find a file' search and the base package's real file list (.gitignore, BRIEF.md, CLAUDE.md, HARNESS.md, babel.config.js, index.ts, l10n/en-us.yaml, package.json, pages/Home.vue, product.ts, routing/index.ts, tsconfig.json, vue.config.js). Picking BRIEF.md added a 'BRIEF.md' context chip.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-chip-cluster",
+      "status": "pass",
+      "evidence": "The composer's Context row shows a 'cluster: local' chip with a server glyph, alongside a 'base' chip naming the extension.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-chip-file",
+      "status": "pass",
+      "evidence": "Added BRIEF.md through the picker: a 'BRIEF.md' chip appeared in the Context row between 'cluster: local' and 'Add'. Clicking its remove control took it away again, leaving the two fixed chips.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-dialog-close",
+      "status": "pass",
+      "evidence": "Clicked the icon-only X in the dialog head (.s-modal__head .s-btn--icon-only): the dialog closed, the URL stayed on /barn/editor and nothing was published.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-dialog-subtitle",
+      "status": "pass",
+      "evidence": "Reads 'Every destination below is a separate choice and none of them is ticked for you. Each row says what approval it costs and whether it can be taken back.' The second half is borne out by the requirement chips and the rollback line; the reversibility of each destination is named per row.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-dialog-title",
+      "status": "pass",
+      "evidence": "The dialog head reads 'Publish base', naming the extension the editor is pointed at.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Enumerated every icon and aria-label in Rancher's header on /barn/editor: the menu icon, the pinned-cluster chip, the app group icons, 'Page actions menu', 'Open notification center', 'Open user menu'. No grid glyph and no app-collection switcher exists.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-logo",
+      "status": "pass",
+      "evidence": "The header shows the SUSE chameleon with 'SUSE Rancher Prime' (screenshotted on /barn/editor).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-more",
+      "status": "pass",
+      "evidence": "This has changed since the last wave. The three-dot glyph in the header ([data-testid=\"page-actions-menu-action-button\"], aria-label 'Page actions menu') is present on /barn/editor and opens a menu with 'Review queue', 'Studio settings' and 'Installed extensions'. Clicking 'Studio settings' navigated to https://magic-closet-rancher/dashboard/barn/settings. Studio fills Rancher's page-actions menu through @shell/mixins/page-actions with STUDIO_PAGE_ACTIONS.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell: a .notification-dropdown opened headed 'Notifications' with 'Mark all as read' and real entries from this Rancher (e.g. 'Code approved - Today, 10:50:29 pm - Committed as d1b3c72...').",
+      "defect": null
+    },
+    {
+      "id": "07-publish-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked the three-dot glyph at the right of the masthead ([data-testid=\"barn-masthead-overflow\"]): a menu opened with 'Files and history', 'Review changes', 'Verification', 'The brief', 'Re-read this extension', 'Remove the local install'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-model-picker",
+      "status": "pass",
+      "evidence": "This has changed since the last wave. The composer bar carries a model chip ([data-testid=\"barn-model-chip\"]) whose menu opened listing the aliases this pod's claude documents - fable, opus, sonnet - plus 'Choose in the terminal - /model'. The chip itself reads 'Default model' rather than a model name, and its tooltip says why: 'Nothing in this pod names a model: no --model on the claude that is running, no ANTHROPIC_MODEL in its environment, and no `model` in claude's settings.' So it is a reading of the pod rather than the design's 'Claude Opus 5' label. I did not select an alias, because that sends /model into a session shared with other agents.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the foot of the rail from /barn/editor's chrome: landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "This Rancher has one pinned cluster, not the design's three. The rail's cluster chip ([data-testid=\"menu-cluster-local\"], 'local') is the equivalent: clicking it landed on https://magic-closet-rancher/dashboard/c/local/explorer#cluster-events. No 'AFT' cluster exists here.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same single pinned-cluster chip; clicking it landed in /dashboard/c/local/explorer#cluster-events. No 'CD2' cluster exists on this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "Same single pinned-cluster chip; clicking it landed in /dashboard/c/local/explorer#cluster-events. No 'LT1' cluster exists on this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked the Cluster Management rail entry: landed on https://magic-closet-rancher/dashboard/c/_/manager/provisioning.cattle.io.cluster.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-docs",
+      "status": "not-implemented",
+      "evidence": "Enumerated every rail anchor: Home, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. No book icon and no documentation link; barn adds none.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-extensions",
+      "status": "pass",
+      "evidence": "The rail's 'Extension Studio' entry (href /dashboard/barn/extensions) carries 'option active-menu-link' while the editor is open, which is the highlight, and clicking it landed on https://magic-closet-rancher/dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house icon (a[href=\"/dashboard/home\"]): landed on https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-menu",
+      "status": "pass",
+      "evidence": "The rail measures 70px collapsed. Clicked the hamburger ([data-testid=\"top-level-menu\"]): it widened to 300px with labels. Clicked again: back to 70px.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked the 'Global Settings' rail entry: landed on https://magic-closet-rancher/dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the person glyph ([data-testid=\"nav_header_showUserMenu\"]): an account menu opened reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out'. It is at the right of the header rather than in the left rail.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-open-dialog",
+      "status": "pass",
+      "evidence": "Clicked the primary masthead Publish button ([data-testid=\"barn-publish-button\"]): the publish dialog opened over the workspace with a dimming scrim, headed 'Publish base'. Done a dozen times over this run, from a fresh page load each time.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-permission-chip",
+      "status": "pass",
+      "evidence": "This has changed since the last wave. The session strip's chip ([data-testid=\"barn-permission-chip\"]) has a chevron and is an SMenu trigger. It read 'Edits apply without asking'; clicking it opened a menu of four modes - 'Edits apply without asking' (in use), 'File edits apply, everything else asks' (accept edits), 'Planning only, no edits' (plan mode), 'claude decides what to ask about' (auto mode) - plus 'Open the terminal - shift+tab'. Selecting 'Planning only, no edits' really changed it: the chip re-read as 'Planning only, no edits' fifteen seconds later. Selected 'Edits apply without asking' again and the chip went back, leaving the pod as I found it. The four modes are claude's own cycle rather than screen 09's three levels: 'Ask before every file edit' is not among them, and 'plan mode' and 'auto mode' are not on screen 09.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-back",
+      "status": "pass",
+      "evidence": "Typed /c/local/explorer into the preview route and pressed Enter, so the frame's history had two entries. Clicked the back chevron: the route field went back to /home and the frame rendered the home page again.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-chart",
+      "status": "not-implemented",
+      "evidence": "No such panel exists. Grepped pkg/barn (excluding node_modules) for 'Node condition trend' - 0 hits - and the preview renders Rancher's own pages through the pod's dev server, which draws no chart of node conditions anywhere.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-existing",
+      "status": "pass",
+      "evidence": "With the preview on /c/local/explorer the frame's own document still showed Rancher's untouched cluster-dashboard cards - Total Resources, Nodes, Deployments, Capacity, Pods, CPU, Memory - read out of the iframe's DOM. Nothing the extension does removes or reorders them.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-forward",
+      "status": "pass",
+      "evidence": "After going back to /home, clicked the forward chevron: the route field returned to /c/local/explorer#cluster-events and the frame advanced with it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-live-state",
+      "status": "pass",
+      "evidence": "The label read 'Loaded - 45s ago'. Appended a line to pages/Home.vue in the base pod; twenty-five seconds later the same label read 'Hot reload - 21s ago', so it both reset and changed wording when the dev server patched the page in place. Reverted the file afterwards. Its tooltip says it is timed from the last frame navigation.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-new-marker",
+      "status": "pass",
+      "evidence": "Before: 'Nothing on this page is drawn by what has changed - HARNESS.md, product.ts, verify-w5-failed.md differ from the last commit, and no component is among them, so there is nothing in the rendered page to outline.' After I touched pages/Home.vue in the pod it became 'Nothing on this page comes from the changed components - pages/Home.vue differs from the last commit. Point the preview at a page one of them renders and it is outlined here.' So the marker tracks the real changed set and says which of the two cases applies.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-open-external",
+      "status": "pass",
+      "evidence": "The external-link glyph is an anchor with target=\"_blank\" and href /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/home - the previewed route, not just the extension root. Clicked it: a new tab opened on that URL and loaded 'Rancher Prime - Homepage'. Closed the tab immediately.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-page-more",
+      "status": "pass",
+      "evidence": "The rendered page inside the frame has its own three-dot menu. Clicked [data-testid=\"page-actions-menu-action-button\"] inside the iframe's document and its menu opened with Rancher's own page actions, 'Set as login page' and 'Show/Hide Banner'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-page-tabs",
+      "status": "fail",
+      "evidence": "The previewed page does have a tab strip, but it is Rancher's own. Read out of the iframe on /c/local/explorer: 'Events' and 'Certificates'. There is no 'Node health' tab and no sparkle marker on any tab. Grepped pkg/barn for 'Node health' - the only hits are a comment in files.vue and a naming helper in extension-placement.ts; nothing registers a tab into a cluster page.",
+      "defect": "Unchanged: the extension adds no tab to the previewed page, so the design's 'Node health' tab and its sparkle marker do not exist. The tab strip that is there belongs to Rancher's cluster dashboard."
+    },
+    {
+      "id": "07-publish-preview-panel-collapse",
+      "status": "not-implemented",
+      "evidence": "There is no generated panel to collapse: grep for 'Node condition trend' over pkg/barn returns nothing and the preview renders Rancher's own pages. The chevron the design draws has no panel under it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-reload",
+      "status": "pass",
+      "evidence": "Waited until the live label read 'Loaded - 1m ago', clicked the refresh glyph, and eight seconds later it read 'Loaded - 7s ago' - the frame navigated again.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-route",
+      "status": "pass",
+      "evidence": "The route field showed /home. Typed /c/local/explorer and pressed Enter: the frame navigated there (the field settled on /c/local/explorer#cluster-events as Rancher's own router added the hash) and the live label reset to 'Loaded - 6s ago'. The frame's document title became 'Rancher Prime - local - Cluster Dashboard'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-target-chip",
+      "status": "fail",
+      "evidence": "The chip reads 'Preview on: local' and is a bare SChip - it is not inside an SMenu (checked in the DOM: closest('.s-menu') is null) and clicking it opens nothing. Its tooltip says 'Every extension pod is created in local (EXT_CLUSTER in extensions.ts), so the preview is served from there. This Rancher has one cluster, local, so there is nothing to choose between and this is a reading rather than a picker.'",
+      "defect": "Unchanged: no cluster picker. EditorMasthead draws this as a reading because every extension pod is created in the local cluster. The design draws it as a changeable target."
+    },
+    {
+      "id": "07-publish-preview-viewport",
+      "status": "pass",
+      "evidence": "The chip reads 'Desktop' and opens a menu offering 'Desktop - Showing', 'Tablet - 834px', 'Mobile - 390px'. Chose Mobile: the chip became 'Mobile' and the iframe's computed width went from 810px to 390px. Chose Desktop again: back to 810px and 'Desktop'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-raw-output",
+      "status": "pass",
+      "evidence": "This has changed since the last wave. Clicked 'Show raw output' under the stream: the black panel opened with 31 real lines of the pod's dev server output, ending 'DONE Compiled successfully in 2949ms', 'App running at: - Local: http://localhost:8005', 'Build finished at 22:40:19'. No HTTP 406. The foot reads 'The pod's own log, with the progress redraws and the terminal control codes taken out. The last 31 of them.' with Re-read and 'Open the terminal'; Re-read refetched and kept the panel populated. The Accept: text/plain header has been dropped from devServerLog, which was the defect.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-raw-output-hide",
+      "status": "pass",
+      "evidence": "With the panel open the strip reads 'Hide raw output'. Clicked it: the black panel unmounted (element count 0) and the strip went back to 'Show raw output'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-release-summary",
+      "status": "pass",
+      "evidence": "The wider field takes a summary; typed 'w5-settings-publish release summary probe' and it held. Its hint names where it goes: 'Written to CHANGELOG.md in the package under 0.1.0, so it is in the tree the GitHub push commits.' It is prefilled from the changelog section for the current version when there is one - base has no CHANGELOG.md yet, so it started empty. The write itself only happens on Publish, which I did not run (a multi-minute build in a shared pod).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-review-changes",
+      "status": "pass",
+      "evidence": "The secondary masthead button's label counts the changes ('Review 4 changes', which matched the pod's git status). Clicking it switched the left panel to the Changes tab, which listed the four uncommitted files with their diffs.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-rollback-note",
+      "status": "pass",
+      "evidence": "The footer line tracks the ticks exactly. Nothing ticked: 'Nothing is ticked, so nothing will be published.' Local only: 'the load into this Rancher can be taken back off with \"Remove local install\".' Local + GitHub: '...and the hand-over on GitHub merges nothing, so closing its pull request is the way back.' GitHub only: just the GitHub clause.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-scrim",
+      "status": "pass",
+      "evidence": "The dialog root .s-modal is position fixed with background rgba(0, 0, 0, 0.45) over the workspace. Clicked inside it but outside the card: the dialog closed and nothing was published.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-send",
+      "status": "pass",
+      "evidence": "Typed a unique marker into the composer and clicked Send: the marker appeared in the activity stream as a new 'You' turn ('Started just now'), and the composer cleared. The turn was recorded in the pod, not just drawn.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-session-status",
+      "status": "pass",
+      "evidence": "The strip shows a live dot (assistant-panel__dot--warn) and 'The assistant is not signed in - run /login in the terminal', with a tooltip naming why: 'There is no credential in this pod: no OAuth credentials file, no API key in its environment and no account in .claude.json.' It states the true state of the session rather than an account, because this pod has none to name.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-code-review",
+      "status": "pass",
+      "evidence": "Proved by producing the state. Created refs/barn/packets/1 at HEAD in the base pod and wrote an approved code sign-off into ConfigMap barn-review-base: the row then read 'Code review - Is it safe? - W5 Code Reviewer - approved just now' with a check glyph and class publish-modal__signoff--done. Set the verdict to changes-requested and it read 'W5 Code Reviewer asked for changes just now.' with the alert glyph and --refused. Removed the sign-off and it read 'Not signed off yet.' Restored the ConfigMap and deleted the ref afterwards.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-code-review-view",
+      "status": "pass",
+      "evidence": "Clicked View on the code review row: navigated to https://magic-closet-rancher/dashboard/barn/review/base/working, the code review screen for this extension ('base - not published yet - CODE REVIEW - 2 UNCOMMITTED FILES...').",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-note",
+      "status": "pass",
+      "evidence": "The note reads 'Two people answer two questions, and only leaving the gate - putting the packet where people who did not build it can install it - asks for them. Loading this into a Rancher to try it, or handing it over on GitHub to ask for a review, needs nobody.' That is borne out by the rows: the two ungated destinations carry 'No sign-off' and stay tickable in every gate state I produced, while both gated rows carry the gate's chip and sentence. The section itself does not drop away when a destination is unticked - the OCI row cannot be ticked at all here - which is consistent with the note treating the sign-offs as information about the gate rather than about the current selection.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-outcome",
+      "status": "pass",
+      "evidence": "Same experiment: with an approved outcome sign-off in the review record the second row read 'Outcome sign-off - Does it do the job? - W5 Outcome Signer - approved just now' with a check glyph; with it removed, 'Not signed off yet.' with the clock glyph and class --waiting.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-outcome-view",
+      "status": "pass",
+      "evidence": "Clicked View on the outcome row: navigated to https://magic-closet-rancher/dashboard/barn/extensions/base/verification, the outcome sign-off screen ('base v0.1.0 - VERIFICATION - OUTCOME SIGN-OFF - ADMIN - 2 still to check').",
+      "defect": null
+    },
+    {
+      "id": "07-publish-state-badge",
+      "status": "pass",
+      "evidence": "The badge beside the name reads 'Unsaved' with the tooltip 'The working tree in the pod has changes that are not committed.', which matched the pod (git status showed HARNESS.md and product.ts modified).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-step-expand",
+      "status": "not-implemented",
+      "evidence": "No step rows exist to expand. ActivityTurn.vue draws a step list only when a `steps` prop is passed, and nothing passes one - AssistantPanel binds no `steps` anywhere. Live: querySelectorAll for step elements returned 0 across all 50 turns in the stream.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-step-status",
+      "status": "not-implemented",
+      "evidence": "Same: no step list is rendered, so there are no ticks, no spinner and no durations. The stream's own note says why: 'The per-step detail the design draws - a status and a duration for each step, and live progress on the one in flight - is not here, because the hooks record a turn's start, the files its editing tools touch and its end, and nothing in between.'",
+      "defect": null
+    },
+    {
+      "id": "07-publish-stop",
+      "status": "pass",
+      "evidence": "Clicked Stop: a growl appeared reading 'Interrupt sent - Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.' So the keypress really reached the pod's session. I could not watch it halt a run, because this pod's claude has no credential and answers every prompt with 'Not logged in'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-submit",
+      "status": "pass",
+      "evidence": "The primary footer button counts the ticked destinations: 'Pick a destination' (disabled) with none, 'Publish to 1 place' with one, 'Publish to 2 places' with two, back to 'Pick a destination' when both are cleared. It also refuses an invalid version (typed 'nope' and the button stayed disabled with a destination ticked). It does dispatch: with only 'Push the source to GitHub' ticked, clicking it closed the dialog and opened the repository dialog for that destination. I did not run a real publish - it is a multi-minute build in a shared pod and the brief forbids it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-assistant",
+      "status": "pass",
+      "evidence": "The Assistant tab is selected on load (class s-tab--selected) and its pane holds the conversation - 50 recorded turns with authors, relative times and the assistant's own replies. Switching away and back moved the selected state with it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-changes",
+      "status": "pass",
+      "evidence": "Clicked Changes: the tab carries a count badge ('Changes 4') that matched the pod's four uncommitted files, and the pane showed 'Uncommitted changes - 4 files +39 -0' with each file's diff.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-files",
+      "status": "pass",
+      "evidence": "Clicked Files: the pane became the file tree and history - 'Branch main / Commits on main / 24b3922 Remove verify-05-files.md and undo the l10n edit... / Show all 6' with the package's directories under it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-terminal",
+      "status": "pass",
+      "evidence": "Clicked Terminal: an xterm mounted (513x360, 4 canvases) showing the pod's live tmux session with claude's output. Typed 'w5probe' into it and the characters appeared at claude's prompt in the screenshot; eight backspaces cleared them again, leaving the session as I found it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-target-catalog",
+      "status": "not-implemented",
+      "evidence": "The row is present, drawn with a lock instead of a checkbox, tagged 'Requires approval' with the requirement chip 'Both + extensions team', and says 'There is no SUSE catalog reachable from this environment and no submission for this Studio to make, so there is nothing behind this box.'",
+      "defect": "There is nothing behind the box, so ticking it could not do anything. It is also not 'the only unticked one' - this dialog pre-ticks nothing, so every row starts unticked."
+    },
+    {
+      "id": "07-publish-target-dev-load",
+      "status": "pass",
+      "evidence": "The row 'Load into this Rancher' has a real checkbox, the requirement chip reads 'No sign-off' (tone subtle), and ticking/unticking moves the Publish button's count ('Publish to 1 place' / 'Pick a destination') and the rollback line. Setting the developer-load outcome policy to 'Notified' on screen 09 changed its chip to 'Sign-offs advisory' and added the note 'Settings ask to be notified of an outcome sign-off here... they never hold this destination up.' The one half of the promise that does not hold is 'ticked by default': the dialog deliberately pre-ticks nothing, and its subtitle says so.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-target-github",
+      "status": "blocked",
+      "evidence": "Got much further than 'blocked' last time, but the effect still cannot be seen. The row is present with a real checkbox and the 'No sign-off' chip, and its note says it lands on branch barn/<extension>/<n> and opens a pull request against the default branch. Ticking it and clicking Publish opened the repository dialog, which named the exact branch it would push ('barn/base/1'), repeated that nothing is merged and nothing is written to main, warned 'There is no GitHub token yet, and pushing needs one', and kept its own Publish button disabled. So everything up to the push is verified. Whether a PR is opened rather than a push to the default branch cannot be seen without a GitHub credential that works, and none exists in this environment (GitHub answers 401 to every token here).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-target-oci",
+      "status": "not-implemented",
+      "evidence": "The row is present, drawn with a lock rather than a checkbox, tagged 'The gate', and states 'Not built. Pushing to an OCI registry means building a Helm chart from the extension and pushing it with a registry client, and this Studio has neither in the pod and no registry configured.' Its requirement chip is the live gate reading rather than a constant.",
+      "defect": "The working half of the same boundary is the separate 'Put the reviewed packet on the repository' row, which is also locked here - first because no GitHub token is configured, and second because the gate is shut."
+    },
+    {
+      "id": "07-publish-target-requirements",
+      "status": "pass",
+      "evidence": "Every row ends in a requirement chip and each matches its risk: 'No sign-off' (subtle) on 'Load into this Rancher' and 'Push the source to GitHub'; the live gate reading on both gated rows; 'Both + extensions team' (warning) on the catalog. The gated chip is not a constant - see the tone experiment recorded on the sign-off rows: it read 'Never handed over', 'Both sign-offs in', 'Changes requested', 'Outcome sign-off outstanding' and 'Needs a second signer' as I moved the review record through those states.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-turn-assistant",
+      "status": "not-implemented",
+      "evidence": "The stream does render an assistant reply per turn, read out of claude's own transcript - every turn here shows 'Assistant - Not logged in - Please run /login', which is what this pod's claude actually answered. What the design draws is a plan above a step list, and neither exists: nothing in the package models a plan, and no step list is rendered at all (ActivityTurn's `steps` prop is never bound). The stream's own note says the same. This pod's claude also has no credential, so no real answer can be produced here either.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-turn-user",
+      "status": "pass",
+      "evidence": "Each of my messages appears as a bubble headed 'You' with a relative time and, where the Studio sent it, the screen and Rancher user ('Sent from the workspace screen by Default Admin'). The probe I sent during this run appeared immediately with 'Started just now'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-undo",
+      "status": "pass",
+      "evidence": "Keyed to a file of my own so I could not remove somebody else's work: wrote verify-w5-settings-publish.txt into the base pod's package and touched it so it was the most recently changed file (git status listed it as ?? alongside three other agents' entries). Clicked 'Undo' in the masthead: the file was gone from the pod ('ls: cannot access ... No such file or directory') and the other three entries were untouched.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-version",
+      "status": "pass",
+      "evidence": "The field is prefilled from the pod's package.json ('0.1.0'), and its hint says so: 'Read from package.json in the pod, and stamped on the bundle, the UIPlugin and the commit message.' Typed 0.3.0 and the hint became '...Publishing rewrites that file to 0.3.0.' Typed 'nope' and it showed 'A version has to be major.minor.patch, for example 0.2.0.' and kept the Publish button disabled even with a destination ticked. The rewrite of package.json only happens on Publish, which I did not run, so the artefact tag itself was not observed.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-view-diff",
+      "status": "pass",
+      "evidence": "Clicked 'View diff' in the summary: a diff panel opened under it showing every changed file with hunks and line numbers (HARNESS.md +3, product.ts +10, verify-w5-utf8.md +78 at that moment), and the button became 'Hide diff'. Clicking again collapsed it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-workspace-title",
+      "status": "pass",
+      "evidence": "The masthead reads 'base' over 'EXTENSION STUDIO'. The design's example name is node-health-panel; the extension actually open here is base, and the title names it.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-admins",
+      "status": "pass",
+      "evidence": "The Administrators row's checkbox reads checked=true and disabled=true, and its title says it is a reading of Rancher's RBAC rather than a setting. Clicking it changed nothing (a disabled input cannot be cleared). Count '1 user' matches the single admin globalRoleBinding on this Rancher (user-btc48, read from /v3/globalRoleBindings).",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-cluster-members",
+      "status": "fail",
+      "evidence": "The row is now UNTICKED (checked=false) and says 'Rancher's RBAC does not let this role read an extension, create one or open a terminal in its pod.' Cross-checked against /v3/roleTemplates/cluster-member: its 16 rules cover navlinks, clusterroletemplatebindings, projects(create), nodes, persistentvolumes, storageclasses, apiservices, clusterevents, clusterrepos, clusters(resourceNames local), cluster.x-k8s.io, rke-machine*, metrics.k8s.io - none of them grants get configmaps, create apps/deployments or create pods/exec, so unticked is the correct reading. Count '0 users' matches: no cluster-member binding exists in /v1/management.cattle.io.clusterroletemplatebindings.",
+      "defect": "The previous defect is fixed - the row is no longer drawn ticked and no longer claims every signed-in user can use Studio. What still does not exist is the design's grant: the checkbox is disabled, there is no allow-list to add a role to, and the card's info banner says a grant would mean editing the role's own rules (one of the three being exec into a cluster-admin pod). So the row is an accurate reading, not the tickable control the design draws."
+    },
+    {
+      "id": "09-settings-access-cluster-owners",
+      "status": "fail",
+      "evidence": "Row ticked (checked=true) with 'Rancher's RBAC lets this role read an extension, create one and open a terminal in its pod'. Cross-checked /v3/roleTemplates/cluster-owner: its first rule is apiGroups ['*'], resources ['*'], verbs ['*'], which grants all three needs, so the tick is correct. Count '2 users' matches the two cluster-owner clusterroletemplatebindings on local (u-mo773yttt4, u-b4qkhsnliz).",
+      "defect": "No revoke. The input carries `disabled`, so unticking is impossible, and Studio registers its pages with no permission gate so revoking is not expressible. The tick is a reading of Rancher's RBAC, which is what the row now says."
+    },
+    {
+      "id": "09-settings-access-counts",
+      "status": "pass",
+      "evidence": "Every count cross-checked against the API. Administrators '1 user' = one admin globalRoleBinding; Cluster Owners '2 users' = two cluster-owner bindings on local; Cluster Members '0 users' = no cluster-member binding; the banner's '4 people can sign in to this Rancher' = the 4 entries in /v3/users (admin, user1, user2, user3). The custom row showed '0 users' for Create Projects and '2 users' for Cluster Owner, i.e. the count is per chosen role.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-custom-role",
+      "status": "pass",
+      "evidence": "The fourth row is present, unticked, and now carries a real role picker. Its select lists 14 cluster-context RoleTemplates read from /v3/roleTemplates (Cluster Member, Cluster Owner, Create Projects, Manage Cluster Backups/Catalogs/Members, Manage Navlinks, Manage Nodes, Manage Storage, View All Projects, View Cluster Catalogs/Members/Nodes). No count is shown until one is chosen. Chose 'Cluster Owner': the row ticked, showed '2 users' and the capable sentence. Chose 'Create Projects': the row unticked, showed '0 users' and the not-capable sentence. Reloaded /barn/settings: the select still read projects-create with the same reading and count, so the choice persists (it is stored as customRole in ConfigMap barn-studio-settings). Reset to blank afterwards.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-access-intro",
+      "status": "pass",
+      "evidence": "The card head reads 'Studio can write to this Rancher, so treat access like cluster admin.', and the warning banner under it spells out that opening the pages is ungated and everything after it is Kubernetes RBAC on namespace barn.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-breadcrumb-current",
+      "status": "pass",
+      "evidence": "The last crumb is a SPAN (not an anchor), computed cursor 'auto', text 'Settings'. Clicking it left the URL at /dashboard/barn/settings.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-breadcrumb-extensions",
+      "status": "pass",
+      "evidence": "Clicked 'Extensions' in the breadcrumb: landed on https://magic-closet-rancher/dashboard/c/local/uiplugins#installed, Rancher's own extensions area.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-breadcrumb-studio",
+      "status": "pass",
+      "evidence": "Clicked 'Studio': landed on https://magic-closet-rancher/dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-catalog-code-review",
+      "status": "pass",
+      "evidence": "The catalog row's code-review control shows Required selected and all three segment buttons disabled. Clicked 'Off' with force: the selection stayed on Required.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-catalog-outcome",
+      "status": "pass",
+      "evidence": "Same row's outcome control: Required selected, all three segments disabled. Clicked 'Notified' with force: still Required. This matches the publish dialog's catalog row, which reads 'Both + extensions team'.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dest-catalog",
+      "status": "pass",
+      "evidence": "The catalog row draws a lock glyph (the template swaps the row icon for 'lock' whenever the row is locked), an 'Org policy' chip, and class settings__dest--muted for the greyed background. Its reason says Studio has no catalog destination.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dest-dev-load",
+      "status": "pass",
+      "evidence": "Second row reads 'Developer load into this Rancher' with a server glyph and the note 'Studio's \"This Rancher\" publish: it builds in the pod and points this Rancher at the result. Reversible with \"Remove local install\".' - the design's 'still iteration' point is made by the row's reason, which says a developer load reaches only this Rancher and is ungated by design.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dest-dev-preview",
+      "status": "pass",
+      "evidence": "First row reads 'Your dev preview', carries an 'always' chip and a lock glyph, and is drawn with settings__dest--muted (greyed). Note: 'Hot reload while you work. Nobody else can load it.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dest-oci",
+      "status": "fail",
+      "evidence": "There is no OCI row. The row carrying the 'The gate' chip and the green settings__dest--gate highlight is 'Push to a repository' (GitHub), and its own note says so: 'Studio pushes to GitHub; it cannot push an OCI artifact, so the design's OCI row is this one.'",
+      "defect": "Unchanged: no OCI destination exists in this product, so the highlighted gate row is a GitHub source push standing in for it. The highlight and the tag are drawn correctly on the row that is actually the gate; nothing to fix until an OCI push exists."
+    },
+    {
+      "id": "09-settings-dev-load-code-review",
+      "status": "pass",
+      "evidence": "Clicked 'Notified' on the developer-load code-review control: it moved to Notified. Reloaded /barn/settings and it was still Notified. Clicked 'Off' and it went back, and the ConfigMap barn-studio-settings ended at dev-load.code = off. The control now offers two segments rather than the design's three - 'Required' has been removed deliberately, because a developer load is ungated and nothing could obey it - but the effect the design asks for (choose the level, it sticks, no save step) happens.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-load-outcome",
+      "status": "fail",
+      "evidence": "The control is now two-way: only 'Off' and 'Notified' render, so 'Required' cannot be selected at all. Seeded ConfigMap barn-studio-settings with dev-load {code: required, outcome: required} by kubectl and loaded the page: it drew Notified/Notified and wrote notified/notified straight back into the ConfigMap, so a stored 'required' reconciles down on load. Setting 'Notified' does have a real effect - the publish dialog's 'Load into this Rancher' row then reads the chip 'Sign-offs advisory' and the note 'Settings ask to be notified of an outcome sign-off here... they never hold this destination up.'",
+      "defect": "The design's promise (set Required and a developer load demands an outcome sign-off) still cannot happen, and is now not even offerable: Required has been removed from this row because a developer load is ungated by design. The previous defect - a Required that was stored and then openly ignored by the publish dialog - is gone. What is left is a two-way control where the design draws three."
+    },
+    {
+      "id": "09-settings-dev-preview-code-review",
+      "status": "pass",
+      "evidence": "Dev preview code-review control: 'Off' selected, all three segments disabled. Force-clicked 'Notified': still Off.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-preview-outcome",
+      "status": "pass",
+      "evidence": "Dev preview outcome control: 'Off' selected, all three segments disabled. Force-clicked 'Required': still Off.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-server-restart",
+      "status": "pass",
+      "evidence": "Clicked Restart on the nodehealth row (chosen over base to avoid disturbing other verifiers' pods). Before: pod barn-nodehealth-extension-58f64c4997-mlt29, startTime 19:53:37, row 'Dev server running - uptime 3h 11m'. Immediately after: pod barn-nodehealth-extension-58f64c4997-xss66, startTime 23:05:34, row 'Pod running, not serving yet - uptime 0m'. Half a minute later the row read 'Dev server running - uptime 0m'. So the button really deletes the pod and the Deployment replaces it, and the uptime resets.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-dev-server-status",
+      "status": "pass",
+      "evidence": "Three rows, one per extension pod in namespace barn: base 'Dev server running - uptime 1d 16h', demo 'Dev server running - uptime 17h 44m', nodehealth 'Dev server running - uptime 2h 29m', each with settings__dot--on (green). The uptimes track the pods' real container start times, and after the nodehealth restart the row moved through the amber 'Pod running, not serving yet' state before going green again.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-account",
+      "status": "blocked",
+      "evidence": "The row and its machinery work, but the connected state cannot be reached here. Pasting a token makes the browser spend it against api.github.com first; a 401 comes back (verified directly: fetch('https://api.github.com/user') with a fake bearer returns 401 from this browser), so connectGithub throws TokenRejected, nothing is stored, and the field shows 'GitHub rejected that token, so it has not been stored.' To see the stored path I seeded Secret barn-settings with a gh_token key and the barn.rancher.io/gh-token=set annotation: the card then read 'A token is stored', chip 'Rejected by GitHub' (s-chip--warning), and 'GitHub rejected the token (Bad credentials). Reconnect with a replacement; the one stored now will fail the next import or push.' - GitHub's real 401, asked from a pod. The Active pill, the login, the scopes and the expiry all need a token GitHub accepts, and no such token exists in this environment. Secret restored to empty afterwards.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-disconnect",
+      "status": "pass",
+      "evidence": "With a token stored (seeded into Secret barn-settings), the card showed 'A token is stored' + Disconnect. Clicked Disconnect: the card fell back to 'Not connected', the Disconnect button disappeared, and kubectl showed the Secret with no data keys and the barn.rancher.io/gh-token annotation removed. The second half of the design's check does not hold: the publish dialog's 'Push the source to GitHub' row is still offered and still tickable with no token (verified before and after) - what refuses is the next dialog, which shows 'There is no GitHub token yet, and pushing needs one' and disables its Publish button. The gated 'Put the reviewed packet on the repository' row does track the token: its reason changed from 'No GitHub token is configured, so this Studio cannot push anywhere' to 'No repository is remembered for this extension yet' while the token was stored.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-intro",
+      "status": "fail",
+      "evidence": "The card head states the two uses (import, push, and the pull request) but explicitly declines the isolation promise: 'Generated extensions are never handed this credential, but the pod they run in can read the Secret it lives in (barn-settings in namespace barn, and that pod is bound to cluster-admin), so treat it as a credential Studio shares with anything it runs.'",
+      "defect": "Unchanged: the design's promise that a generated extension never gets this credential is not true here and the card says so rather than repeating it. Making it true means running extension pods under a ServiceAccount that is not cluster-admin, or keeping the token out of a namespace those pods can read."
+    },
+    {
+      "id": "09-settings-github-pat",
+      "status": "pass",
+      "evidence": "Clicked Connect: a password-type 'GitHub token' field appears and takes focus, with the hint 'Press Enter to store it' and a PAT note linking to https://github.com/settings/tokens/new?scopes=repo&description=Rancher%20Extension%20Studio. Pasted a fake ghp_ token and pressed Enter: it was spent against GitHub, refused with 'GitHub rejected that token, so it has not been stored.', and Secret barn-settings stayed empty - which is the promised write path exercised end to end. The design's 'stored per user' half is false and the card says so: 'in this build it is not - there is one Secret for this Rancher's Studio and everybody using it uses the same credential.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-github-reconnect",
+      "status": "pass",
+      "evidence": "The neutral button reads 'Connect' with no token and 'Reconnect' with one (both observed). Clicking it reveals the token field and focuses it (document.activeElement was settings-github-token). It re-runs the credential exchange rather than an OAuth authorisation - there is no OAuth app in this product - so 'the expiry date moves on afterwards' could not be shown, and no token GitHub accepts exists here.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "Enumerated every icon and aria-label in Rancher's header on /barn/settings: menu-icon, the cluster chips, the app group icons, 'Open notification center', 'Open user menu'. There is no grid glyph and no app-collection switcher. Rancher has none for barn to draw.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-logo",
+      "status": "pass",
+      "evidence": "The header on /barn/settings shows the SUSE chameleon wordmark reading 'SUSE Rancher Prime' (confirmed on a screenshot of the page; the img [data-testid=\"header__brand-img\"] is Rancher's own brand asset and this instance is branded Prime).",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-more",
+      "status": "not-implemented",
+      "evidence": "On /barn/settings there is no [data-testid=\"page-actions-menu-action-button\"] in the header at all (count 0), where on /barn/editor and /barn/extensions there is one. Studio registers STUDIO_PAGE_ACTIONS through @shell/mixins/page-actions in editor.vue and extensions.vue only; pages/settings.vue does not use the mixin, so the settings route contributes nothing to Rancher's page-actions menu and Rancher draws none of its own.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell ([data-testid=\"notifications-center\"]) on /barn/settings: a .notification-dropdown opened with a 'Notifications' header, 'Mark all as read', and real entries, e.g. 'Code approved - Today, 10:50:29 pm - Committed as d1b3c72, and the code review is recorded against it in Default Admin's name.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-iteration-note",
+      "status": "pass",
+      "evidence": "The blue note at the foot of the sign-off card is headed 'Nobody reviews the same extension forty times' and says changes accumulate against the last published version, there is no per-change approval, the run is collapsed into one diff at the push, and '\"Notified\" means the person who asked gets the criteria checked against the build; it never blocks the push.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-model-intro",
+      "status": "pass",
+      "evidence": "The last card's head reads 'Shown here so you can answer this question without asking the platform team. These rows are what this build does, which is not what the design promises: the design has two of them redacted and Studio redacts nothing.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-model-never-secrets",
+      "status": "fail",
+      "evidence": "The third row uses a warning glyph, not a lock, and reads 'The design promises two things: redaction on the way out, and a scan again before publish. The scan is real, the redaction is not.' The second half of the claim does hold and I proved it: I seeded verify-w5-preflight.yaml in the base pod containing a fake ghp_ token and the publish dialog's credential row turned red with '1 possible credential in the diff ... verify-w5-preflight.yaml:3 looks like a GitHub personal access token.'",
+      "defect": "Unchanged: nothing redacts anything before the request leaves. The pod's ServiceAccount is bound to cluster-admin and the GitHub token sits in a Secret that pod can read, so a credential the assistant opens goes to the model as written. Making the design's promise true needs something between the assistant and the cluster that does not exist."
+    },
+    {
+      "id": "09-settings-model-sends-shapes",
+      "status": "fail",
+      "evidence": "The second data row uses a warning glyph rather than a check and says 'The design promises kinds, fields and counts with the values redacted. Studio does not redact: the pod's ServiceAccount is bound to cluster-admin, so anything the assistant reads from this cluster - values included - can end up in a request.'",
+      "defect": "Unchanged: the design's promise (values stripped) is not implemented and the page says so rather than pretending."
+    },
+    {
+      "id": "09-settings-model-sends-source",
+      "status": "pass",
+      "evidence": "The first data row carries a check glyph (SIcon name=check, class settings__model-icon--sent) and reads 'Your message and the extension source files - Everything under the extension folder in the pod, plus whatever the assistant opens while it works. claude runs in the pod, so the conversation goes to Anthropic's API.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the bottom of the rail from /barn/settings: landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "This Rancher has one pinned cluster, not the design's three. The rail's cluster chip ([data-testid=\"menu-cluster-local\"], label 'local') is the equivalent affordance: clicking it from /barn/settings landed on https://magic-closet-rancher/dashboard/c/local/explorer#cluster-events, i.e. inside that cluster. There is no 'AFT' chip because no such cluster exists here.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same single pinned-cluster chip as the AFT row. Clicked [data-testid=\"menu-cluster-local\"] from /barn/settings and landed in that cluster's explorer (/dashboard/c/local/explorer#cluster-events). No 'CD2' cluster exists on this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "Same single pinned-cluster chip. Clicked it from /barn/settings and landed in /dashboard/c/local/explorer#cluster-events. No 'LT1' cluster exists on this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked the Cluster Management rail entry from /barn/settings: landed on https://magic-closet-rancher/dashboard/c/_/manager/provisioning.cattle.io.cluster, Rancher's cluster management area.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-docs",
+      "status": "not-implemented",
+      "evidence": "Enumerated every anchor in the rail: Home, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. There is no book icon and no documentation link, and barn adds none (no doc URL anywhere in pkg/barn's nav registration).",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-extensions",
+      "status": "pass",
+      "evidence": "The rail's 'Extension Studio' entry points at /dashboard/barn/extensions and carries class 'option active-menu-link' while a Studio route is open, which is the highlight. Clicking it from /barn/settings landed on https://magic-closet-rancher/dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house icon (a[href=\"/dashboard/home\"]) from /barn/settings: landed on https://magic-closet-rancher/dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-menu",
+      "status": "pass",
+      "evidence": "The rail is 70px wide collapsed. Clicked the hamburger ([data-testid=\"top-level-menu\"]): it widened to 300px with the labels showing. Clicked again: back to 70px.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked the 'Global Settings' rail entry from /barn/settings: landed on https://magic-closet-rancher/dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the person glyph ([data-testid=\"nav_header_showUserMenu\"]) on /barn/settings: an account menu opened reading 'admin / Default Admin / Preferences / Account & API Keys / Log Out'. It sits at the right of the header rather than in the left rail, which is where Rancher puts it.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-no-save",
+      "status": "pass",
+      "evidence": "There is no Save or Apply button anywhere on the page (the page states this itself under the title). Clicked 'Notified' on the developer-load code-review control, navigated away to /barn/editor and back to /barn/settings, and the control still read Notified with nothing pressed in between; the ConfigMap barn-studio-settings had been rewritten on the click. Same for the repository outcome control (Off / Required / Notified each landed in the ConfigMap immediately) and for the custom-role choice.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-oci-code-review",
+      "status": "pass",
+      "evidence": "The 'Push to a repository' row's code-review control shows Required selected with all three segments disabled. Force-clicked 'Off': it stayed Required. The row's reason says why it is fixed rather than merely locked - distributionGate() refuses the distribution until a code sign-off covering the packet is on record - and I saw the gate do exactly that: with no packet, the publish dialog's two gated rows read 'Never handed over' and were not tickable.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-oci-outcome",
+      "status": "pass",
+      "evidence": "Moved the repository outcome control through all three values. Each write landed in ConfigMap barn-studio-settings immediately (read back: off, required, notified) and survived a reload. Each choice also changes what the publish dialog says on that destination: at Required the row reads 'Settings require both sign-offs here, which is what the gate enforces.'; at Off it reads 'Settings put an outcome sign-off at \"Off\". The gate takes both regardless...'; at Notified 'Settings put an outcome sign-off at \"Notified\". The gate takes both regardless...'. Restored to Notified.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-permission-ask-every-edit",
+      "status": "fail",
+      "evidence": "The radio is rendered with `disabled` and unchecked; the card's banner says the level is not settable and names what decides it. detectPermission() read the pod's claude-session.sh and reported --dangerously-skip-permissions, so 'Do not ask at all' carries the 'In force' chip instead.",
+      "defect": "Still not selectable here, so the promised behaviour cannot be produced from this page. It needs --dangerously-skip-permissions dropped from pod/claude-session.sh and a way for PodTerminal to surface claude's approval prompts. Note that the editor's session strip now does offer a live mode menu (I switched the pod from 'Edits apply without asking' to 'Planning only, no edits' and back), but claude's own cycle has no 'ask before every file edit' mode in it, so even that cannot produce this level."
+    },
+    {
+      "id": "09-settings-permission-edit-freely",
+      "status": "fail",
+      "evidence": "The radio is disabled and unchecked; 'Do not ask at all' is the one carrying 'In force'. So this is neither selectable nor the default.",
+      "defect": "Unchanged on this page. detectPermission() already recognises --permission-mode acceptEdits, so the card would follow the moment pod/claude-session.sh changed. The editor's session strip can now cycle the running claude to 'File edits apply, everything else asks' (verified live), but that is a per-session cycle in the pod, not this card, and a restarted session comes back on the bundle's flag."
+    },
+    {
+      "id": "09-settings-permission-intro",
+      "status": "fail",
+      "evidence": "The card's banner opens 'Not settable, and not per user.' and explains that the flag is one line of claude-session.sh in the extension's seed ConfigMap, that Studio rewrites that ConfigMap from the bundle on every page load, and that everybody with a terminal in the pod is at the same level.",
+      "defect": "Unchanged: the design's scope claim (per user, applies from the next message) does not hold. It is per pod and it takes effect when a session next starts."
+    },
+    {
+      "id": "09-settings-permission-never-ask",
+      "status": "fail",
+      "evidence": "This is the level in force - the row is checked, carries an 'In force' success chip and an 'Admins only, not enforced' warning chip - but it is not a choice (the radio is disabled) and the row itself says the other two halves of the promise are false: 'nothing restricts who may open a terminal, and the pod's ServiceAccount is bound to cluster-admin'.",
+      "defect": "Unchanged: not a choice, 'admins only' is not enforced, and 'still cannot publish' is false because the publish path runs from a cluster-admin pod."
+    },
+    {
+      "id": "09-settings-preview-cluster",
+      "status": "fail",
+      "evidence": "The Preview cluster control renders as a static row reading 'local - K3s v1.36.1' with a lock glyph. There is no select, no chevron and no menu. The hint under it says Studio creates every pod in the local cluster, named once in extensions.ts rather than read from a setting.",
+      "defect": "Unchanged: no cluster picker and nothing for one to write to. This Rancher also has only one cluster, so there would be nothing to pick between."
+    },
+    {
+      "id": "09-settings-preview-intro",
+      "status": "pass",
+      "evidence": "The card head reads 'Unpublished extensions only ever load on this cluster. A preview is served by the extension's own pod in namespace barn, reached through this cluster's API proxy, so nothing outside this Rancher can load it.' Consistent with what the editor's preview frame actually loads: /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-signoff-columns",
+      "status": "pass",
+      "evidence": "The matrix head has two columns, 'CODE REVIEW' (SIcon name=code) and 'OUTCOME SIGN-OFF' (SIcon name=eye), and every one of the four destination rows renders two independent segmented controls under them, with aria-labels of the form '<destination>: code review' and '<destination>: outcome sign-off'. They are genuinely independent: on the repository row the code column is fixed at Required while the outcome column moved freely through all three values.",
+      "defect": null
+    },
+    {
+      "id": "09-settings-signoff-intro",
+      "status": "pass",
+      "evidence": "The card head reads 'Everything before the push to a repository is iteration, and Studio never interrupts it. The gate is the moment the extension becomes installable by somebody else.'",
+      "defect": null
+    },
+    {
+      "id": "09-settings-title",
+      "status": "pass",
+      "evidence": "Heading reads 'Studio settings' over 'Applies to everyone who uses Studio on this Rancher.', with a further line saying there is no Save button on the page.",
+      "defect": null
+    }
+  ]
+}

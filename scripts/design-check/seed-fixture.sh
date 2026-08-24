@@ -46,7 +46,12 @@ PYEOF
     kubectl -n barn create configmap $REVIEW_CM --from-file=review.json=/tmp/barn-review-next.json \
       --dry-run=client -o yaml | kubectl -n barn apply -f - >/dev/null
     rm -f /tmp/barn-review-cur.json /tmp/barn-review-next.json
-    echo "seeded: product.ts modified, HARNESS.md added, packet 1 handed over"
+    # The ref as well as the record. Without it the fixture contradicts itself: the queue and
+    # screen 12 read the ConfigMap and show packet 1, while distributionGate() resolves the ref
+    # and reads the extension as never handed over. A verifier lost time to that disagreement
+    # before working out it was the fixture and not the product.
+    kubectl -n barn exec $POD -- sh -c "cd /app/pkg/base && git update-ref refs/barn/packets/1 HEAD" >/dev/null 2>&1
+    echo "seeded: product.ts modified, HARNESS.md added, packet 1 handed over (record + ref)"
     ;;
   undo)
     kubectl -n barn exec $POD -- sh -c "cd /app/pkg/*/ && \
@@ -63,6 +68,7 @@ PYEOF
         --dry-run=client -o yaml | kubectl -n barn apply -f - >/dev/null
       rm -f /tmp/barn-review-cur.json /tmp/barn-review-next.json
     fi
+    kubectl -n barn exec $POD -- sh -c "cd /app/pkg/base && git update-ref -d refs/barn/packets/1" >/dev/null 2>&1
     echo "removed"
     ;;
   *) echo "usage: seed-fixture.sh [seed|undo]" >&2; exit 2 ;;

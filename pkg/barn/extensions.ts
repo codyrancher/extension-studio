@@ -4900,7 +4900,18 @@ export async function assistantModel(name: string): Promise<AssistantModel> {
     .filter((l) => l.startsWith('claude'))[0] || '';
   const flagged = /--model[\s=]+(\S+)/.exec(argv)?.[1] || '';
   const env = section('--env--', '--settings--').trim();
-  const [settings = '', config = ''] = section('--settings--', '--help--').split('\n').map((l) => l.trim());
+  // Positional, and skipping index 0 on purpose. `echo '--settings--'` ends the marker line with
+  // a newline, so splitting the output on the marker leaves the tail of that line as the first
+  // element: the array is ['', settings, config, '']. Destructuring the first two took the empty
+  // tail as `settings` and the settings.json value as `config`, so a model set in settings.json
+  // was reported as coming from ~/.claude.json and one set only in ~/.claude.json was dropped.
+  //
+  // Trimming the section first would be wrong for the same reason in the other direction: an
+  // empty first value is meaningful (that file sets no model), and trimming would shift the
+  // second value into its place.
+  const lines = section('--settings--', '--help--').split('\n');
+  const settings = (lines[1] || '').trim();
+  const config = (lines[2] || '').trim();
   const help = section('--help--', '--session--');
 
   // The aliases, and only the aliases: claude's own sentence is "an alias for the latest model
