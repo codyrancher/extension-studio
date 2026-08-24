@@ -1,0 +1,407 @@
+{
+  "screen": "12-change + 04-review",
+  "verdicts": [
+    {
+      "id": "12-change-approve",
+      "status": "pass",
+      "evidence": "Pressed \"Approve the code\" on /barn/review/demo/working (demo held only my own scratch files). git in the pod went from 4609f29 to 27dc494 \"Reviewed: 5 files\"; the decision bar redrew as \"Code review | Default Admin, just now\" with data-done=yes while \"Outcome sign-off | not signed off\" stayed data-done=no, and Approve went disabled once the tree was clean. The outcome gate staying open is what keeps publishing shut: distributionGate() in review.ts refuses until both sign-offs cover the packet.",
+      "defect": null
+    },
+    {
+      "id": "12-change-assistant-draft",
+      "status": "blocked",
+      "evidence": "Left a comment on pages/Home.vue line 10 in demo and pressed \"Ask the assistant to draft a fix\". The draft block rendered under the comment with data-state=\"stuck\": \"The assistant cannot answer this - claude in this pod is signed out, so the question is sitting in its session with nothing to read it.\" Checked all three extension pods (base, demo, nodehealth): no $HOME/.claude/.credentials.json and no ANTHROPIC_API_KEY/CLAUDE_CODE_OAUTH_TOKEN, so no draft can ever land and the unapplied-draft block with its file/line counts cannot be produced here.",
+      "defect": null
+    },
+    {
+      "id": "12-change-automated-checks",
+      "status": "pass",
+      "evidence": "Five rows, and the two that cannot run are never drawn as passes. On a clean demo tree the chip read \"3 ran clean, 2 could not run\" and rc-check-build / rc-check-contrast carried data-state=\"unknown\" with a clock icon and their reasons. I then wrote barn-review-w6.vue into /app/pkg/demo containing a fake ghp_ token, a metrics.k8s.io/v1beta1 literal, t('demo.absent.w6key') and t('product.base'). The chip turned warning \"3 of 5 found something\" and the three real checks fired with path:line - \"barn-review-w6.vue:2 · a GitHub personal access token\", \"barn-review-w6.vue:3 · metrics.k8s.io/v1beta1\", \"barn-review-w6.vue:6 · demo.absent.w6key\". product.base (which is in demo l10n/en-us.yaml) was not flagged. No finding echoed the token value; only the diff pane, which is showing the file itself, contains the string.",
+      "defect": null
+    },
+    {
+      "id": "12-change-back",
+      "status": "pass",
+      "evidence": "Clicked the masthead left arrow (aria-label \"Back to the queue\") on /barn/review/base/working. Landed on /dashboard/barn/review with .queue__list rendered.",
+      "defect": null
+    },
+    {
+      "id": "12-change-comment-thread",
+      "status": "pass",
+      "evidence": "After posting on pages/Home.vue line 10 in demo the thread rendered under hunk 1 as: avatar \"DA\" (title local://user-btc48), byline \"Default Admin · just now · on line 10\", the body text, and a state row \"on the record, not sent to the assistant\". A second comment on the same line joined the same thread rather than starting a new one.",
+      "defect": null
+    },
+    {
+      "id": "12-change-criteria-list",
+      "status": "pass",
+      "evidence": "On base the \"Does it do the job?\" section listed 4 criteria, each with its own leading icon and sub-label: \"evidence captured\" (x2), \"checked and not met at /home\", \"looked at, no verdict at /\". The states are read per criterion, not repeated.",
+      "defect": null
+    },
+    {
+      "id": "12-change-diff-header",
+      "status": "pass",
+      "evidence": "The wide panel head names the selected file (it tracked BRIEF.md -> product.ts -> pages/Home.vue as I clicked rows) and the diff pane under it opens with DiffView's summary line, e.g. \"1 file +1−0\" on base and the matching totals on demo.",
+      "defect": null
+    },
+    {
+      "id": "12-change-diff-line-to-visual",
+      "status": "pass",
+      "evidence": "Drove both branches on demo with the preview pointed at /demo/c/_/home. Clicking the added line <h1 class=\"w6-probe\">It works</h1> answered \"Outlined: 1 element matching .w6-probe and drawn by pages/Home.vue. Matched on the attribute the line itself carries, which is an exact match rather than a guess\", and exactly one element (H1.w6-probe) carried data-barn-line in the framed document. Clicking the added line with no attribute (\"rendered at {{ renderedAt }} (w6)\") answered \"pages/Home.vue draws 5 blocks on this page. Nothing records which line drew which element, so the whole file's output is outlined rather than this one line's\" and outlined all 5. It does not overclaim. \"Clear\" removed the outline (0 elements left).",
+      "defect": null
+    },
+    {
+      "id": "12-change-diff-lines",
+      "status": "pass",
+      "evidence": "Rows render as <tr class=\"diff__row diff__row--add\"> with two gutter cells (old, new line number) and a code cell whose first span is the +/- sign, e.g. gutters \"\", \"13\" and code \"+    <h1 class=\\\"w6-probe\\\">It works</h1>\". The tint is on the row: .diff__row--add uses --studio-diff-added-bg and .diff__row--remove --studio-diff-removed-bg (DiffView.vue:518-524).",
+      "defect": null
+    },
+    {
+      "id": "12-change-file-ranking",
+      "status": "pass",
+      "evidence": "On demo with 4 changed files the list drew two group headers with counts - \"Worth your attention 3\" and \"Generated, low risk 1\" - and every row carried a reason line: \"the brief itself, so what this change is measured against moved\", \"new code, nothing to compare it against\", \"changed code\", \"build output, not source\". base drew \"Worth your attention 2 / Config 1\" with \"documentation\" under HARNESS.md.",
+      "defect": null
+    },
+    {
+      "id": "12-change-file-scope",
+      "status": "pass",
+      "evidence": "The chip reads \"Reviewing all 4 files\" and opens a menu of only the piles this change has (All files 4, Worth your attention 3, Generated 1 on demo; only All files / Worth your attention on nodehealth, which has one pile). Narrowing moved everything together: the chip became \"Reviewing 3 of 4 files\", the heading became \"CHANGED FILES (3 OF 4)\", the Generated group left the list and the diff pane moved off dist/barn-review-w6-generated.js onto barn-review-w6.vue. Reset to All files restored all four.",
+      "defect": null
+    },
+    {
+      "id": "12-change-file-select",
+      "status": "pass",
+      "evidence": "Clicked pages/Home.vue in the ranked list on demo: the diff header switched to pages/Home.vue, the patch under it became that file's, and the rc__file--selected highlight moved off the previously selected row.",
+      "defect": null
+    },
+    {
+      "id": "12-change-header-actions",
+      "status": "fail",
+      "evidence": "Two of the three open. The kebab (aria-label \"Page actions menu\") opens \"Review queue / Studio settings / Installed extensions\" and clicking Review queue navigates to /dashboard/barn/review. The bell (\"Open notification center\") opens the notification panel with real entries. There is no app-collection control: the only header buttons this Rancher renders are Page actions menu, Open notification center and Open user menu.",
+      "defect": "No app/grid control exists in the header, so the third of the three icons the design draws cannot be opened. The nearest thing is the hamburger at the top-left, which expands Rancher's own nav rail (70px -> 300px) rather than an app-collection popover. See DEPARTURES #2: this is Rancher's chrome and there is nothing honest for an extension to point a grid icon at."
+    },
+    {
+      "id": "12-change-hide-generated",
+      "status": "pass",
+      "evidence": "On demo (which had dist/barn-review-w6-generated.js, ranked generated) the chip title named the file and pressing it collapsed the Generated group out of both the list and the diff: heading \"CHANGED FILES (3 OF 4)\", chip label \"1 generated file hidden\", diff pane moved to barn-review-w6.vue. Pressing again restored the group and the heading. On a change with nothing generated the chip says so in its title rather than pretending.",
+      "defect": null
+    },
+    {
+      "id": "12-change-hunk-provenance",
+      "status": "blocked",
+      "evidence": "The strip renders, but with the honest empty state on every hunk: \"13 lines changed in the pod, no prompt recorded\", and the section summary \"No prompt recorded for any of this change's 40 lines\". No hunk anywhere can carry a quoted prompt, because line-level attribution needs a turn that ended in a commit and claude is signed out in all three extension pods (no credentials file, no API key), so barn-provenance records no ended turns. demo's pod has no /seed/barn-provenance.mjs at all and says \"this pod was started before the Studio recorded provenance\".",
+      "defect": null
+    },
+    {
+      "id": "12-change-identity",
+      "status": "pass",
+      "evidence": "The masthead renders both lines. On base: \"base · not published yet\" with the title explaining nothing of that name is installed, and under it \"CODE REVIEW · 3 UNCOMMITTED FILES · LAST EDITED 6 MINUTES AGO · ON MAIN\" whose tooltip names the last commit, its author and its message. On nodehealth the version reads \"nodehealth · v0.1.0\", matching the installed UIPlugin.",
+      "defect": null
+    },
+    {
+      "id": "12-change-leave-for-author",
+      "status": "pass",
+      "evidence": "Typed a comment and pressed \"Just record it\" on demo. The comment appeared on the thread with the state row \"on the record, not sent to the assistant\", the review ConfigMap recorded it with sentAt: \"\" and sentHow: \"\", no draft block was produced, and the pod's assistant was not asked.",
+      "defect": null
+    },
+    {
+      "id": "12-change-nav-rail",
+      "status": "pass",
+      "evidence": "Rancher's 70px rail renders beside the review on /barn/review/base/working, and the Extension Studio entry carries class \"option active-menu-link\" while the other entries do not.",
+      "defect": null
+    },
+    {
+      "id": "12-change-open-brief",
+      "status": "pass",
+      "evidence": "Clicked \"Open the brief\" in the \"What this is for\" card on base: navigated to /dashboard/barn/extensions/base/brief with .brief__columns present.",
+      "defect": null
+    },
+    {
+      "id": "12-change-open-preview",
+      "status": "pass",
+      "evidence": "The preview panel's popout link points at the pod's own dev server, /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-demo-extension:8005/proxy/home. Clicking it opened a new tab on that URL which rendered the live dashboard served from demo's working tree (its \"Demo\" product visible in the nav). Closed the tab afterwards.",
+      "defect": null
+    },
+    {
+      "id": "12-change-pr-link",
+      "status": "blocked",
+      "evidence": "The chip renders a real state rather than a dead link: on base \"No GitHub repository\", title \"Packet 1 records no pull request, and there is no GitHub token configured, so nothing can be asked about it\", and prChip.action is '' so it is not clickable. No GitHub repo or token is configured for any extension here and no packet has ever been pushed, so there is no pull request to open and the promise cannot be exercised.",
+      "defect": null
+    },
+    {
+      "id": "12-change-purpose-card",
+      "status": "pass",
+      "evidence": "The first card renders the purpose sentence taken from BRIEF.md (\"Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.\") plus a provenance line. The line is a refusal rather than the mock's \"Agreed with Ops Enablement on 18 Aug\": \"Written under 'The problem' in this extension's BRIEF.md. Nothing records who agreed it, when, or which ticket it came from - the brief has no field for any of that, so this screen does not invent one.\" That is the deliberate no-fake-data rule, and the card does render both parts.",
+      "defect": null
+    },
+    {
+      "id": "12-change-request-changes",
+      "status": "pass",
+      "evidence": "The count tracks threads: \"Request changes (1 open)\" with one comment thread on demo, \"(2 open)\" after a change-level message added a second thread, and the title explains the count. Pressing it opened the reason modal; sending recorded a changes-requested sign-off (the decision bar then read \"Code review | changes requested by Default Admin just now\", data-done=no) and routed to /barn/editor/demo?tab=terminal with the reason put to the pod's assistant.",
+      "defect": null
+    },
+    {
+      "id": "12-change-risk-chip",
+      "status": "pass",
+      "evidence": "The masthead chip on /barn/review/base/working read \"low risk\" with the title \"Prose only, no code · no dependency changes · 1 file\". The queue row for the same change on /barn/review read RISK \"low\" with the same reason string, so the rating survives the navigation.",
+      "defect": null
+    },
+    {
+      "id": "12-change-see-conversation",
+      "status": "blocked",
+      "evidence": "The \"See the conversation\" button lives inside the per-turn rows of a hunk's provenance strip (v-for over hunkProv[index].turns), and no hunk on any of the three extensions has a turn: every strip renders the \"N lines changed in the pod, no prompt recorded\" row instead. Same root cause as 12-change-hunk-provenance - claude is signed out in every extension pod, so no turn ever ends in a commit and nothing can be attributed. The control was never reachable to press.",
+      "defect": null
+    },
+    {
+      "id": "12-change-see-the-fix",
+      "status": "blocked",
+      "evidence": "The \"See the fix\" button is only drawn when draftBlock(c).state === 'drafted'. The only state reachable here is 'stuck', because claude in the pod is signed out (verified in all three pods), so no draft object is ever written and the button never renders. Nothing to open.",
+      "defect": null
+    },
+    {
+      "id": "12-change-send-to-assistant",
+      "status": "pass",
+      "evidence": "Pressed \"Send to the assistant\" in the line composer on demo. It routed to /barn/editor/demo?tab=terminal&comment=<id>, and the review ConfigMap came back with the comment carrying sentAt: \"2026-08-24T01:50:21.998Z\" and sentHow: \"sent\". Back on the review the thread showed \"given to the assistant 1 minute ago\" and offered \"Ask the assistant to draft a fix\"; that ask produced a draft block, though only in its \"stuck\" state (see 12-change-assistant-draft).",
+      "defect": null
+    },
+    {
+      "id": "12-change-shot-after",
+      "status": "pass",
+      "evidence": "The After segment renders the live PreviewPanel framing the pod's dev server (barn-nodehealth-extension:8005 / barn-demo-extension:8005 proxy), not a static shot: it has a working address bar, and navigating it to /demo/c/_/home rendered the extension's own page from the working tree, with the components the change touches carrying __file = pages/Home.vue. When the dev server is not up the panel is replaced by \"The preview is not up\" rather than an empty frame.",
+      "defect": null
+    },
+    {
+      "id": "12-change-shot-before",
+      "status": "pass",
+      "evidence": "On nodehealth (UIPlugin v0.1.0 installed) the Before segment framed /dashboard/home - this Rancher running the installed build - and the note said \"Before is v0.1.0, the build installed in this Rancher... The diff, though, is measured from the last commit in the pod, so the difference between the two panes is not exactly the diff.\" On base and demo, where nothing is installed, both Before and Overlay are disabled, the strip says \"no Before to show\" and the reason is spelled out rather than another page being framed.",
+      "defect": null
+    },
+    {
+      "id": "12-change-signoff-status",
+      "status": "pass",
+      "evidence": "The decision bar draws both gates with who owns each. Before any decision on demo: \"Code review | not signed off\" and \"Outcome sign-off | not signed off\", both data-done=no with an empty dot. On base the outcome row also carries the criteria count (\"not signed off - 1 of 5 criteria met\"). After approving, only the code dot filled and the outcome row stayed empty.",
+      "defect": null
+    },
+    {
+      "id": "12-change-since-last-look",
+      "status": "pass",
+      "evidence": "Proved it measures from a different point rather than redrawing the same thing. After approving on demo (working tree clean, whole change = 0 files) I pressed the chip: the banner read \"Showing what has landed since 4609f29, the commit you last read: 5 files. The whole change, measured from the last published version, is 0 files\", and the file list went from empty to the 5 files committed since that point. Pressing again restored the unnarrowed view. The chip title names the sha it is measuring from, and refuses with a reason when nothing recorded a look.",
+      "defect": null
+    },
+    {
+      "id": "12-change-talk-to-author",
+      "status": "pass",
+      "evidence": "On demo the masthead button read \"Talk to the author\" and its title named the packet's own signer (\"Default Admin handed packet 1 over for review 2 hours ago\"). Pressing it opened the modal, and \"Leave it for them\" recorded a change-level comment \"To Default Admin: w6-review: message left for the author\" which then rendered in the change-comments section. Also checked the empty state: on a route for an extension with no pod, no commit and no packet the button is disabled and reads \"No author recorded\", with the reason on the wrapper span so a disabled control still shows it.",
+      "defect": null
+    },
+    {
+      "id": "12-change-ux-decision",
+      "status": "pass",
+      "evidence": "Pressed \"This is a UX decision, not a code one\" on demo and sent a question. BRIEF.md in the pod gained \"- **Worth asking** w6-review: should the stamp show seconds?\" with an indented Why line naming me and the code review, the file appeared in the changed-file list, the \"What this is for\" card re-read it, and a change-level comment \"Rerouted as a design question, not a code one: ... It is now an open question on the brief.\" was recorded. Nothing was signed off and the code gate stayed open.",
+      "defect": null
+    },
+    {
+      "id": "12-change-visual-mode",
+      "status": "pass",
+      "evidence": "On nodehealth all three segments are live and exactly one is active: After (default, aria-pressed=true) shows the PreviewPanel; Before swaps to a single frame on /dashboard/home with the preview hidden; Overlay stacks two frames in .rc__stack--overlay, the installed build under the pod's dev server. On base both Before and Overlay are disabled - clicking Before left the state on After - with \"no Before to show\" and the reason that no version of the extension is installed anywhere.",
+      "defect": null
+    },
+    {
+      "id": "12-change-visual-to-code",
+      "status": "pass",
+      "evidence": "Turned on \"Find the code\" on demo (readout: \"Click anything in the page below and the diff goes to the file that draws it\"). With barn-review-w6.vue selected I clicked the <h1> in the framed page: the diff header moved to pages/Home.vue and the readout said \"pages/Home.vue draws that. The diff on the left is now showing it - which hunk drew the element cannot be known, because nothing in the running page records a line number.\" Clicking Rancher's own header answered \"That is drawn by node_modules/@rancher/shell/components/nav/Header.vue, which this change does not touch.\" It lands on the file and says so rather than claiming a hunk.",
+      "defect": null
+    },
+    {
+      "id": "12-change-write-comment",
+      "status": "pass",
+      "evidence": "Each hunk carries a \"Comment on line 10\" affordance. Opened it, typed, and the comment was written into the barn-review-demo ConfigMap with file \"pages/Home.vue\", hunk 10, my principal and a timestamp, then rendered on the thread anchored to that line.",
+      "defect": null
+    },
+    {
+      "id": "04-review-ask-different-approach",
+      "status": "pass",
+      "evidence": "The button under the explanation reads \"Ask why this file changed\". Pressing it with pages/Home.vue selected sent a seeded prompt about that file to the pod (\"In the working tree of the demo extension, explain the modified file pages/Home.vue: what the change does, why it was made, and anything in it a reviewer should question... do not edit any files\") and routed to /barn/editor/demo?tab=terminal with .mc-editor rendered. Nothing was edited by hand. The label and prompt ask for an explanation rather than literally \"a different approach\", but it does hand the point back to the assistant with the change in context.",
+      "defect": null
+    },
+    {
+      "id": "04-review-back-arrow",
+      "status": "pass",
+      "evidence": "Clicked the masthead left arrow (aria-label \"Back\") on /barn/extensions/demo/review: landed on /dashboard/barn/extensions with .studio-home__table present.",
+      "defect": null
+    },
+    {
+      "id": "04-review-back-to-assistant",
+      "status": "pass",
+      "evidence": "Clicked \"Back to assistant\" in the masthead: /dashboard/barn/editor/demo with .mc-editor rendered. The changed files survived - the pod still listed them and re-opening the review showed the same six rows.",
+      "defect": null
+    },
+    {
+      "id": "04-review-branch-chip",
+      "status": "pass",
+      "evidence": "The chip reads \"main\"; git rev-parse --abbrev-ref HEAD in the demo pod also answers main (the pod also holds barn/demo/1, and the chip shows the checked-out one).",
+      "defect": null
+    },
+    {
+      "id": "04-review-changed-files-summary",
+      "status": "pass",
+      "evidence": "Header count and totals agree with the pod. With six files the header read 6 and the per-file counts were BRIEF.md +4, barn-review-w6-long.txt +200, barn-review-w6.vue +14, dist/barn-review-w6-generated.js +2, pages/Home.vue +2 -2, product.ts +1 -1 - identical to git diff --numstat against the baseline ref in the pod. The count tracked reality as files changed: 7 -> 6 after a revert, 6 -> 5 after another.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-body",
+      "status": "pass",
+      "evidence": "The code pane renders the real patch for the selected file: 200 rows for the 200-line new file, 16 for the Home.vue edit, each row two gutter cells (old, new) and a code cell led by the +/- sign, with .diff__row--add / .diff__row--remove carrying --studio-diff-added-bg / --studio-diff-removed-bg.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-header",
+      "status": "pass",
+      "evidence": "Selected each file in turn; the header title tracked the selection exactly (pages/Home.vue -> barn-review-w6-long.txt -> barn-review-w6.vue) and the +/- counts stay on the file rows in the list beside it.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-scroll",
+      "status": "pass",
+      "evidence": "With the 200-line new file selected, .review__code has overflow-y: auto, scrollHeight 3675 against clientHeight 758. Setting its scrollTop to 400 scrolled inside the pane: the masthead's bounding rect did not move and document.scrollingElement.scrollTop stayed 0.",
+      "defect": null
+    },
+    {
+      "id": "04-review-diff-view-mode",
+      "status": "pass",
+      "evidence": "The chip reads \"Unified\". Pressing it relabels to \"Split\" (title \"Side by side: what was there on the left, what is there now on the right. Switch to unified.\") and the table re-renders with four cells per row - old gutter, old code, new gutter, new code - against three in unified. Pressing again returns to unified.",
+      "defect": null
+    },
+    {
+      "id": "04-review-discard-all",
+      "status": "fail",
+      "evidence": "The committed half holds. On demo with a baseline behind HEAD the screen listed 7 files, 4 of them committed, the note explained why they stay listed, the button read \"Discard 3\" (not \"Discard all\"), and the confirm said \"Discard 3 of the 7 changed files in demo? ... The other 4 files here are already committed and will still be listed afterwards.\" After pressing it HEAD was still 27dc494 and all four committed files were untouched on disk. What does not hold is discarding all the uncommitted ones.",
+      "defect": "A discard whose pathspec mixes tracked-modified and untracked files restores none of the tracked ones. discardChanges (extensions.ts:2632) runs `git checkout -- <all paths>`, and git aborts the whole pathspec with \"error: pathspec 'x' did not match any file(s) known to git\" as soon as one path is untracked; the error is swallowed by `2>/dev/null || true`, then `git clean` removes the untracked files anyway. Observed twice on demo: barn-review-w6-b.txt and w6-check-probe.ts were deleted while pages/Home.vue stayed modified, and reproduced by hand in the pod (exit=1 from checkout, \"Removing barn-review-w6-c.txt\", pages/Home.vue still M). The screen does not lie about it - the BARN-DISCARD-LEFT check throws \"the discard did not take\" - but the press leaves a half-discarded tree. A single-path discard (\"Revert this file\") works on both tracked and untracked files, so the fix is to split the pathspec, or to run checkout only over the paths git knows."
+    },
+    {
+      "id": "04-review-explanation",
+      "status": "pass",
+      "evidence": "Three headed paragraphs, read off the real diff and different per file. For the new 200-line file: \"What was added - barn-review-w6-long.txt is new. The whole file is 200 lines of it.\" / \"What was replaced - Nothing. Every line in this change is new...\" / \"What is not touched - 5 other files changed in this working tree - ... - and this panel is about barn-review-w6-long.txt only.\" For the Home.vue edit it instead read \"2 lines added, in 1 place in the file\" and \"2 lines taken out. Git counts a rewritten line as one out and one in...\".",
+      "defect": null
+    },
+    {
+      "id": "04-review-file-stats",
+      "status": "pass",
+      "evidence": "Every row states its status and counts - \"BRIEF.md +4 added\", \"pages/Home.vue +2 -2 modified\", \"product.ts +1 -1 modified\", \"barn-review-w6-long.txt +200 added\" - matching git status and git diff --numstat in the pod exactly.",
+      "defect": null
+    },
+    {
+      "id": "04-review-header-apps",
+      "status": "not-implemented",
+      "evidence": "There is no grid icon in the header. The complete set of header controls this Rancher renders on /barn/extensions/demo/review is aria-label \"Page actions menu\", \"Open notification center\" and \"Open user menu\"; everything else with an aria-label is a nav-rail entry. Rancher's app/cluster switcher is reachable, but from the hamburger at the top-left (which expands the rail from 70px to 300px), not from a grid icon at the far right. Searched the rendered header for any button/anchor and found no third control; see DEPARTURES #2.",
+      "defect": "The app-collection grid the design draws does not exist in this Rancher's header, so an extension has nothing to open."
+    },
+    {
+      "id": "04-review-header-more",
+      "status": "pass",
+      "evidence": "Clicked the three-dot control (aria-label \"Page actions menu\") on /barn/extensions/demo/review: a menu opened with \"Review queue | Studio settings | Installed extensions\". review.vue commits the same STUDIO_PAGE_ACTIONS as the sibling screens, and on screen 12 I confirmed selecting Review queue navigates to /dashboard/barn/review.",
+      "defect": null
+    },
+    {
+      "id": "04-review-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell (aria-label \"Open notification center\") on the review screen: the notifications panel opened, headed \"Notifications | Mark all as read\" and listing real entries with timestamps (\"Today, 1:52:59 am - Verification recorded\").",
+      "defect": null
+    },
+    {
+      "id": "04-review-keep-and-continue",
+      "status": "pass",
+      "evidence": "With one file unticked, pressing \"Keep and continue building\" left for /dashboard/barn/editor/demo. In the pod the unticked file (barn-review-w6-a.txt) was gone and the ticked ones (barn-review-w6-b.txt, pages/Home.vue) were still changed; HEAD had not moved and nothing was published.",
+      "defect": null
+    },
+    {
+      "id": "04-review-keep-file",
+      "status": "pass",
+      "evidence": "Unticked barn-review-w6-a.txt: the action-bar sentence recounted to \"5 of 6 files will be kept\" and the discard label dropped from \"Discard 3\" to \"Discard 1\". Left the screen; git status in the pod then showed barn-review-w6-a.txt gone while barn-review-w6-b.txt and the pages/Home.vue edit survived. Re-ticking before leaving restores the count.",
+      "defect": null
+    },
+    {
+      "id": "04-review-masthead-title",
+      "status": "pass",
+      "evidence": "The masthead reads the real extension name from the route - \"demo\" over \"Review changes\" on /barn/extensions/demo/review - not a hardcoded name.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-about",
+      "status": "pass",
+      "evidence": "Clicked \"About\" at the foot of the rail from the review screen: /dashboard/about loaded.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "Clicked the cluster entry in the rail (aria-label \"Cluster menu item local\"): landed on /dashboard/c/local/explorer#cluster-events, that cluster's explorer.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-home",
+      "status": "pass",
+      "evidence": "Clicked the house icon in the rail from the review screen: /dashboard/home loaded.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-menu",
+      "status": "pass",
+      "evidence": "Clicked the hamburger at the top-left of the rail: .side-menu went from \"menu-close\" at 70px wide to \"menu-open\" at 300px, showing the labelled entries. Clicking it again collapsed it back to 70px.",
+      "defect": null
+    },
+    {
+      "id": "04-review-nav-rail-icons",
+      "status": "pass",
+      "evidence": "Each rail entry navigates from the review screen: Cluster Management -> /dashboard/c/_/manager/provisioning.cattle.io.cluster, Global Settings -> /dashboard/c/local/settings/management.cattle.io.setting, Extensions -> /dashboard/c/local/uiplugins#installed, Users & Authentication and Continuous Delivery carry their own hrefs, About -> /dashboard/about. While on the review screen the Extension Studio entry is the one carrying class \"option active-menu-link\".",
+      "defect": null
+    },
+    {
+      "id": "04-review-open-in-files",
+      "status": "pass",
+      "evidence": "With pages/Home.vue selected, \"Open in Files\" navigated to /dashboard/barn/extensions/demo/files?file=pages/Home.vue. The Files screen rendered with the pages folder expanded, Home.vue marked EDITED in the tree, and the editor pane headed \"pages/Home.vue\".",
+      "defect": null
+    },
+    {
+      "id": "04-review-preview-note",
+      "status": "pass",
+      "evidence": "The action bar reads \"These changes are running in your preview only. 6 of 6 files will be kept.\" Unticking one file recounted it to \"5 of 6 files will be kept\" and re-ticking put it back.",
+      "defect": null
+    },
+    {
+      "id": "04-review-publish-action-bar",
+      "status": "pass",
+      "evidence": "Pressed \"Publish…\": a confirmation modal opened (\"Publish this extension? demo is built in its pod from the working tree you have just been reading...\") before anything was installed. Cancelled; nothing was published and the UIPlugin list was untouched.",
+      "defect": null
+    },
+    {
+      "id": "04-review-publish-masthead",
+      "status": "pass",
+      "evidence": "Pressed \"Publish\" in the masthead: the same \"Publish this extension?\" confirmation opened rather than publishing directly. Cancelled.",
+      "defect": null
+    },
+    {
+      "id": "04-review-revert-file",
+      "status": "pass",
+      "evidence": "Selected barn-review-w6-04.txt and pressed \"Revert this file\"; confirmed the window.confirm (\"Revert barn-review-w6-04.txt in demo to the last commit? ... The other changed files are left alone\"). In the pod the file was gone while pages/Home.vue kept its edit, and the header count dropped from 6 to 5. Repeated on a tracked file: reverting pages/Home.vue restored it to HEAD and left the rest alone. On a committed file the button is disabled with the reason \"... a revert puts the working tree back to the last commit, so it cannot reach this file\".",
+      "defect": null
+    },
+    {
+      "id": "04-review-select-file",
+      "status": "pass",
+      "evidence": "Clicking a row loads its diff and moves the highlight: selecting pages/Home.vue then barn-review-w6-long.txt changed the diff header, the patch (16 rows then 200) and the explanation panel, and review__file--selected was on exactly the clicked row each time.",
+      "defect": null
+    },
+    {
+      "id": "04-review-state-badge",
+      "status": "pass",
+      "evidence": "With uncommitted work present the badge read \"Unsaved\". After the last uncommitted change was reverted - the list still showing four committed-but-unpublished files - it changed to \"Draft\", titled \"Everything listed is already committed. It is not published, which is what Draft means here\", and the discard button went to \"Nothing to discard\" (disabled).",
+      "defect": null
+    },
+    {
+      "id": "04-review-unticked-note",
+      "status": "pass",
+      "evidence": "The caption under the list reads \"Unticked files are reverted when you leave this screen. Nothing here has reached the repository yet.\", with a second line about the working tree, and a third warning line appears only when committed files are on the list.",
+      "defect": null
+    }
+  ]
+}

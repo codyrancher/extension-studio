@@ -787,7 +787,12 @@ export default {
         };
       }
 
-      const apis = this.unstable.map((f) => `${ f.api } (${ f.path }:${ f.line })`).join(', ');
+      // `what`, not `api`. `scanUnstableApis` returns Finding, whose third field is `what` - the
+      // same shape the credentials row beside this one reads and the same one screen 12 reads.
+      // Reading `f.api` printed the literal word "undefined" in place of the group-version, and it
+      // survived because nobody had seen this row in its warning state: the check had only ever
+      // been driven against a clean tree, where the sentence it builds is never used.
+      const apis = this.unstable.map((f) => `${ f.what } (${ f.path }:${ f.line })`).join(', ');
 
       return {
         id:    'unstable',

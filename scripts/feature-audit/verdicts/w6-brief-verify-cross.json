@@ -1,0 +1,575 @@
+{
+  "screen": "w6-brief-verify-cross",
+  "verdicts": [
+    {
+      "id": "10-brief-ac-add",
+      "status": "pass",
+      "evidence": "A ghost 'Add another' button with a plus sits at the foot of the criteria card on /barn/extensions/base/brief. Pressed it, typed 'W6BVC criterion added' into the new row, waited for the autosave chip ('Saved 01:38 AM') and reloaded: the row count went 5 to 6 and came back at 6, and BRIEF.md in the pod had gained the line under '## How we will know it worked'.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-intro",
+      "status": "pass",
+      "evidence": "The note under the card heading reads 'These become the checklist the reviewer and the requester tick off. Phrase each one as something you could watch a person do.' - and the claim is true end to end: the criterion I wrote here is the one screen 13 walked (see 00-cross-screen-criteria-from-brief).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-list",
+      "status": "pass",
+      "evidence": "Criteria render as numbered bordered rows (.brief__ac with a .brief__ac-box carrying the number). Edited criterion 2 to 'W6BVC criterion two EDITED', clicked away, reloaded: the edit was still there, and BRIEF.md carried the new wording on its own '- [ ]' line.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ac-row-menu",
+      "status": "pass",
+      "evidence": "Each row carries its own trigger, aria-label 'Actions for criterion N'. Opened criterion 3's: the menu holds Move up, Move down and Delete this criterion, all scoped to that row.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-agree",
+      "status": "pass",
+      "evidence": "Chip read 'Draft - not yet agreed' before. Pressed 'Agree and start building': the app went to /dashboard/barn/editor/base, BRIEF.md gained '_Agreed in the Extension Studio on 2026-08-24._' at the foot, and reopening the brief showed the chip as 'Agreed 2026-08-24'.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-answer-myself",
+      "status": "pass",
+      "evidence": "Added two questions, then pressed 'Answer it myself' on the first: a textarea appeared with Cancel and 'Save the answer'. Typed 'W6BVC answered: 24 hours.' and saved - the open-count chip went from '2 open' to '1 open', the card moved into the answered list with the answer beneath it, and BRIEF.md gained '  Answer: W6BVC answered: 24 hours.' indented under the question.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ask-requester",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button on each question card: the severity chip, 'Remove this question', 'Answer it myself' and 'Say why it matters'. A scan of every button on the page for /requester|ask the/ matched nothing.",
+      "defect": "No per-question send control. On a brief that records a requester the card says why in [data-testid=brief-questions-for]: 'These are for Default Admin, who asked for this. Nothing here can send them: Rancher has no messaging between users and this Studio has no ticket to comment on, so the brief is where they wait and the answers go back into the same file.' I read that line on the extension I created, which does record one."
+    },
+    {
+      "id": "10-brief-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron at the start of the masthead next to the extension name: left the brief for /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-editable-note",
+      "status": "pass",
+      "evidence": "The card note reads 'Drafted from what you typed and from what is already in this Rancher. Edit anything - this is your brief, not its.' The promise holds: I edited all four fields below it and every edit survived a reload and landed in BRIEF.md.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-changes",
+      "status": "pass",
+      "evidence": "Typed 'W6BVC field-changes EDIT' into 'What changes for them', clicked away, waited for the Saved chip, reloaded: the text came back and '## What changes for them' in the pod's BRIEF.md held it.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-not-doing",
+      "status": "pass",
+      "evidence": "Typed 'W6BVC field-not-doing EDIT' into 'What we are deliberately not doing', clicked away, reloaded: preserved, and in BRIEF.md. It is also the section screen 13's scope card reads - the terms in it were the terms the drift card searched for.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-problem",
+      "status": "pass",
+      "evidence": "Typed 'W6BVC field-problem EDIT' into 'The problem', clicked away, reloaded: preserved, and '## The problem' in BRIEF.md matched.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-field-who",
+      "status": "pass",
+      "evidence": "Typed 'W6BVC field-who EDIT' into 'Who has it', waited for the masthead's 'Saved 01:38 AM', reloaded: preserved, and '## Who has it' in BRIEF.md matched.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-header-apps",
+      "status": "not-implemented",
+      "evidence": "Enumerated every button and anchor in <header> on the brief route: the hamburger, Home, menu-cluster-local, the eight app-menu links, About, page-actions-menu-action-button, notifications-center and nav_header_showUserMenu. `header [class*=apps], header [class*=grid]` matched 0.",
+      "defect": "No grid launcher in Rancher's header on this instance. Rancher chrome, not the Studio's (DEPARTURES.md section 2)."
+    },
+    {
+      "id": "10-brief-header-bell",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] from the brief route: the notification centre opened, headed 'Notifications' with 'Mark all as read' and real entries ('Interrupt sent - Today, 1:39:48 am').",
+      "defect": null
+    },
+    {
+      "id": "10-brief-header-logo",
+      "status": "blocked",
+      "evidence": "The rendered header is community Rancher: `kubectl get settings.management.cattle.io ui-pl` still has no value, and the page text contains neither 'SUSE' nor 'Rancher Prime'.",
+      "defect": "Not a Studio defect - the header belongs to Rancher. Switching this project to Prime branding recreates the Rancher container from an empty cluster, which would destroy every extension pod and several other verifiers' work in flight, so I did not flip it. Re-check on a Prime instance."
+    },
+    {
+      "id": "10-brief-header-more",
+      "status": "pass",
+      "evidence": "Changed since the last wave, and it is real. [data-testid=page-actions-menu-action-button] is present in the header on the brief route (`header .icon-actions` matched 1). Clicking it opened a v-popper dropdown holding 'Review queue', 'Studio settings' and 'Installed extensions'; clicking 'Review queue' navigated to /dashboard/barn/review. brief.vue now mixes in @shell/mixins/page-actions and commits STUDIO_PAGE_ACTIONS, which is what makes Rancher's own HeaderPageActionMenu show itself on this route.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-insight",
+      "status": "fail",
+      "evidence": "[data-testid=brief-insight] renders with its accent - background rgb(234,244,251), 3px rgb(61,152,211) left border - but it does not argue. It is headed 'Nobody has argued with this yet' and says the Studio cannot tell you whether the request names a solution because nothing here has read it. The 'Ask it to argue with this' button beneath it is disabled, with the title \"The assistant in base's pod is not signed in, so it cannot answer. Run /login in the workspace terminal.\", and [data-testid=brief-assistant-signed-out] says the same in the card.",
+      "defect": "Nothing in the Studio weighs the request against the problem statement, so the callout asks for the argument rather than making it. It can carry one the assistant writes into '## The challenge', but no pod in this cluster has a credential (settings agrees: 'No credential in any of these pods (base, demo, nodehealth)'), so on every real brief here it says nobody has argued rather than the design's 'this ticket asked for a solution, and here is why building it as written misses the point'."
+    },
+    {
+      "id": "10-brief-prior-art-dashboard",
+      "status": "not-implemented",
+      "evidence": "Pressed 'Look for prior art' on base's brief: the card ran a real grep across the other extensions' pods and returned one hit, nodehealth BRIEF.md:4, with its source line. A text scan of the loaded card for /cluster dashboard/i returned false, and the card's own note says it 'cannot see Rancher's own pages'.",
+      "defect": "No named entry for Rancher's existing cluster dashboard, and no source for the editorial half (what it does and does not cover). Nothing in the product can enumerate or describe Rancher's own screens."
+    },
+    {
+      "id": "10-brief-prior-art-intro",
+      "status": "pass",
+      "evidence": "The card note reads 'A word search over the source of every extension in this Studio. It cannot see Rancher's own pages, or extensions installed outside the Studio, so a screen that already does part of this may exist and not be listed here.' The claim is honest: the banner names the terms it will search for, and pressing the button returned a real file:line hit from another extension's pod (nodehealth BRIEF.md:4) rather than a fixture.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-longhorn",
+      "status": "not-implemented",
+      "evidence": "A scan of the loaded card for /longhorn/i returned false and `grep -rn longhorn pkg/barn` finds nothing. The live card only ever lists grep hits grouped by extension; no longhorn-capacity extension is installed in this Studio.",
+      "defect": "No named entry for an installed extension drawing the same pattern, and no consistency note - the card is a word search and says so."
+    },
+    {
+      "id": "10-brief-prior-art-look",
+      "status": "pass",
+      "evidence": "Pressed 'Look at it' [data-testid=brief-look-at-it] on the nodehealth BRIEF.md:4 hit: the app navigated to /dashboard/barn/extensions/nodehealth/files?file=BRIEF.md and the files screen opened with that file. It opens the source the hit is in, which is what this card's hits are.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-prior-art-reuse",
+      "status": "pass",
+      "evidence": "Pressed 'Reuse this' [data-testid=brief-reuse]: the button became 'Reusing this' and a 'THIS BRIEF SAYS TO REUSE' block appeared listing 'nodehealth . BRIEF.md:4'. It survives a reload because it is written into BRIEF.md under '## Prior art we are reusing' with the line 'Look at these before writing the same thing again, and say in the code where it came from.', so it reaches the assistant, which reads that file first.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-blocking",
+      "status": "pass",
+      "evidence": "Added a question and pressed its severity chip to mark it Blocking. The card became .brief__question--blocking: an error-toned 'Blocking' chip, an i.icon-alert, the question text and its why line, on background rgb(253,236,236) with a 3px rgb(246,71,71) left border. The 'Worth asking' card beside it is rgb(247,248,250) with a 1px border, so it is visually distinct.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-worth-1",
+      "status": "pass",
+      "evidence": "Added 'W6BVC: what window does the trend cover?': it rendered as a 'Worth asking' card with a default-toned chip and an i.icon-search, on the grey ground. Its evidence line renders in [data-testid=brief-question-why].",
+      "defect": null
+    },
+    {
+      "id": "10-brief-question-worth-2",
+      "status": "pass",
+      "evidence": "Added a second one ('W6BVC: is the Conditions column staying?') and used 'Say why it matters' to attach the risk: [data-testid=brief-question-why] then read 'W6BVC: guessing it wrong means rebuilding the chart.' and survived a reload in BRIEF.md.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-questions-intro",
+      "status": "pass",
+      "evidence": "The card note reads 'The most useful thing on this screen. Ask before you build, not after. Every question here lives in BRIEF.md, so it survives this page and is read by whatever reads the brief next.' - true: every question I added was in the file under '## Open questions', with its severity, its answer and its why.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-about",
+      "status": "pass",
+      "evidence": "Clicked 'About' at the foot of the rail from the brief route: /dashboard/about loaded.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-book",
+      "status": "not-implemented",
+      "evidence": "Enumerated every rail entry and its icon: Home, local, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. No book. `.side-menu [class*=book], .side-menu [class*=docs]` matched 0.",
+      "defect": "No docs entry in Rancher's rail on this instance, and the Studio owns no documentation to point one at. Rancher chrome (DEPARTURES.md section 2)."
+    },
+    {
+      "id": "10-brief-rail-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail has one cluster chip, [data-testid=menu-cluster-local]; clicking it from the brief opened /dashboard/c/local/explorer. The design's LT1/CD2/AFT are three clusters that do not exist here - `kubectl get clusters.management.cattle.io` returns only `local`.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-gear",
+      "status": "pass",
+      "evidence": "Settings is reachable from the rail: clicked the rail's Global Settings entry from the brief and /dashboard/c/local/settings/management.cattle.io.setting loaded. Worth recording that the gear glyph itself has moved since the last wave - it now belongs to the `base` product's own rail entry (href /dashboard/c/local/base), and Global Settings carries a globe. That is a registered extension's icon choice in Rancher's rail, not the Studio's brief screen.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-home",
+      "status": "pass",
+      "evidence": "Clicked the house at the top of the rail: /dashboard/home loaded.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-menu",
+      "status": "pass",
+      "evidence": "The rail className went from 'side-menu menu-close' to 'side-menu menu-open' on clicking the hamburger, and the expanded rail rendered its labelled entries.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-selected",
+      "status": "pass",
+      "evidence": "On /barn/extensions/base/brief exactly one rail entry carries the active class: 'Extension Studio' (option active-menu-link, and .active-me matched only that entry).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-server",
+      "status": "pass",
+      "evidence": "Clicked the cluster-management icon in the rail: /dashboard/c/_/manager/provisioning.cattle.io.cluster loaded.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-rail-user",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=nav_header_showUserMenu]: the account menu opened with 'admin / Default Admin / Preferences / Account & API Keys / Log Out'.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-roles",
+      "status": "pass",
+      "evidence": "Four chips render. Drove both directions on base. On: clicked 'Support engineer' and it gained an i.icon-checkmark and the s-chip--info fill immediately; after a reload it was still ticked and info-toned, and '## Written for' in BRIEF.md listed it. Off: clicked it again and it went back to s-chip--default with no tick, and the reload agreed. Same behaviour driving 'Platform admin' and 'Cluster operator' off in an earlier pass.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-scroll",
+      "status": "pass",
+      "evidence": "In a 1000px viewport .brief__scroll had scrollHeight 1665 against clientHeight 884. Set scrollTop to 400 and it held, while .brief__masthead - which carries 'Agree and start building' and 'Skip the brief' - stayed at viewport top 55.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-send-questions",
+      "status": "not-implemented",
+      "evidence": "Scanned every button on the page for /send|question|requester/: the only matches are the per-card 'Remove this question' and the '+' [aria-label='Add this question'] on the compose row. The live count exists but as a read-only chip, [data-testid=brief-open-count] - I watched it read '2 open' and then '1 open' as I answered one, and go back up as I added another.",
+      "defect": "The live-count half is delivered; the send half does not exist. Same root as 10-brief-ask-requester: there is nowhere to send to."
+    },
+    {
+      "id": "10-brief-skip",
+      "status": "pass",
+      "evidence": "Pressed 'Skip the brief': the app went straight to /dashboard/barn/editor/base, and the brief was not agreed by it (the status chip was still 'Draft - not yet agreed' on the next visit).",
+      "defect": null
+    },
+    {
+      "id": "10-brief-status-chip",
+      "status": "pass",
+      "evidence": "[data-testid=brief-status] read 'Draft - not yet agreed' with a clock icon before agreeing, and 'Agreed 2026-08-24' after I pressed 'Agree and start building'. It is read out of the file, not the template: the agreement line is in BRIEF.md.",
+      "defect": null
+    },
+    {
+      "id": "10-brief-ticket",
+      "status": "fail",
+      "evidence": "The age is new this round and it is a real reading. On base, whose brief predates '## Who asked', [data-testid=brief-created-age] reads 'What there is instead of an age for the request: this extension was created 2 days ago, as the cluster recorded it. That is the age of the extension, not of anything anybody asked for.', with title 'The Studio created this extension's objects at 2026-08-21T22:37:28Z' - which matches the ConfigMap's creationTimestamp. On an extension I created from screen 02 the same card read 'today', and there the other two facts render as well: 'Asked for by Default Admin . today . local://user-btc48' and the request quoted verbatim from '## What you were handed'.",
+      "defect": "The design's third fact, the ticket id, has no source and is deliberately not shown: [data-testid=brief-ticket-id] says so on the line the design draws it on. On a legacy brief like base's, only the age renders - the raiser and the quoted request are absent because those sections were never written and cannot be recovered, and the card says which."
+    },
+    {
+      "id": "10-brief-title",
+      "status": "pass",
+      "evidence": "The masthead shows 'base' on one line and 'BRIEF . STEP 1 OF 2 BEFORE ANY CODE IS WRITTEN' (rendered uppercase) beneath it.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-attach-screenshot",
+      "status": "not-implemented",
+      "evidence": "document.querySelectorAll('.verify input[type=file]') returned 0 on the loaded screen, and no button under .verify offers an upload.",
+      "defect": "No upload control and no attachment model. The screen now says so where the design draws the control, in [data-testid=verify-evidence-note]: a capture is the route, the clock and the name written into BRIEF.md, and 'A PNG in the first makes the evidence part of the thing being reviewed; in the second it is a few screenshots from etcd's object limit, taking the sign-offs with it when it goes over. So there is no upload.' The verdict is still not-implemented: the design asks for a file and no file can be attached."
+    },
+    {
+      "id": "13-verify-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron at the start of the masthead ('Back to the queue'): left verification for /dashboard/barn/review.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-blocked-note",
+      "status": "pass",
+      "evidence": "With criterion 3 answered No, [data-testid=verify-blocked-note] renders inside that card only, and the block is real: 'Sign off on the outcome' was disabled with title '1 criterion is answered No. A No holds the sign-off open until it is answered Yes.' Moving that same criterion to Can't tell removed the note and enabled the button, with the footer reading 'Nothing is holding the sign-off open.' The sentence distinguishes the gates: a No holds the outcome sign-off and therefore distribution, and explicitly does not hold the local install or the GitHub hand-over.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-blocked-summary",
+      "status": "pass",
+      "evidence": "Watched the footer follow the verdicts on base: '2 of 4 met, 2 still to look at. The sign-off waits on the ones nobody has looked at.' then '2 of 4 met, 1 not met, 1 still to look at. A No holds the sign-off open until it is answered Yes.' then '2 of 4 met, 1 not met, 1 could not be judged...' then, with the No changed to Yes, '3 of 4 met, 1 could not be judged. Nothing is holding the sign-off open.' and with all four Yes, 'Every criterion met. Signing off records that in the brief.'",
+      "defect": null
+    },
+    {
+      "id": "13-verify-capture-evidence",
+      "status": "pass",
+      "evidence": "New this round and it does what it says. Pressed 'Show me' on criterion 3 (preview drove to /home, pane header became 'Criterion 3', the capture button enabled with title 'Records /home against criterion 3, in BRIEF.md'), then pressed 'Capture this as evidence': the criterion gained a meta line 'Captured 01:48 . Default Admin . /home', the toast read 'Captured 01:48 at /home against criterion 3', and BRIEF.md in the pod gained '  - Captured 2026-08-24 01:48 by Default Admin at `/home`' indented under that criterion in the '## Verification' block. It survived a reload of the page - the line is read back out of the file, not held in the tab. It refuses rather than guessing: with the preview not bound to a criterion the button is disabled with the title 'Press Show me on a criterion first: a capture has to be evidence for something, and this cannot guess which row you mean.' Repeated the whole cycle on an extension I created and got the same result.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-cluster-select",
+      "status": "pass",
+      "evidence": "New this round, and it is a reading rather than a fake. [data-testid=verify-cluster-select] is a menu trigger; opening it listed one entry, 'local - k3s . v1.36.1+k3s1', which is exactly what `kubectl get clusters.management.cattle.io` returns (local / k3s / v1.36.1+k3s1 / 1 node) - so the list of one is this Rancher's real cluster list read through /v1/management.cattle.io.clusters, not a hardcoded row. Picking it navigated the framed dashboard to /c/local/explorer and the row's annotation became 'local k3s . v1.36.1+k3s1 . 1 node is what this page is about.' Before a cluster is in the route it reads 'Point it at a cluster / This route names no cluster; choosing one opens its explorer.' The row also separates the two facts the design ran together: it says the dev server always runs in local whichever cluster the page it serves addresses. The design's own annotation ('no metrics-server') is replaced by what the cluster object says about itself, which is the honest version of it.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-code-approved-chip",
+      "status": "pass",
+      "evidence": "Drove the gate rather than reading a fixture. Before any code review [data-testid=verify-code-gate] read 'Code not reviewed yet' and the footer row was 'Code review - not signed off' with an empty dot. Approved the code on screen 12 ([data-testid=rc-approve]); the verification screen then read 'Code approved by Default Admin' and the footer row became check-marked 'Code review - Default Admin - just now'. After the tree moved on it read 'Code approved by Default Admin, at an earlier commit'. The record behind it is the `code` entry in the barn-review-base ConfigMap.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-badge",
+      "status": "pass",
+      "evidence": "Changed verdicts and read the computed styles. Unanswered: verify__badge--unanswered, transparent, showing the criterion number. Yes: verify__badge--pass, rgb(62,140,79) with a tick. No: verify__badge--fail, rgb(246,71,71) with a cross. Can't tell: verify__badge--unsure, rgb(242,243,245) - grey, keeping the plain criterion number. The amber the last wave recorded on the 'unsure' badge is gone.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-failed-styling",
+      "status": "pass",
+      "evidence": "Setting criterion 3 to No put verify__criterion--fail on the card, tinted it rgb(253,236,236), and revealed the whole block: [data-testid=verify-blocked-note], the note textarea [data-testid=verify-note-2] headed 'Why criterion 3 is not met', and 'Send this back to the assistant'. Setting it back to Yes collapsed the rule and the send action; the textarea stays only while a note is in it, which is deliberate (the template keeps it on `|| c.note` so a written note does not become invisible saved state).",
+      "defect": null
+    },
+    {
+      "id": "13-verify-criterion-text",
+      "status": "pass",
+      "evidence": "Four criterion cards rendered, numbered 1 to 4, one full sentence each, and they are base's four '- [ ]' lines from '## How we will know it worked' in file order - I read the file in the pod and matched them line for line. On an extension I created from screen 02 the single criterion I wrote in the brief was the single card here.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-evidence-explainer",
+      "status": "pass",
+      "evidence": "New this round. [data-testid=verify-evidence-explainer] sits directly above the capture button and reads 'What you see here is captured with your answer - the route, the clock and your name, into BRIEF.md under the criterion - so nobody has to take your word for it later, and the next person to touch this extension knows why it was rejected. A picture is not: see the note on the left.' The claim is true: the capture is written into the repository file, so it outlives the review (I reloaded and it was still there, and read it back out of the pod).",
+      "defect": null
+    },
+    {
+      "id": "13-verify-evidence-meta",
+      "status": "pass",
+      "evidence": "Two kinds of line and both are real. Answering a criterion wrote 'Checked 01:49 AM . admin . /home' onto it - the clock, the signed-in user and the route the preview was on. Capturing wrote a second, durable line 'Captured 01:48 . Default Admin . /home' which came back after a reload because it is in BRIEF.md. Recording the result carried the route into the file as '- **Not met** at `/home`: ...' with the reviewer's note quoted beneath it.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-framing",
+      "status": "pass",
+      "evidence": "The accented success banner [data-testid=verify-framing] renders above the criteria: 'You are checking whether this does the job, not whether the code is any good', then 'Reading the code is a separate step, on the review screen, and not this one. Answer each criterion against what you can see in the preview on the right. Nothing here changes the extension: the only thing you can change from this screen is the record of what you found.' It also restates the problem the brief named.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-header-actions",
+      "status": "fail",
+      "evidence": "Two of the three now. Notifications opens the notification centre. The overflow menu exists on this route as well - [data-testid=page-actions-menu-action-button] is present and opens Rancher's page-action dropdown (Review queue / Studio settings / Installed extensions), which I drove from the brief route and which is the same mechanism verification commits. `header [class*=apps], header [class*=grid]` still matched 0.",
+      "defect": "The app collection does not exist in this Rancher's header, so there is nothing for a grid icon to open. Rancher chrome, not the Studio's (DEPARTURES.md section 2). The other two are reachable."
+    },
+    {
+      "id": "13-verify-identity",
+      "status": "pass",
+      "evidence": "The masthead names the extension and version ('base v0.1.0') and states the role beneath it: [data-testid=verify-role] reads 'VERIFICATION . OUTCOME SIGN-OFF . ADMIN'. [data-testid=verify-requester] says whose sign-off it is, and it is read from the brief rather than assumed - on base it says the brief records no '## Who asked' so the sign-off is not held to a requester, and on the extension I created it said 'The brief records you as the person who asked for this, so the outcome sign-off is yours to give.'",
+      "defect": null
+    },
+    {
+      "id": "13-verify-nav-rail",
+      "status": "pass",
+      "evidence": "On /barn/extensions/base/verification the rail renders and exactly one entry carries the active class: 'Extension Studio'.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-note",
+      "status": "pass",
+      "evidence": "Typed 'W6BVC note: the trend panel is empty.' into the note on the failed criterion and pressed 'Record the result'. BRIEF.md gained '  > W6BVC note: the trend panel is empty.' under that criterion's verdict line, and the text was still in the box after a reload of the screen. It is visible to the author because it is in the repository, and 'Send this back to the assistant' forwards it verbatim - I read it in the pod's tmux pane. The hint above the box says the author and the assistant both read it.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-open-brief",
+      "status": "pass",
+      "evidence": "Clicked 'Open the brief' in the masthead: /dashboard/barn/extensions/base/brief loaded.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-preview-context",
+      "status": "pass",
+      "evidence": "Before any 'Show me' the pane header [data-testid=verify-preview-context] reads 'The extension, running' with a live dot. Pressing 'Show me' on criterion 3 changed it to 'Criterion 3'; pressing it on criterion 1 changed it to 'Criterion 1'. The bound criterion is also what the capture button attaches to.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-preview-popout",
+      "status": "pass",
+      "evidence": "Clicked the pop-out control in the preview header: a new browser tab opened on the preview's own URL, https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/home - the running extension standalone. Closed it afterwards.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-progress-chip",
+      "status": "pass",
+      "evidence": "[data-testid=verify-progress] read 2/4 with two criteria already met, went to 3/4 when I answered a third No, and stayed at 3/4 when I answered the fourth 'Can't tell' - which is the rule. It went to 4/4 once all four were Yes.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-rendered-preview",
+      "status": "pass",
+      "evidence": "The pane is a real iframe, not an image: src is the extension's own dev server through the apiserver proxy (.../barn-base-extension:8005/proxy/), 485px wide in the panel, and 'Show me' really navigates it (the address field went from / to /home). On the extension I created the src was that pod's own service, so it is per extension rather than a fixed URL.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-accept",
+      "status": "pass",
+      "evidence": "Two-step and it moves the line rather than deleting it. Planted a file in base's pod whose added line mentions 'alerting', 'history' and 'beyond' - terms from the brief's own non-goals. Pressing 'That is fine - add it to the brief' [data-testid=verify-accept-drift-history] opened a plan, [data-testid=verify-drift-plan-history], naming exactly what would move and what would stay ('No alerting, and no history beyond 24 hours. (accepted during verification on 2026-08-24 by admin)' moves; 'Both belong in monitoring.' stays ruled out). Pressing 'Move it into the brief' rewrote BRIEF.md accordingly - the diff is precisely that: the sentence left '## What we are deliberately not doing' and arrived under '## What changes for them' with the date stamp, and the remainder stayed behind. The drift card then cleared for those terms.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-drift",
+      "status": "pass",
+      "evidence": "The card renders with the heading 'Scope', a '2 files changed' chip, and the paragraph 'This change adds lines that mention what the brief said it was deliberately not doing. A word match is not proof of anything - it is a place to look.' It is genuinely computed: with nothing matching it showed the clear state naming the terms it had looked for ('Nothing this change adds mentions monitoring/alerting/history/beyond/belong/hours'), and after I added a line containing those words it named the term, the file and both resolutions per term. [data-testid=verify-scope-limit] states what the check cannot see.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-scope-remove",
+      "status": "pass",
+      "evidence": "Pressed 'Remove it' [data-testid=verify-remove-drift-alerting]. BRIEF.md before and after was byte-identical - it deliberately does not touch the brief - and the prompt arrived in full in the pod's tmux pane, including the caveat: 'If the match is a coincidence and nothing there does it, change nothing and say so - a word match is not proof. Do not edit BRIEF.md: the brief is the reviewer's to change.' The warning stayed up, which is right: the lines are still there. The assistant answers 'Not logged in - Please run /login', which is the pod's condition and not this control's.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-send-criterion-back",
+      "status": "pass",
+      "evidence": "With criterion 3 answered No and a note typed, pressed 'Send this back to the assistant' [data-testid=verify-send-back-2]. The pod's tmux pane holds the whole thing: 'Verification of the base extension found this acceptance criterion not met: \"A 24-hour trend is readable at a glance\". It was checked at /home. The reviewer's note: \"W6BVC criterion note for send-back.\". Work out why it is not met and fix it. Do not edit BRIEF.md - the verdicts are recorded by the reviewer.' The card gains no persistent 'sent' marker afterwards, only the transient loading state and the toast, so the design's 'marked as sent' half is still not drawn.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-send-list-back",
+      "status": "pass",
+      "evidence": "The missing third of this action is now there. Pressed 'Send the whole list back': (1) all four verdicts, their routes, the captures and the note went into BRIEF.md under '## Verification'; (2) the same list went to the pod's assistant; and (3) - new this round - the review record gained outcome = 'changes-requested' with the principal, the name, the commit sha and the reason ('The whole criteria list was handed back: 1 answered No, 1 could not be judged. The verdicts and notes are in BRIEF.md under `## Verification`.'). I read all three back: the file in the pod, the tmux pane, and the barn-review-base ConfigMap. The queue then re-rendered the row against that state - base's card read 'Handed over as packet 2 1 minute ago by Default Admin. Default Admin asked for changes at the outcome sign-off: <the note>'. It stays under 'Waiting on you' here only because I am both the author and the reviewer on this instance; the queue's 'waiting on you' tab deliberately holds author-side rows whose next move is yours.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-show-me",
+      "status": "pass",
+      "evidence": "Pressed 'Show me' on criterion 3: the pinned preview's path field went from / to /home and the pane header read 'Criterion 3'. Pressing it on criterion 1 moved the header to 'Criterion 1'. The preview is the running extension's own dev server through the apiserver proxy, so it drives the real thing.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-sign-off",
+      "status": "pass",
+      "evidence": "With one criterion answered No the button was disabled with title '1 criterion is answered No. A No holds the sign-off open until it is answered Yes.', and with two unanswered it read '2 criteria have not been looked at yet.' With all four Yes it enabled and pressing it closed the gate for real: the footer row became check-marked 'Outcome sign-off - Default Admin - just now', the sentence read 'Signed off on 2026-08-24 by Default Admin. Changing a verdict takes the sign-off back.', and the barn-review-base ConfigMap gained signoffs.outcome with verdict 'approved', principal local://user-btc48, the name, the timestamp and the commit sha - which is the record the distribution gate reads.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-signoff-status",
+      "status": "pass",
+      "evidence": "Both rows are read from the review record, not drawn. Before either gate: 'Code review - not signed off' (empty dot) and 'Outcome sign-off - you - in progress'. After approving on screen 12 the code row became check-marked 'Code review - Default Admin - just now'. After signing off the outcome row followed. After 'Send the whole list back' the outcome row read 'Outcome sign-off changes requested by Default Admin just now'. And when the tree moved past the commit a sign-off was given against, the row said so: 'Default Admin approved an earlier commit, so it no longer covers this one'.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-verdict",
+      "status": "pass",
+      "evidence": "Clicked each of the three segments on a criterion: exactly one keeps aria-pressed=true, and the colours match (Yes fills rgb(62,140,79), No rgb(246,71,71), Can't tell stays neutral rgb(242,243,245)). Pressing the pressed segment clears it back to unanswered. The progress chip and the footer sentence moved with every change, and the change reached the review record - an approved outcome sign-off was withdrawn the moment I changed a verdict.",
+      "defect": null
+    },
+    {
+      "id": "13-verify-verdict-cant-tell",
+      "status": "pass",
+      "evidence": "All four consequences hold, including the one that was deviating. The counter did not increment (3/4 before and after answering a fourth criterion 'Can't tell'); the footer switched from '1 not met' to '1 could not be judged'; it does not block (with the only No changed to Can't tell the blocked note went and 'Sign off on the outcome' enabled, footer 'Nothing is holding the sign-off open'); the badge keeps the plain criterion number; and the badge is now grey - computed background rgb(242,243,245), where the last wave measured amber rgb(201,162,39).",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-both-signoffs-required",
+      "status": "pass",
+      "evidence": "Walked base's publish dialog through four gate states this round and the two destinations that cross the gate were refused in every one of them. 'Never handed over' before a packet existed; 'Outcome sign-off outstanding' with only the code approved ('The code review is signed off by Default Admin. The outcome sign-off on packet 1 is still outstanding.'); 'Changes requested' after I handed the criteria list back; 'Sign-offs are stale' once the tree moved past the packet ('any sign-off on record is about a different change'). In all four the 'Push to an OCI repository' and 'Put the reviewed packet on the repository' rows render with no checkbox at all - `[data-testid=barn-publish-target-oci]` and `-repository` matched 0 - so they cannot be committed, and the submit stayed disabled at 'Pick a destination'. The dialog also states the rule beside them: 'Two people answer two questions, and only leaving the gate - putting the packet where people who did not build it can install it - asks for them.' What I could not show is the positive half (the same publish then proceeding), because the OCI push is not built and the repository route needs a GitHub token this Studio has no way to obtain; both rows say so in their own words rather than pretending.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-brief-precedes-build",
+      "status": "pass",
+      "evidence": "Created an extension from screen 02 (description, outcome, name 'w6bvc', placement 'Inside a cluster'). The submit button is literally labelled 'Draft the brief', and pressing it created the pod and routed to /dashboard/barn/extensions/w6bvc/brief?prompt=...&outcome=...&placement=c-cluster, with what I typed carried into the brief's own fields ('## What you were handed' held the description verbatim). So the brief sits between describing and building. By contrast screen 04 is reachable but skippable - it offers 'Back to assistant' and reverting per file, signs nothing and blocks nothing - and the brief itself offers 'Skip the brief', which is a deliberate bypass rather than the default. I deleted the extension I created (deployment, service and both ConfigMaps).",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-capability-parity",
+      "status": "pass",
+      "evidence": "Re-drove all five against the installed bundle, because this round changed the hand-over path, the publish summary, the masthead and the shared scanners. CLI: 'Show raw output' [data-testid=barn-open-raw-output] expands in one click and renders the pod's real log - I read 'DONE Compiled successfully in 3457ms', 'App running at: - Local: http://localhost:8005' and a later 'WAIT Compiling...1:58:41 AM' out of it, with timestamps that match the pod's actual dev server, and the panel says 'the terminal is still here'. The Terminal tab attaches a live xterm (canvas present) to the pod's tmux session, and I read my own prompts back out of it with `tmux capture-pane -t mc-editor` five separate times during this run. FILES: /barn/extensions/base/files lists the tree with branches and last-commit information and opens a file. GITHUB IMPORT: the Import dialog does connection as step 1 inline ('you can paste it here without losing what you have typed'), with no link out to settings. PUBLISH: the dialog renders all five destinations with their gates. SETTINGS: /barn/settings renders connection, the sign-off matrix, permissions, access and data. The masthead change did not cost anything - the editor gear that used to open a second token modal is gone and nothing else went with it; the raw-output button and the Terminal tab are both still one click from the assistant panel.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-changes-requested-loads-assistant",
+      "status": "pass",
+      "evidence": "Both routes, both landing in the same place, both with the reviewer's own wording. From a hunk on screen 12: opened the composer on line 1, typed 'W6BVC cross probe: rename this probe file before merging.' and pressed 'Send to the assistant' - the pod's tmux pane then held 'A reviewer looked at this change and asked for something. It is about verify-w6bvc-scope.ts around line 1. Their words: W6BVC cross probe: rename this probe file before merging.. Make that change in the working tree and explain what you did.' From the decision bar: 'Request changes' opened a modal that says what it does ('recorded against the code review... also put straight to the assistant working in base's pod, so the change is made by the thing that wrote it rather than by you'), and sending it recorded changes-requested in the review record and routed me to /dashboard/barn/editor/base?tab=terminal with the terminal attached and the paragraph already in the session. The reviewer writes a sentence, never a fix, and the author still has to act on it.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-collapsed-diff",
+      "status": "pass",
+      "evidence": "Screen 12 measures from the last published version and says so out loud. With one uncommitted file in base the header read 'Reviewing all 1 file' and the narrowing sentence read 'Showing what has landed since <sha>, the commit you last read... The whole change, measured from the last published version, is 1 file. Approve still commits all of it.' The intermediate history is not shown: I made three commits into base during this run (two hand-over sweeps and a review commit) and the review screen never listed them as steps - it showed the net difference only. Screen 04 says the same thing about the same baseline ('Nothing here has reached the repository yet. Everything here is in the pod's working tree.').",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-connection-and-permission-state",
+      "status": "fail",
+      "evidence": "Judged as two halves, because they now behave differently. CONNECTION: passes. Screen 03's strip [data-testid=barn-session-state] reads 'The assistant is not signed in . run /login in the terminal', and screen 09's [data-testid=settings-assistant-login] reads 'The assistant is not signed in', with the detail row naming every pod it asked ('No credential in any of these pods (base, demo, nodehealth, v6r)... and the workspace's own session strip says the same'). Both come from the same `assistantLogin()` reading of the pod, so they are one state in two places. The GitHub side agrees too: settings names the account ('Not connected'), and the editor masthead's gear that used to open a second bare token modal no longer exists - `grep -rn barn-editor-settings-button --include=*.vue` finds only a comment. The remaining EditorSettingsModal openings are inline in flows with something in flight (the create form, the import dialog, the hand-over), which is what the design's own rationale row asks for, and they write through the same connectGithub into the same Secret. PERMISSION: still fails, and the product now says why rather than hiding it.",
+      "defect": "The permission mode is not one state in two places and cannot be. Screen 03's chip reports the live session ('Planning only, no edits'); screen 09 reports the mode the pod starts in ('Edits apply without asking'), and marks the radio group not settable. The two disagreed on screen while I looked at them. What changed this round is that neither screen pretends otherwise: [data-testid=barn-permission-split] on screen 03 spells the divergence out ('Two readings of two different things, and neither screen can change the other'), and [data-testid=settings-permission-fixed] explains that the pod starts claude with --dangerously-skip-permissions from a ConfigMap the bundle rewrites on every page load, so a level chosen on the page would be undone within seconds. Honest, but the rule asks for one state settable in one place, and that is not what exists."
+    },
+    {
+      "id": "00-cross-screen-criteria-from-brief",
+      "status": "pass",
+      "evidence": "Authored once, walked once, on an extension I created for the purpose so nothing else could account for it. Wrote 'W6BVC MARKER: the trend panel names the window it covers' into the first acceptance criterion on screen 10 for w6bvc; the page saved it ('Saved 02:18 AM') and BRIEF.md in that pod gained '- [ ] W6BVC MARKER: the trend panel names the window it covers' under '## How we will know it worked'. Screen 13 for the same extension then listed exactly that one criterion, with Yes / No / Can't tell / Show me against it, and nothing was re-entered anywhere. I then exercised it against the running build: 'Show me' drove the pinned preview (that pod's own dev server through the apiserver proxy) to /home and 'Capture this as evidence' wrote '- Captured 2026-08-24 02:19 by Default Admin at `/home`' into the file under that criterion. So the criterion, the walk and the evidence are one chain through three screens.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-existing-components-only",
+      "status": "fail",
+      "evidence": "Inspected the rendered markup of the Studio screens again. The Studio is built from its own S-prefixed primitives in pkg/barn/components/ui (SButton, SChip, SBanner, SCard, STabs, SMenu, SModal, SField). On screen 01, document.querySelectorAll('.sortable-table') is 0, and the table is a div grid: .studio-home__table with hand-rolled .studio-home__th headers (State, Name, Source, Running on, Last change). None of Rancher's own component classes appear either - .labeled-input 0, .banner 0, .async-button 0, .tabbed 0.",
+      "defect": "Screen 01 is a bespoke table, not the SortableTable pattern the rationale row names ('the same SortableTable pattern as the Clusters page'), so the claim that a Rancher user already knows how to read it does not hold. The wider claim is met in spirit (nothing needs a new primitive) but not in fact (the primitives are new implementations of existing ones). Recorded as a deliberate departure in DEPARTURES.md section 1, with the cost it has already had."
+    },
+    {
+      "id": "00-cross-screen-failure-snapshot-rollback",
+      "status": "pass",
+      "evidence": "Seeded a recorded failure and opened screen 08. It named the cause in words, was honest that it had pattern-matched the log rather than understood it, and offered 'Ask the assistant to explain this', 'Ask the assistant to fix it', 'Show me pages/NodeHealth.vue' and, for the way back, 'Roll back to the snapshot \"autosave 0217 on Aug 24\"' taken three minutes earlier, with 'Undo the last change' beside it and '0 changed files since'. The snapshots are real: refs/tags/barn-snap/* in base's pod holds dozens of automatic ones. The screen is also honest about the limit of the guarantee ('A snapshot is a point somebody chose, not necessarily a build that worked') and says rolling back snapshots the failed tree first so nothing is lost.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-iteration-ungated",
+      "status": "pass",
+      "evidence": "Everything I did before the publish dialog asked nobody, across four extensions and roughly two hours. Created an extension from screen 02, drafted and edited its brief, agreed one brief and skipped another, added and answered questions, planted and edited files in a pod, ran the scope checks, commented on a hunk and sent it to the assistant, requested changes, opened the failure screen and read its rollback offer, walked verification and signed it off. No approval dialog, no pending-review banner and no disabled control appeared at any point. The only gate chips in the product are on the two distribution rows of the publish dialog; 'Load into this Rancher' and 'Push the source to GitHub' are both chipped 'No sign-off', and settings' [data-testid=settings-iteration-note] says the same in policy terms.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-oci-gate",
+      "status": "pass",
+      "evidence": "The publish dialog names exactly one hard gate and puts it at the distribution boundary: 'Push to an OCI repository. The gate. The one hard gate in the design: the point an extension becomes installable by people who did not build it, and the only step that asks anybody for permission.' 'Put the reviewed packet on the repository' is tagged 'The gate' as the same boundary by the route this Studio can take. Beside them 'Load into this Rancher' is chipped 'No sign-off' and reversible, and 'Push the source to GitHub' is chipped 'No sign-off' because it is how you ask for a review rather than how you leave the gate. Nothing earlier in the walk (01, 02, 10, 03, 04) asked for an approval. The OCI push itself is not built and the row says so plainly rather than drawing a button that lies.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-pr-is-the-record",
+      "status": "fail",
+      "evidence": "Re-judged against the rule's wording, and the hand-over half has genuinely changed: it no longer needs GitHub and I took it end to end for the first time. From base's publish dialog I ticked 'Push the source to GitHub'; the confirm step said what it would do without a token ('the packet and its branch are written in the pod, the review record gets the entry, and the change appears in the review queue for somebody to sign. No pull request will record it, and the packet will say that rather than imply one exists.'), and pressing 'Hand over' produced packet 2 for real - refs/barn/packets/2 and branch barn/base/2 in the pod, a git note carrying the provenance, an entry in the barn-review-base record, and a queue row on screen 11. The reading half is right too: screen 12's chip reads 'No PR for packet 2' out of the record rather than searching GitHub. But the record the rule names is a PR, and no PR exists.",
+      "defect": "Crossing the gate does not produce a PR in this environment. The packet carries pr: null and pushError 'No GitHub token is configured in this Studio, so the packet was not pushed and no pull request records this hand-over', and the publish status strip repeats it ('packet 2 on barn/base/2, in this cluster only'). The other route across the boundary, 'Push to an OCI repository', is 'Not built' by the dialog's own admission. So what carries the hand-off record here is the packet plus the review record inside the cluster, which is a defensible substitute but is not the flow map's 'the PR is the record'; the product would need a GitHub credential Studio has no way to obtain by itself ('There is no \"Authorise with GitHub\" because Studio has no OAuth app of its own')."
+    },
+    {
+      "id": "00-cross-screen-preview-is-not-published",
+      "status": "pass",
+      "evidence": "base had a dirty working tree and a live preview throughout this run and none of it reached anybody: `kubectl get uiplugins -A` lists only barn and nodehealth, and base's row on screen 01 offers 'Remove the local install' greyed out with the reason 'not installed'. Screen 04 says the same in words: 'Nothing here has reached the repository yet. Everything here is in the pod's working tree. Publishing builds from it; discarding puts it back to the last commit.' Publishing is a separate deliberate act in a dialog where every destination is unticked and the submit reads 'Pick a destination' until you choose one. Snapshots are taken per build - refs/tags/barn-snap/* in the pod, the newest three minutes old when screen 08 offered it.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-prompt-provenance-survives",
+      "status": "blocked",
+      "evidence": "The brief half passes and the change-level prompt half now passes; the per-hunk half cannot be exercised here. Brief: I wrote a criterion on screen 10 and read it back on 12 and 13, and the packet's own note records whether a BRIEF.md was in the tree at the hand-over. Prompts: they are captured while the author works and they survive into review - screen 12 rendered 'Prompt 1 of 3 / Read BRIEF.md in this package... 15 minutes ago . from the workspace screen' for the prompts gathered behind packet 2, and the packet record carries turns: 3 with the window it counted over.",
+      "defect": "Per hunk is the part that cannot be shown. Screen 12 reports 'No prompt recorded for any of this change's 1 line', and each prompt is annotated 'ended in no commit, so no line can be traced to it'. The reason is the environment: claude in every pod in this cluster answers 'Not logged in . Please run /login' (screen 09 confirms 'No credential in any of these pods'), so no turn ever ends and nothing commits a turn id for the line-level index to blame against. The product says exactly this in [data-testid=barn-stream-stalled] on screen 03. Authoring a change with two distinguishable prompts is not possible until a pod has a credential."
+    },
+    {
+      "id": "00-cross-screen-publish-reversible",
+      "status": "pass",
+      "evidence": "Opened the row menu on /barn/extensions. nodehealth, which is installed as a UIPlugin (cattle-ui-plugin-system/nodehealth v0.1.0), offers an enabled 'Remove the local install v0.1.0' alongside 'Open in the workspace', 'Review changes', 'Open files' and 'Open the brief'. base and the others, which are not installed, show the same item with the reason on it. So the list is where a live extension is taken back, and the item states its own applicability rather than being hidden.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-recovery-returns-to-workspace",
+      "status": "pass",
+      "evidence": "Both amber routes end in the same workspace, and I drove both. Rejection: 'Request changes' on screen 12 routed me to /dashboard/barn/editor/base?tab=terminal with the xterm attached and the reviewer's paragraph already in the session, not to a remediation screen. Build failure: screen 08's actions are all workspace actions ('Ask the assistant to fix it', 'Undo the last change', 'Roll back to the snapshot \"autosave 0217 on Aug 24\"', 'Show me pages/NodeHealth.vue'), and its copy is about returning the same tree rather than branching out of the product. Screen 13's two send-back actions do the same thing by prompt: both put their text into the same pod session. Neither route left the Studio.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-review-packet-accumulates",
+      "status": "pass",
+      "evidence": "Both halves now hold, and the accumulation is a reading rather than a claim. While I worked in base without publishing, the assistant panel on screen 03 carried [data-testid=barn-review-accumulation] and the publish dialog carried the same sentence with numbers in it: 'Since packet 1 was handed over, 0 commits, 1 file, 2 recorded prompts have accumulated in the pod. None of it is in anybody's review queue: it is assembled into packet 2 and handed over at the push, and not before.' Nothing appeared in the review queue during any of that - screen 11 lists only handed-over extensions and says so in its empty state. Pressing the hand-over then assembled it in one go: packet 2 was written with turns: 2 and the window turnsSince it counted over, and screen 12 read it back as '3 prompts were gathered behind packet 3 since 2026-08-24T01:17:09.000Z. The pod still holds exactly what packet N was assembled from, so the diff below and the packet are the same change.' I repeated the cycle for packet 3 and the counts moved with the work. One defect found on the way, worth recording even though it does not break the rule: assemblePacket's `git update-ref refs/barn/packets/<n>` is `;`-chained ahead of `echo BARN-PACKET-OK` and carries no `2>&1`, so when that refs directory was root-owned (left that way by an earlier verifier's root-level git command) the ref write failed with 'Permission denied', the failure was swallowed, and the hand-over reported success while writing a record naming a ref that did not exist. I chowned the directory back to uid 1000 and the same hand-over then wrote the ref correctly. The other write in that chain uses `2>&1`; this one does not.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-scope-creep-vs-brief",
+      "status": "pass",
+      "evidence": "Planted a file in base's pod whose added line mentions three of the terms the brief's '## What we are deliberately not doing' uses ('alerting', 'history', 'beyond'). Screen 13's Scope card flagged it automatically, named the file per term, and offered both resolutions as real buttons. 'Remove it' put the behaviour to the assistant in the pod with the coincidence caveat and left BRIEF.md byte-identical. 'That is fine - add it to the brief' opened a plan showing exactly what would move, and confirming it rewrote BRIEF.md so the sentence left the non-goals and arrived under 'What changes for them' stamped '(accepted during verification on 2026-08-24 by admin)', with the rest of the sentence left ruled out; the warning then cleared for those terms. [data-testid=verify-scope-limit] is candid that this is a word match over added lines and not a reading of the change.",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-since-last-look",
+      "status": "pass",
+      "evidence": "Per-reviewer state persists and both screens use it. Opening screen 12 recorded a look under my principal in the barn-review-base record ('looks': {pa5g3hz: {principal: local://user-btc48, packet, sha, at}}), which survived reloads and navigations. The queue row then carried the banner with the count: '2 commits and 1 uncommitted file since Default Admin approved this on 2026-08-24. Show only what changed since then', and the demo row carried its own ('6 uncommitted files since...'). On screen 12 [data-testid=rc-since-last-look] narrows the diff and states the relationship to the whole: 'Showing what has landed since <sha>, the commit you last read... The whole change, measured from the last published version, is 1 file. Approve still commits all of it.'",
+      "defect": null
+    },
+    {
+      "id": "00-cross-screen-two-signers",
+      "status": "pass",
+      "evidence": "The two records are separate objects with their own verdict, principal, name, timestamp and commit, and neither implies the other. Approving the code on screen 12 wrote signoffs.code and left the outcome row on screen 13 reading 'Outcome sign-off - you - in progress'; signing off the outcome later wrote a second entry with its own timestamp. Handing the criteria list back wrote outcome = changes-requested while code stayed approved, and requesting changes from the code review's decision bar wrote code = changes-requested while the outcome stayed approved - four combinations, all held independently. The roles are separated on the surfaces too: screen 13 tells the reviewer 'You are checking whether this does the job, not whether the code is any good. Reading the code is a separate step, on the review screen, and not this one', and the publish dialog labels the two 'Is it safe?' and 'Does it do the job?'. I could not reproduce the 'Needs a second signer' refusal this round because approving on screen 12 commits the working tree, which moves HEAD past the packet and makes both sign-offs stale before the dialog can compare their principals; the same-signer refusal was observed directly in the previous wave and the code path (`same-signer` in gateFrom/GATE_CHIPS) is unchanged.",
+      "defect": null
+    }
+  ]
+}

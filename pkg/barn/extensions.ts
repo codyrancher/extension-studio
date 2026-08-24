@@ -2629,7 +2629,20 @@ export async function discardChanges(name: string, paths: string[] = []): Promis
     name,
     [
       `git reset -q -- ${ spec } 2>/dev/null || true`,
-      `git checkout -- ${ spec } 2>/dev/null || true`,
+      // Checkout only what git knows about, and let clean take the rest.
+      //
+      // These cannot share a pathspec, and finding that out cost a regression. `git checkout --`
+      // aborts the whole invocation on the first path it has never seen, restoring none of the
+      // others - so a mixed list of one modified file and one new file left the modified one
+      // modified while clean removed the new one. A discard that half-happens is worse than one
+      // that refuses, because the screen says it discarded.
+      //
+      // It only became reachable when the `git reset` above was added, which is what turns an
+      // intent-to-add path into one git no longer knows. Before that they were all known, and
+      // checkout truncated the new ones to nothing instead. Two bugs, one at each end of the same
+      // line, and the fix for the first uncovered the second.
+      `known=$(git ls-files -- ${ spec } 2>/dev/null)`,
+      `[ -n "$known" ] && git checkout -- $known 2>/dev/null || true`,
       `git clean -fd -e node_modules -- ${ spec } 2>/dev/null || true`,
       `echo "BARN-DISCARD-LEFT:$({ git diff --name-only --no-renames HEAD -- ${ spec } 2>/dev/null ; git ls-files -o --exclude-standard -- ${ spec } 2>/dev/null ; } | sort -u | tr '\\n' ' ')"`,
     ].join(' ; '),

@@ -994,14 +994,31 @@ export async function assemblePacket(extension: string): Promise<PacketRecord> {
     turnsSince: turnsSinceAt,
   });
 
+  // `&&` between the ref write and the marker, not `;`. With a semicolon the echo ran whatever
+  // update-ref did, so a refused ref write was swallowed and the hand-over reported success while
+  // recording a packet whose ref does not exist - the review record and the pod then disagree
+  // about whether the change was ever handed over. It reproduced for real: an earlier root-level
+  // git command left `.git/refs/barn/packets` owned by root, and the pod's exec runs as uid 1000.
+  //
+  // Third time this pattern has appeared in this codebase, after restoreSnapshot and baselineRef.
+  // `2>&1` as well, so the reason arrives with the failure instead of being sent to the void.
+  //
+  // The note and the branch stay on `;`: both are recoverable and neither decides whether the
+  // hand-over happened. The ref is the hand-over.
   const out = await runInPackage(extension, [
-    `git update-ref ${ ref } ${ state.head }`,
+    `git update-ref ${ ref } ${ state.head } 2>&1 && echo BARN-PACKET-REF`,
     // A note, not a commit: it travels with the object, it is pushed only if asked for, and it
     // does not put a file in the tree that the next diff would show as a change.
     `printf %s ${ shellSingleQuote(note) } | git -c user.email=barn@rancher.local -c user.name=barn notes --ref=${ PROVENANCE_NOTES } add -f -F - ${ state.head } 2>&1`,
     `git branch -f ${ branch } ${ state.head } 2>&1`,
     'echo BARN-PACKET-OK',
   ].join(' ; ')).catch(() => '');
+
+  if (!out.includes('BARN-PACKET-REF')) {
+    throw new Error(
+      `the packet ref could not be written for ${ extension }: ${ out.trim().slice(0, 200) || 'no reason given' }`
+    );
+  }
 
   if (!out.includes('BARN-PACKET-OK')) {
     throw new Error(`the packet could not be assembled: ${ out.trim().slice(0, 200) || 'no output' }`);

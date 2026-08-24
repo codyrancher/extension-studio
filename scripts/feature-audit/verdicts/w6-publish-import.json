@@ -1,0 +1,671 @@
+{
+  "screen": "w6-publish-import (07-publish + 06-import + 06a-import-first)",
+  "verdicts": [
+    {
+      "id": "07-publish-autosave",
+      "status": "pass",
+      "evidence": "On /barn/editor/base the masthead showed a clock glyph with 'Snapshot saved 2m ago', then 'Snapshot saved 3m ago' on a later load and 'Snapshot saved 1m ago' after the next autosave, so the string tracks real time. Opening the snapshots menu beside it listed the pod's actual snapshot objects newest first ('autosave 0133 on Aug 24 - 2 minutes ago', 'autosave 0130 on Aug 24 - 5 minutes ago', ... three-minute spacing), so the reading is of something that exists.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-back",
+      "status": "pass",
+      "evidence": "Clicked the icon-chevron-left button at the left of the masthead on /barn/editor/base; the URL became https://magic-closet-rancher/dashboard/barn/extensions and the Studio list rendered.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-branch-chip",
+      "status": "pass",
+      "evidence": "Clicked the 'main' chip (data-testid=barn-branch-menu) on /barn/editor/base: a menu opened listing the pod's branches with the current one marked - 'main / current'. It is a picker, not a label.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-cancel",
+      "status": "pass",
+      "evidence": "Opened the publish dialog on base and clicked the footer Cancel (barn-publish-cancel): the dialog closed, the URL stayed on /barn/editor/base, and reopening showed the version and summary fields back at their read values (0.1.0, empty), so nothing typed was committed and nothing was published.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-changes-summary-review",
+      "status": "pass",
+      "evidence": "The strip above the composer on base read '3 changes - Only you can see them. Nothing is asked of you until you publish.' with its own Review button. Clicking it moved the selected tab to 'Changes 3' and the pane showed the real diff ('Uncommitted changes 3 files +50 -1', BRIEF.md hunks). The strip is absent when there is nothing to review (demo with a clean tree drew none).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-changeset",
+      "status": "pass",
+      "evidence": "The dialog on base read '3 files - +50 -1' and named 'BRIEF.md, HARNESS.md, product.ts'. `git diff --stat HEAD` in the pod at the same moment reported exactly '3 files changed, 50 insertions(+), 1 deletion(-)' over BRIEF.md, HARNESS.md and product.ts. The 'when you last reviewed it' half is there too: 'Nobody has reviewed this yet, so what is below is the working tree as it stands. Last edited just now.'",
+      "defect": null
+    },
+    {
+      "id": "07-publish-check-build",
+      "status": "not-implemented",
+      "evidence": "First pre-flight row reads 'Build: not checked - Nothing compiles this extension before a publish. The build is the publish - build-pkg runs in the pod and takes minutes - so there is no compile result to tick here, and this dialog will not invent one.' with an info glyph rather than a tick.",
+      "defect": "Deliberate and unchanged. Nothing compiles the extension before a publish, so the row states that instead of inventing a tick and a compile time."
+    },
+    {
+      "id": "07-publish-check-credentials",
+      "status": "pass",
+      "evidence": "Green on a clean diff ('No credentials in the diff - Scanned 2 files for tokens, keys and kubeconfigs' on base, 'Scanned 0 files' on a clean demo, 'Scanned 7 files' with seven changed). Drove the positive case: wrote /app/pkg/demo/w6-check-probe.ts containing a ghp_-shaped string, and the row turned red and read '2 possible credentials in the diff - Scanned 7 files for tokens, keys and kubeconfigs. barn-review-w6.vue:2 looks like a GitHub personal access token; w6-check-probe.ts:2 looks like a GitHub personal access token.' It named file and line and never echoed what it matched. Probe file removed afterwards.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-check-unstable-api",
+      "status": "fail",
+      "evidence": "Green state is right ('No unstable Kubernetes APIs added - The added lines name no alpha or beta group-version'). Drove the warning state by putting `metrics.k8s.io/v1beta1` into a file in the demo pod's tree. The row did turn to the alert glyph, it did not gate (Publish stayed enabled and read 'Publish to 1 place' beside it) - but the sentence rendered as: 'Uses an unstable API. undefined (barn-review-w6.vue:3). An alpha or beta group-version can change or disappear between Kubernetes minors...'. The group-version is printed as the literal word 'undefined'.",
+      "defect": "PublishModal.vue's `unstableCheck()` builds its sentence with `this.unstable.map((f) => `${f.api} (${f.path}:${f.line})`)` (pkg/barn/components/PublishModal.vue:790), but `scanUnstableApis()` returns `Finding` objects whose field is `what`, not `api` (pkg/barn/change-checks.ts:23-28 and :191). So the one thing the row exists to tell you - which group-version is unstable - is always 'undefined'. The credentials row two lines above uses `f.what` correctly, and screen 12's automated-checks column also uses `f.what` (pages/review-change.vue:3200), so this is the single wrong field reference. The check has only ever been seen green before, which is why it read as a pass."
+    },
+    {
+      "id": "07-publish-composer",
+      "status": "pass",
+      "evidence": "Typed into the composer textarea on /barn/editor/demo; the text appeared, the Send button went from disabled to enabled, and sending it produced a new turn carrying exactly that text.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-composer-keyboard",
+      "status": "pass",
+      "evidence": "Focused the composer on demo, typed 'line one', pressed Shift+Enter, typed 'line two'. The textarea value became 'line one\\nline two' and the turn count stayed at 0, so the message was not sent. The hint under the composer reads 'Shift + Enter for a new line - the assistant never publishes on its own'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-add",
+      "status": "pass",
+      "evidence": "Clicked the '+ Add' chip on demo: a modal titled 'Add a file to the context' opened listing the pod's real files (.gitignore, CLAUDE.md, babel.config.js, index.ts, l10n/en-us.yaml, package.json, pages/Home.vue, product.ts, routing/index.ts, tsconfig.json, vue.config.js). Picking index.ts closed it and added an 'index.ts' chip to the context row.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-chip-cluster",
+      "status": "pass",
+      "evidence": "The context row carries a 'cluster: local' chip with a server glyph, beside the extension chip, on both base and demo.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-context-chip-file",
+      "status": "pass",
+      "evidence": "Adding index.ts through the picker put an 'index.ts' chip in the context row; clicking its remove control took it away again, leaving only the two non-removable facts (extension, cluster: local). So it shows the file and it can be removed - the design draws no remove affordance and the product has one.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-dialog-close",
+      "status": "pass",
+      "evidence": "Opened the publish dialog on base and clicked the X in the head: the dialog closed, the URL was unchanged, and nothing was published (reopening showed the untouched version/summary).",
+      "defect": null
+    },
+    {
+      "id": "07-publish-dialog-subtitle",
+      "status": "pass",
+      "evidence": "The subtitle reads 'Every destination below is a separate choice and none of them is ticked for you. Each row says what approval it costs and whether it can be taken back.' - and it is true of the dialog: every row started unticked and ticking one changed only its own row and the count.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-dialog-title",
+      "status": "pass",
+      "evidence": "The dialog head reads 'Publish base' on base and 'Publish demo' on demo, so it names the extension it is about to publish.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-app-collection",
+      "status": "not-implemented",
+      "evidence": "No grid glyph anywhere in Rancher's header on the Studio routes: querying for `i.icon-apps`, `[data-testid=\"app-collection\"]` and `.app-collection` returned 0. The header's right-hand controls are the page-actions kebab, the notification bell and the user menu.",
+      "defect": "Unchanged. This is Rancher's own chrome and this Rancher has no app-collection popover to point at (DEPARTURES section 2)."
+    },
+    {
+      "id": "07-publish-header-logo",
+      "status": "pass",
+      "evidence": "The header shows the product wordmark of the Rancher the Studio is running in: an <img data-testid=\"header__brand-img\"> at 200x36 serving rancher-logo.db10c962.svg. It is the community mark rather than the SUSE chameleon + 'Rancher Prime' the Figma draws, because this instance runs rancher/rancher:head and not the Prime image (confirmed on the sidecars API). The wordmark is the shell's, not barn's, and it identifies this Rancher correctly.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-more",
+      "status": "pass",
+      "evidence": "Clicked the three-dot glyph in the header (data-testid=page-actions-menu-action-button) while on /barn/editor/base: a menu opened with 'Review queue', 'Studio settings', 'Installed extensions' - the pageActions the Studio route commits.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked the bell (data-testid=notifications-center): a '.notification-dropdown' tray opened headed 'Notifications / Mark all as read' and listing real entries with times - 'Today, 2:02:40 am Reverted package.json to the last commit.', 'Today, 2:00:29 am All 4 verdicts are in BRIEF.md...'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked barn-masthead-overflow at the right of the masthead: a menu opened with 'Files and history', 'Review changes', 'Verification', 'The brief', 'Re-read this extension', 'Remove the local install'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-model-picker",
+      "status": "pass",
+      "evidence": "Clicked the model chip (reading 'Default model') in the composer bar: a menu opened offering fable, opus, sonnet and 'Choose in the terminal - /model'. It is a picker over the aliases the pod's own claude documents, not a label.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-about",
+      "status": "pass",
+      "evidence": "Clicked About at the bottom of the rail: landed on https://magic-closet-rancher/dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-aft",
+      "status": "pass",
+      "evidence": "The rail's pinned-cluster chips are Rancher's own and list the clusters this Rancher has. There is one, 'local': clicking its chip (data-testid=menu-cluster-local) landed on /dashboard/c/local/explorer#cluster-events. AFT is a Figma-invented cluster name with no counterpart here; the mechanism the chip stands for works.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-cd2",
+      "status": "pass",
+      "evidence": "Same control as the AFT chip: the rail lists this Rancher's real clusters and clicking the only one, 'local', opened its explorer at /dashboard/c/local/explorer. CD2 does not exist in this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-cluster-lt1",
+      "status": "pass",
+      "evidence": "Same control again: the rail's pinned cluster chip for 'local' navigated to /dashboard/c/local/explorer. LT1 does not exist in this Rancher.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-clusters",
+      "status": "pass",
+      "evidence": "Clicked 'Cluster Management' in the rail (the group with the cluster-management glyph): landed on /dashboard/c/_/manager/provisioning.cattle.io.cluster, which is Rancher's cluster list.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-docs",
+      "status": "not-implemented",
+      "evidence": "No book glyph and no documentation link in the rail: querying `i.icon-book`, `i.icon-docs` and `a[href*=\"docs\"]` returned 0 across the Studio routes. The rail is Rancher's product list and the Studio owns no documentation.",
+      "defect": "Unchanged, and Rancher's chrome rather than a gap in the Studio (DEPARTURES section 2)."
+    },
+    {
+      "id": "07-publish-nav-extensions",
+      "status": "pass",
+      "evidence": "'Extension Studio' is the rail entry for this section and it carries the highlighted state while the editor is open; clicking it landed on /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-home",
+      "status": "pass",
+      "evidence": "Clicked Home in the rail: landed on /dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-menu",
+      "status": "pass",
+      "evidence": "Measured the rail: 70px collapsed. Clicked the hamburger (data-testid=top-level-menu) and it widened to 300px with labelled entries; clicked again and it went back to 70px.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-settings",
+      "status": "pass",
+      "evidence": "Clicked 'Global Settings' (the gear group) in the rail: landed on /dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-nav-user",
+      "status": "pass",
+      "evidence": "Clicked the person glyph (data-testid=nav_header_showUserMenu): the account menu opened showing 'admin / Default Admin' with Preferences, Account & API Keys and Log Out.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-open-dialog",
+      "status": "pass",
+      "evidence": "Clicked Publish in the masthead (barn-publish-button) on both base and demo: the publish dialog opened over the workspace with barn-publish-title present, every time.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-permission-chip",
+      "status": "pass",
+      "evidence": "Clicked the 'Edits apply without asking' chip on the session strip: a menu opened with the three levels plus the way out - 'Edits apply without asking (in use)', 'File edits apply, everything else asks (accept edits)', 'Planning only, no edits (plan mode)', 'claude decides what to ask about (auto mode)', 'Open the terminal (shift+tab)'. The chip reads the pod's live mode rather than a stored value.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-back",
+      "status": "pass",
+      "evidence": "In the preview on base: navigated /home -> /about -> /home (frame history length 4 -> 5 -> 6), clicked the Back chevron and the frame went to .../proxy/about with the address field following to '/about'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-chart",
+      "status": "not-implemented",
+      "evidence": "The preview frame renders the pod's own dashboard (title 'Rancher Prime - Homepage', headings 'Welcome to Rancher Prime', 'Clusters', 'Links'). There is no 'Node condition trend' heading and no chart anywhere in it.",
+      "defect": "Unchanged. The chart is content the design's example extension would draw, not something the Studio renders."
+    },
+    {
+      "id": "07-publish-preview-existing",
+      "status": "pass",
+      "evidence": "The preview frame shows the previewed page whole and unaltered - Rancher's home with its Clusters and Links cards intact - and the Studio says so rather than implying it changed anything: the marker reads 'Nothing on this page is drawn by what has changed. BRIEF.md, HARNESS.md, product.ts differ from the last commit, and no component is among them, so there is nothing in the rendered page to outline.'",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-forward",
+      "status": "pass",
+      "evidence": "After the Back above, clicked the Forward chevron: the frame returned to .../proxy/home and the address field to '/home'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-live-state",
+      "status": "pass",
+      "evidence": "The live dot and label read 'Loaded - 8s ago' on arrival and 'Loaded - just now' immediately after a reload and after a route change, so it reports the freshness of what is in the frame rather than a fixed string.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-new-marker",
+      "status": "pass",
+      "evidence": "On demo, with pages/Home.vue and barn-review-w6.vue dirty in the pod, the marker on /home said 'Nothing on this page comes from the changed components ... Point the preview at a page one of them renders and it is outlined here.' Pointing the preview at /demo/c/local/home changed it to 'Outlined below: what the changed component draws - 1 block on this page is rendered by barn-review-w6.vue, pages/Home.vue, which differ from the last version published into this Rancher', and one outline element appeared over the frame.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-open-external",
+      "status": "pass",
+      "evidence": "Clicked the external-link glyph: a new browser tab opened at https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-base-extension:8005/proxy/home, which is the route the preview was on. Context page count went 19 -> 20; closed it again.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-page-more",
+      "status": "pass",
+      "evidence": "Inside the preview frame the rendered page has its own kebab: two `[data-testid=\"page-actions-menu-action-button\"]` controls exist in the iframe document. It is the previewed page's menu, not the Studio's.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-page-tabs",
+      "status": "fail",
+      "evidence": "Read the preview frame's own document: no tab strip at all ([role=tab], .tab, li.tab all returned 0 on the previewed page), and no 'Node health' tab or sparkle marker anywhere in it.",
+      "defect": "Unchanged. The extension adds no tab to the previewed page, so the design's 'Node health' tab and its sparkle marker do not exist. What tabs a previewed Rancher page has are Rancher's, and the page the preview lands on has none."
+    },
+    {
+      "id": "07-publish-preview-panel-collapse",
+      "status": "not-implemented",
+      "evidence": "There is no generated 'Node condition trend' panel in the preview to collapse, and no chevron on any panel head inside the frame.",
+      "defect": "Unchanged, and downstream of preview-chart: the panel the chevron belongs to does not exist."
+    },
+    {
+      "id": "07-publish-preview-reload",
+      "status": "pass",
+      "evidence": "Clicked the refresh glyph: the frame reloaded and the live label reset to 'Loaded - just now'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-route",
+      "status": "pass",
+      "evidence": "The route field is a real input (not readOnly). Typed '/about' and pressed Enter: the frame navigated to .../proxy/about. Typed '/blank-probe': the frame navigated, the pod's dashboard redirected to the fail-whale and the field followed to '/fail-whale' - so it drives the preview and then reports where the preview actually ended up.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-preview-target-chip",
+      "status": "fail",
+      "evidence": "Clicked the 'Preview on: local' chip (data-testid=barn-preview-target) on /barn/editor/base: no menu opened (the menu query came back empty), and the element is a SPAN with no trigger behind it.",
+      "defect": "Unchanged: no cluster picker. EditorMasthead draws this as a reading, because every extension pod is created in the local cluster. The design draws it as a changeable target."
+    },
+    {
+      "id": "07-publish-preview-viewport",
+      "status": "pass",
+      "evidence": "Clicked the Desktop chip: a menu opened with 'Desktop (Showing)', 'Tablet 834px', 'Mobile 390px'. Choosing Mobile set the frame to width:390px (measured 390) and relabelled the chip; choosing Desktop put it back to 810px.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-raw-output",
+      "status": "pass",
+      "evidence": "Clicked 'Show raw output' under the stream: a black panel opened streaming the pod dev server's real lines - 'DONE Compiled successfully in 2877ms', 'App running at: - Local: http://localhost:8005', 'WAIT Compiling...', 'Build finished at 23:27:58'. It is the pod's log, not a fixture.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-raw-output-hide",
+      "status": "pass",
+      "evidence": "With the panel open, clicked 'Hide raw output' in its head: the barn-raw-output element was gone from the DOM afterwards.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-release-summary",
+      "status": "pass",
+      "evidence": "The field takes a one-line summary (typed 'w6-publish-import verifier probe summary' and the value stuck), and its hint names exactly where it goes and under which version: 'Written to CHANGELOG.md in the package under 0.1.0, so it is in the tree the GitHub push commits' - which re-renders to '...under 9.9.9-w6' when the version field changes. Drove the prefill: wrote a CHANGELOG.md into /app/pkg/demo with a '## 0.1.0' section reading 'w6 probe prefilled summary line.', reopened the dialog, and the summary field came up prefilled with exactly that. Removed the file afterwards. Not seen: the write back into CHANGELOG.md, which only happens on a publish, and my one permitted press was spent on the hand-over.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-review-changes",
+      "status": "pass",
+      "evidence": "The masthead button is labelled with the live count - 'Review 3 changes' on base, 'See what changed' on a clean demo. Clicking it moved the selected tab to 'Changes 3' and the pane rendered the diff of those three files ('Uncommitted changes 3 files +50 -1').",
+      "defect": null
+    },
+    {
+      "id": "07-publish-rollback-note",
+      "status": "pass",
+      "evidence": "The footer note tracks the ticks. Nothing ticked: 'Nothing is ticked, so nothing will be published.' GitHub only: 'the hand-over stays in this cluster and opens no pull request, so there is nothing to close: the packet is numbered and the next hand-over makes the next one.' GitHub plus local: 'the load into this Rancher can be taken back off with \"Remove local install\" and the hand-over stays in this cluster...'. Unticking local put it back to the one-clause form. Note the second clause is the token-aware one: with no token stored it does not offer a pull request to close.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-scrim",
+      "status": "pass",
+      "evidence": "A scrim covers the workspace while the dialog is open (the .s-modal root paints rgba(0,0,0,0.45) over the full viewport). Clicked at (60,850), well outside the dialog: it closed, the URL stayed /barn/editor/base and nothing was published.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-send",
+      "status": "pass",
+      "evidence": "Typed a unique probe into the composer on demo and clicked Send. A user turn appeared reading 'You - just now / Do nothing at all. This is a verification probe: w6-publish-import probe mt6kg3ob / Sent from this composer - the pod has not recorded it yet', the composer cleared, and `tmux capture-pane` in the demo pod showed the same line as the last prompt in claude's session. So the instruction reached the assistant, not just the screen.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-session-status",
+      "status": "pass",
+      "evidence": "The strip shows a dot (.assistant-panel__dot, toned by state) and the truth about the session rather than an invented account: 'The assistant is not signed in - run /login in the terminal', with a tooltip 'There is no credential in this pod: no OAuth credentials file, no API key in its environment and no account in .claude.json. Every prompt sent from here comes back \"Not logged in\".' Confirmed against the pod - the tmux pane shows 'Not logged in - Run /login'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-code-review",
+      "status": "pass",
+      "evidence": "The sign-offs section draws the code-review row with its real state read from the review record: 'Code review - Is it safe? / Not signed off yet.' with a View link. base's barn-review-base ConfigMap has `signoffs: {}`, so 'not signed off' is the true reading; the design's green tick with 'Ana Silva - approved yesterday' is a filled-in mock.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-code-review-view",
+      "status": "pass",
+      "evidence": "Clicked View on the code review row: navigated to https://magic-closet-rancher/dashboard/barn/review/base/working, which is screen 12, the code review for the working change.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-note",
+      "status": "pass",
+      "evidence": "The note reads 'Two people answer two questions, and only leaving the gate - putting the packet where people who did not build it can install it - asks for them. Loading this into a Rancher to try it, or handing it over on GitHub to ask for a review, needs nobody.' That is the promise's substance: the sign-offs are demanded by particular destinations, not by publishing. The section itself does not appear and disappear with the ticks - it is always shown - but the requirement chips on the rows do change, and the note says which destinations are the ones that ask.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-outcome",
+      "status": "pass",
+      "evidence": "The second row reads 'Outcome sign-off - Does it do the job? / Not signed off yet.' with its own View link, again matching the empty `signoffs` in barn-review-base.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-signoff-outcome-view",
+      "status": "pass",
+      "evidence": "Clicked View on the outcome row: navigated to /dashboard/barn/extensions/base/verification, which rendered 'How we said we would know 1/6 - You are checking whether this does the job, not whether the code is any good'. That is screen 13, the outcome sign-off.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-state-badge",
+      "status": "pass",
+      "evidence": "The badge beside the name reads the real state of the tree: 'Unsaved' on base while three files are uncommitted, and 'Live' on demo with a clean tree. It flipped from 'Iterating - 1 change' to 'No changes' on demo the moment Undo removed the only dirty file.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-step-expand",
+      "status": "not-implemented",
+      "evidence": "Read every turn in the stream on base (50 of them): no step list, no chevrons on any turn (`i.icon-chevron-down`/`icon-chevron-right`/buttons inside a turn all 0), and `[class*=\"step\"]` matched nothing in the panel.",
+      "defect": "Unchanged, and stated on screen: the stream's own note says the per-step detail the design draws is not there because the pod's hooks record a turn's start, the files its editing tools touch and its end, and nothing in between."
+    },
+    {
+      "id": "07-publish-step-status",
+      "status": "not-implemented",
+      "evidence": "Same reading: no per-step ticks, no spinner on any turn, no durations per step. What a turn does carry is its own start and end ('Started 3 minutes ago - no duration, because nothing recorded its end').",
+      "defect": "Unchanged. There are no steps to give a status to; see the stream note quoted on 07-publish-step-expand."
+    },
+    {
+      "id": "07-publish-stop",
+      "status": "pass",
+      "evidence": "Clicked Stop: a toast appeared reading 'Interrupt sent - Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.' The pod path is `tmux send-keys -t <session> Escape`, and the toast distinguishes the case where there is no session to interrupt. It says exactly as much as it can prove.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-submit",
+      "status": "pass",
+      "evidence": "The label counts the ticks: 'Pick a destination' with none, 'Publish to 1 place' with GitHub, 'Publish to 2 places' with GitHub and the local load, back to 'Publish to 1 place' on unticking. Pressed it on demo with GitHub ticked and the destination was actually published to: the hand-over ran, packet 1 was assembled in the pod and the status strip reported it. Rows that are unavailable are never in the count - `confirm()` emits only `targets.filter((t) => t.available && isChosen(t.id))`, which is why an unticked catalog or a shut gate cannot inflate it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-assistant",
+      "status": "pass",
+      "evidence": "Clicked Assistant: aria-selected moved to it and the pane showed the conversation (50 recorded turns, newest last) plus the accumulation note.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-changes",
+      "status": "pass",
+      "evidence": "Clicked Changes: aria-selected moved to 'Changes 3', the badge matched the three changed files, and the pane rendered 'Uncommitted changes 3 files +50 -1' with the BRIEF.md hunks.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-files",
+      "status": "pass",
+      "evidence": "Clicked Files: the pane swapped to the file tree and the branch/commit column - 'Branch main ... Commits on main 24b3922 Remove verify-05-files.md and undo the l10n edit (feature-audit scratch) 18 hours ago'.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-tab-terminal",
+      "status": "pass",
+      "evidence": "Clicked Terminal: aria-selected moved to it and the xterm pane rendered (the pod shell's content came through). It is v-shown rather than v-if'd, so the tmux session survives switching away and back.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-target-catalog",
+      "status": "not-implemented",
+      "evidence": "The row is drawn with its 'Requires approval' tag, its 'Both + extensions team' requirement and the reason underneath - 'There is no SUSE catalog reachable from this environment and no submission for this Studio to make, so there is nothing behind this box' - and it has no checkbox at all (the row renders as a div, not a label, and no input exists for it).",
+      "defect": "Unchanged. There is nothing behind the box, so ticking it could not do anything. Also note the design's 'it is the only unticked one' does not hold here and deliberately so: this dialog pre-ticks nothing."
+    },
+    {
+      "id": "07-publish-target-dev-load",
+      "status": "pass",
+      "evidence": "The row is available and independently tickable, its requirement chip reads 'No sign-off', and its note is accurate ('Builds the package in the pod and points this Rancher at the result. Everybody signed in here gets it on their next page load.'). Ticking it raised the Publish count to 2 and unticking dropped it back to 1. The design's 'ticked by default' is deliberately not done - the subtitle says nothing is ticked for you. Not pressed: a local publish rebuilds the package and changes what every user of this shared Rancher loads. That the destination is real rather than a label is visible in the pod - demo carries `refs/barn/published/local` from an earlier run of this same path.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-target-github",
+      "status": "pass",
+      "evidence": "Drove it end to end on demo, once. Ticked only 'Push the source to GitHub' and pressed 'Publish to 1 place'; the GitHub dialog opened and its confirm button was enabled with barn-settings empty; pressed 'Hand over'. Three seconds later the status strip read 'packet 1 on barn/demo/1, in this cluster only: No GitHub token is configured in this Studio, so the packet was not pushed and no pull request records this hand-over...'. In the pod: `refs/barn/packets/1` at 4609f29, branch `barn/demo/1` created, and a git note on refs/notes/barn-provenance carrying {packet:1, base, sha, at, by, brief:false, attribution:{available:false,...}, turns:[]}. In the cluster: barn-review-demo's review.json gained packets.1 with branch, sha, by, byName, brief:false, pr:null, prError:'' and the pushError sentence. On /barn/review the demo row appeared: 'No brief - nobody wrote down what this is for. demo - v0.1.0 - packet 1 / Handed over as packet 1 1 minute ago by Default Admin ... Blocked / Open the brief'. This is the first time anything in this product has been handed over end to end. Cleaned up afterwards: packet ref deleted, branch deleted, provenance note removed, review.json restored to packets:{} - and the demo row was gone from the queue on recheck. The row previously read `blocked` because handOverForReview threw without a token; it no longer does.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-target-oci",
+      "status": "not-implemented",
+      "evidence": "The row is drawn with the 'The gate' tag, its gate sentence and the reason it cannot be ticked: 'Not built. Pushing to an OCI registry means building a Helm chart from the extension and pushing it with a registry client, and this Studio has neither in the pod and no registry configured.' No checkbox exists for it.",
+      "defect": "Unchanged. The working half of the same boundary is the separate 'Put the reviewed packet on the repository' row, which is also unavailable here - it reads 'No GitHub token is configured, so this Studio cannot push anywhere' and, separately, the gate is shut ('Needs a brief' on demo)."
+    },
+    {
+      "id": "07-publish-target-requirements",
+      "status": "pass",
+      "evidence": "Every row ends in a requirement badge and each one matches its risk: local 'No sign-off', github 'No sign-off', catalog 'Both + extensions team' with a lock. The two gated rows do not carry a constant - they carry the gate's current reading, which on demo was 'Needs a brief' for both oci and repository, with the whole sentence underneath ('This change has no brief, so there is nothing written down for the outcome sign-off to be given against...'). That is the design's promise done better than the frame, which writes 'Code review required' as a fixed string.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-turn-assistant",
+      "status": "blocked",
+      "evidence": "The channel is built and rendering: every assistant turn in the stream draws a lead sentence read from claude's own transcript, and each one here reads 'Not logged in - Please run /login', which is claude's actual reply in that pod. So a reply does appear above where the step list would be. What cannot be checked is the promise itself - a plan - because no pod in this environment has a claude credential (the session strip and its tooltip say so: no OAuth credentials file, no API key, no account in .claude.json). Every prompt I sent came back with that refusal. This is the pods' missing credential, not a missing control, so I have moved it off `not-implemented`.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-turn-user",
+      "status": "pass",
+      "evidence": "Sent a prompt from the composer on demo and it came back as 'You - just now' over a bubble containing exactly the text sent, with a note saying where it came from ('Sent from this composer - the pod has not recorded it yet'). Older user turns on base carry relative timestamps the same way ('You - 3 minutes ago').",
+      "defect": null
+    },
+    {
+      "id": "07-publish-undo",
+      "status": "pass",
+      "evidence": "Keyed it to myself rather than to whatever was at the top of the tree. Wrote /app/pkg/demo/verify-w6-publish-import.txt into the demo pod, loaded the editor (masthead read 'Iterating - 1 change', tabs 'Changes 1'), clicked 'Undo'. The masthead went to 'No changes' and `git status --porcelain` in the pod came back empty - the file was gone. One click, one change reversed.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-version",
+      "status": "pass",
+      "evidence": "The field is prefilled from the pod's real package.json (0.1.0 on both base and demo - `grep version package.json` in the pod agrees) and it is live: typing 9.9.9-w6 changed the hint under it to 'Read from package.json in the pod, and stamped on the bundle, the UIPlugin and the commit message. Publishing rewrites that file to 9.9.9-w6.' and changed the summary hint to '...under 9.9.9-w6'. It validates - 'not a version' produced 'A version has to be major.minor.patch, for example 0.2.0.' and disabled the Publish button. The stamping-onto-the-artefact half is only observable through a publish, and my one permitted press went to the hand-over.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-view-diff",
+      "status": "pass",
+      "evidence": "Clicked 'View diff' in the dialog's changeset strip on base: the diff opened inline (barn-publish-diff) showing all three files with their hunks - '3 files +50 -1 / BRIEF.md +33 -1 ...' - and the button relabelled to 'Hide diff'. Clicking again closed it.",
+      "defect": null
+    },
+    {
+      "id": "07-publish-workspace-title",
+      "status": "pass",
+      "evidence": "The masthead reads the extension name over the product name - 'base' / 'Extension Studio' on /barn/editor/base, 'demo' / 'Extension Studio' on /barn/editor/demo.",
+      "defect": null
+    },
+    {
+      "id": "06-import-branch",
+      "status": "pass",
+      "evidence": "Opened the import wizard, carried on without connecting, and pasted https://github.com/rancher/kubewarden-ui/tree/main. Step 3's Branch control became a real select listing that repository's branches with the default marked: 'main (default)', aalves08-patch-1, add_workload_scan_using_ui, dependabot/npm_and_yarn/rancher/shell-3.0.13, feature/1184-priority-class-name, gh-pages, release-1.6, release-2.0, release-2.1, release-3.1. Selecting aalves08-patch-1 stuck and re-ran the pre-import check against it. A 'Type a branch name instead' link swaps the select for a free-text field carrying the same value.",
+      "defect": null
+    },
+    {
+      "id": "06-import-cancel",
+      "status": "pass",
+      "evidence": "Filled in the repository (rancher/kubewarden-ui) and clicked the footer Cancel: the modal closed, the Studio list was still there behind it, and no new extension appeared (`kubectl -n barn get deploy` showed no new Deployment). Nothing was cloned.",
+      "defect": null
+    },
+    {
+      "id": "06-import-change-connection",
+      "status": "pass",
+      "evidence": "Reached the connected state through the product's own path and clicked it. With a token stored, step 1 became 'Step 1. GitHub connected' with a green check marker and a ghost 'Change' button on the account row. Clicking Change put step 1 back to 'Step 1. Connect GitHub' in its active blue state with the token field open, and re-locked steps 2 and 3 (both back to state=locked with grey markers) - which is exactly the promise. A 'Keep the one that is stored' button sits beside Connect so the change can be abandoned. The stored token was removed again immediately afterwards and barn-settings is empty.",
+      "defect": null
+    },
+    {
+      "id": "06-import-close",
+      "status": "pass",
+      "evidence": "Clicked the X in the dialog head after filling in a repository: the modal closed and no extension was created (no new Deployment in the barn namespace, Studio list unchanged).",
+      "defect": null
+    },
+    {
+      "id": "06-import-connected-account",
+      "status": "blocked",
+      "evidence": "Confirmed against the running product, not assumed. With a token stored, the account row renders (barn-import-account) and is honest about what it could not get: 'A token is stored, so a private repository clones too. Studio could not read the account from it. GitHub rejected the token (Bad credentials).' So the code path works and the failure wording is right. The handle, the granted scopes and the relative expiry cannot be shown, because they are read out of GitHub's response to the token and this environment has no credential GitHub accepts. Not fabricated.",
+      "defect": "Not a defect in the code path. Blocked on a GitHub credential this environment does not have."
+    },
+    {
+      "id": "06-import-dialog-header",
+      "status": "pass",
+      "evidence": "The dialog is headed 'Import an extension from GitHub' and the caption under it reads 'The repository is cloned into your workspace. Nothing is pushed back until you publish.' - both present in the first-run state and in the connected state.",
+      "defect": null
+    },
+    {
+      "id": "06-import-launch",
+      "status": "pass",
+      "evidence": "On /dashboard/barn/extensions the title row carries a neutral 'Import' button with a github glyph beside 'New extension'. Clicking it opened the modal titled 'Import an extension from GitHub' over the list, with the URL unchanged.",
+      "defect": null
+    },
+    {
+      "id": "06-import-list-behind",
+      "status": "pass",
+      "evidence": "With the modal open, the Studio table was still rendered behind it (.studio-home__table present with its rows) and location.href was still https://magic-closet-rancher/dashboard/barn/extensions - no navigation happened.",
+      "defect": null
+    },
+    {
+      "id": "06-import-name",
+      "status": "pass",
+      "evidence": "'Name in Studio' came up prefilled from the repository - 'kubewarden-ui' - with the hint 'Taken from the repository. Change it to call it something else here.' Typing 'W6 Probe Name' changed the hint to 'It will be called w6-probe-name.' (it normalises rather than rejects), and typing 'base' produced the error 'base already exists here.' and disabled Import. It is a free-text field, not the select the chevron in the mock suggests, which is the right call for a name.",
+      "defect": null
+    },
+    {
+      "id": "06-import-paste-url",
+      "status": "pass",
+      "evidence": "There is no separate 'Not listed? Paste a repository URL instead' link, because the escape hatch is the field itself and it says so: with no list its hint reads 'Name the one you want, or paste its URL.' Pasted https://github.com/rancher/kubewarden-ui/tree/main and the hint became 'Reads as rancher/kubewarden-ui.', the branch defaulted to main from the URL, and the pre-import check ran against it. Typing 'not a repo!!' produced 'That has to be owner/name, or a github.com repository URL.'",
+      "defect": null
+    },
+    {
+      "id": "06-import-precheck",
+      "status": "pass",
+      "evidence": "It inspects the chosen repo and branch from a pod and has three answers, not one. rancher/kubewarden-ui@main: green - 'This looks like a Rancher extension. Found pkg/kubewarden/package.json, pkg/kubewarden/index.ts, a pkg/ directory and the rancher annotations block. It asks for Rancher >= 2.11.0-0, and this Rancher is 2.15.' - which is the marker files and the version skew the design asks for. octocat/Hello-World: amber - 'This does not look like a Rancher extension. Did not find package.json, index.ts, a pkg/ directory and the rancher annotations block. You can import it anyway, and the assistant will have to make an extension of it.' rancher/definitely-not-real-w6-probe: grey - 'Studio could not see it on GitHub. It may be private, in which case connect GitHub in step 1 and the import will still work even though this check cannot see it. Otherwise the name is wrong.' None of the three gates Import, which matches the frame (Import is drawn fully enabled beside a passing check).",
+      "defect": null
+    },
+    {
+      "id": "06-import-repo-meta",
+      "status": "blocked",
+      "evidence": "The rows the lock/book glyph and the relative updated time belong to are rendered from `listGithubRepos`, which the pod runs with the stored token. With a token GitHub rejects, the list comes back empty and the panel says so instead of drawing rows: 'GitHub rejected the token (Bad credentials). Name the repository below or paste its URL instead.' So there is no row to read the visibility or the updated time off. Needs a credential GitHub accepts; not fabricated.",
+      "defect": "Needs a valid GitHub token to verify. No code defect observed - the failure is reported honestly."
+    },
+    {
+      "id": "06-import-repo-pick",
+      "status": "blocked",
+      "evidence": "Same cause: `barn-import-repo-list` is only rendered when the pod's listing returns rows, and with a token GitHub rejects it returns none. There is nothing to click, so the highlight, the check glyph and the single-select behaviour cannot be driven. What is verifiable is the other half of the same state, and it holds: typing owner/name into the field below is the path the product keeps working without a list, and the field's hint says so.",
+      "defect": "Needs a valid GitHub token to verify."
+    },
+    {
+      "id": "06-import-repo-search",
+      "status": "blocked",
+      "evidence": "The search box is deliberately only drawn when there is a list to search (`v-if=\"repos.length\"`), and with a token GitHub rejects there is none - `barn-import-repo-search` was absent in both the no-token and the rejected-token states. So the filtering cannot be driven either way.",
+      "defect": "Needs a valid GitHub token to verify."
+    },
+    {
+      "id": "06-import-scrim",
+      "status": "pass",
+      "evidence": "With the modal open a full-viewport scrim covers the page (the .s-modal root paints rgba(0,0,0,0.45) over the whole 1440x900 viewport) and the Studio list behind it is dimmed. Clicking it dismissed the dialog - an exit the design does not draw, alongside the Cancel and close icon it does.",
+      "defect": null
+    },
+    {
+      "id": "06-import-step-markers",
+      "status": "pass",
+      "evidence": "Three stacked steps, all visible at once, with 22px round markers that carry the state. Unconnected: step 1 is a blue disc (rgb(61,152,211) = #3D98D3) with a '1', steps 2 and 3 are flat grey (rgb(240,241,244)) with grey digits. Connected: step 1 becomes a solid green (rgb(62,140,79) = #3E8C4F) disc with a check glyph and the heading changes to 'GitHub connected', and steps 2 and 3 both turn blue and open for input. Watched both transitions happen.",
+      "defect": null
+    },
+    {
+      "id": "06-import-submit",
+      "status": "blocked",
+      "evidence": "Everything up to the press is verified: with rancher/kubewarden-ui@main chosen and the pre-import check green, the green primary Import button went from disabled/0.4 opacity to enabled/1.0 opacity, and it went back to disabled the moment the name collided with an existing extension. The press itself I did not make. It provisions a seed ConfigMap, a node:24 Deployment and a Service in the shared `barn` namespace and runs a multi-minute install, in a cluster where several other verifiers' pods are working right now - and the promise's payload (the extension appears in the Studio list with a GitHub source of owner/repo and the chosen branch) cannot be read without it. Worth noting the blocker here is the shared cluster rather than a credential: a public repository clones with no token at all, which is the point of the 'carry on without connecting' path.",
+      "defect": "The clone itself is unverified. Not a credential problem for a public repository."
+    },
+    {
+      "id": "06a-import-first-authorise",
+      "status": "not-implemented",
+      "evidence": "No 'Authorise with GitHub' button anywhere in step 1. Step 1 says why, in the copy itself: 'There is no \"Authorise with GitHub\" because Studio has no OAuth app of its own to send you to.'",
+      "defect": "Deliberate and stated on screen. OAuth needs a client id and a callback, and this product has no server for either. The token field is the whole of step 1 and the copy admits it rather than drawing a button that opens nothing."
+    },
+    {
+      "id": "06a-import-first-cancel",
+      "status": "pass",
+      "evidence": "With barn-settings empty, opened the wizard and clicked the footer Cancel: it was at full opacity and enabled (unlike Import beside it at 0.4), the modal closed, and barn-settings still had no data and no token annotation afterwards.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-close",
+      "status": "pass",
+      "evidence": "Same unconnected state: clicked the X in the head, the modal closed, no extension was created and barn-settings was still empty (no `gh_token` key, no `barn.rancher.io/gh-token` annotation).",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-connect-copy",
+      "status": "pass",
+      "evidence": "Step 1 is headed 'Connect GitHub' and its paragraph reads 'Studio clones the repository from a pod in this cluster, which takes a few seconds and happens without leaving this dialog. A public repository needs nothing at all. A private one needs a token, and you can paste it here without losing what you have typed. There is no \"Authorise with GitHub\" because Studio has no OAuth app of its own to send you to.' It says what the access is for, that it is quick, and that you are not navigated away - and it goes one better by saying a public repository needs no access at all.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-header",
+      "status": "pass",
+      "evidence": "With no token stored, clicking Import on the Studio list opened the same modal - same title 'Import an extension from GitHub', same caption 'The repository is cloned into your workspace. Nothing is pushed back until you publish.', over the same list, with location.href unchanged. No redirect to a settings page.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-import-disabled",
+      "status": "pass",
+      "evidence": "In the unconnected state the Import button is disabled=true and computed opacity 0.4; clicking it did nothing and the modal stayed open. It is the same button that reached opacity 1 and disabled=false later, once a repository was chosen and the check had run. The gate is real, not only visual: `disabled` is set, so it is announced to assistive technology too, which the design's opacity-only treatment would not be.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-step-markers",
+      "status": "pass",
+      "evidence": "Unconnected: step 1's marker is a blue disc, computed background rgb(61,152,211) (#3D98D3), with a white '1'; steps 2 and 3 are rgb(240,241,244) with grey digits. After connecting, step 1's marker became rgb(62,140,79) (#3E8C4F) with a check glyph and steps 2 and 3 both became rgb(61,152,211). Both halves of the promise observed.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-steps-locked",
+      "status": "pass",
+      "evidence": "Before connecting, step 2 and step 3 render with data-state=\"locked\", grey markers and grey headings, and their content is swapped rather than dimmed: step 3's content is empty, and step 2's is a single sentence - 'Locked until GitHub is connected. A public repository needs no token, so carry on without connecting if the one you want is public.' No search box, no repository list, no branch control and no name control exist in the DOM at all, so there is nothing focusable behind the lock. The escape hatch in that sentence is the product's own addition and it works: clicking it opened both steps.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-token-choice",
+      "status": "pass",
+      "evidence": "Step 1 draws a 'Paste a personal access token' link at the end of its copy; the token panel is collapsed until it is clicked. Clicking it revealed the labelled field, the help text and a 'Connect' button, and the link itself disappeared (it is a one-way disclosure). There is no Authorise button beside it, for the reason step 1 gives.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-token-field",
+      "status": "pass",
+      "evidence": "Inside the disclosure: a labelled 'Personal access token' field, type=password so the value is masked, placeholder 'ghp_...', set in a monospace face (computed font-family '\"JetBrains Mono\", SFMono-Regular, Menlo, Consolas, monospace'). It has an explicit Connect button, which the design leaves undrawn - Connect is disabled until something is typed and enabled after. Submitting a token did unlock steps 2 and 3 (step 1 went to the green 'GitHub connected' state), which is the second half of the promise.",
+      "defect": null
+    },
+    {
+      "id": "06a-import-first-token-help",
+      "status": "pass",
+      "evidence": "Under the field: 'Needs the repo scope only. Create one on GitHub with the scope pre-selected. It is stored in a Secret in this Rancher, not in your browser, because the thing that spends it is a pod - which also means it is shared with everyone using this Rancher's Studio, not held per user.' The pre-selected-scopes route is a real anchor, href https://github.com/settings/tokens/new?scopes=repo&description=Rancher%20Extension%20Studio, so the gap the feature note flags (plain caption text with nothing to click) is closed. The storage promise deliberately contradicts the design's 'stored per user': it is one Secret in the barn namespace, shared, and the copy says so instead of promising something the product does not do. Confirmed against the cluster - the token I stored briefly landed in the single `barn-settings` Secret and was visible to the whole Studio.",
+      "defect": null
+    }
+  ]
+}

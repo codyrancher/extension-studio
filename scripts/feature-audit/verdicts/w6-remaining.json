@@ -1,0 +1,1151 @@
+{
+  "screen": "01-home + 02-new + 05-files + 08-failed + 11-queue",
+  "verdicts": [
+    {
+      "id": "01-home-title",
+      "status": "pass",
+      "evidence": "H1 on /dashboard/barn/extensions reads exactly \"Extension Studio\".",
+      "defect": null
+    },
+    {
+      "id": "01-home-intro",
+      "status": "pass",
+      "evidence": "The .studio-home__lede under the title row reads verbatim: \"Describe what you want in plain language; the assistant builds it against this Rancher. Nothing reaches users until you publish.\"",
+      "defect": null
+    },
+    {
+      "id": "01-home-count",
+      "status": "pass",
+      "evidence": "[data-testid=studio-count] read 3 with three rows. Typing \"demo\" in the filter left one row and the pill read 1; typing \"zzzznope\" left none and it read 0; clearing brought all three back and it read 3 again. After I created a fourth extension it read 4.",
+      "defect": null
+    },
+    {
+      "id": "01-home-filter",
+      "status": "pass",
+      "evidence": "Typed \"demo\" into .studio-home__search-input: rows went from [base, demo, nodehealth] to [demo] and the count pill followed to 1. Typed \"zzzznope\": no rows survived (count 0), so it really removes as well as keeps. Cleared it and all three came back.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-extensions",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=studio-crumb-extensions]: landed on /dashboard/c/local/uiplugins#installed, Rancher's own Extensions page. The crumb is an <a>.",
+      "defect": null
+    },
+    {
+      "id": "01-home-breadcrumb-current",
+      "status": "pass",
+      "evidence": ".studio-home__crumb-current is a <span> reading \"Studio\" with no href. Clicked it: the URL stayed /barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "01-home-actions-column",
+      "status": "pass",
+      "evidence": "The sixth .studio-home__th has empty text, no .studio-home__sort glyph and aria-sort=\"none\"; the five columns before it all carry the glyph. Its cells hold the Review button plus the per-row overflow trigger.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-name",
+      "status": "pass",
+      "evidence": "Clicked the Name header: [base, demo, nodehealth, v6r] ascending, aria-sort=\"ascending\"; clicked again: [nodehealth, demo, base] descending, aria-sort=\"descending\".",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-state",
+      "status": "pass",
+      "evidence": "With four rows of two different states, ascending gave [base Unsaved, nodehealth Unsaved, demo Live, v6r Live] and descending reversed the groups to [demo Live, v6r Live, base Unsaved, nodehealth Unsaved]. That is STATE_ORDER (attention first), not the badge word alphabetically, and the tie inside each group breaks on name so the order is stable.",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-last-change",
+      "status": "pass",
+      "evidence": "First click gave aria-sort=\"descending\" and the order [base 2 min, demo 2 min, nodehealth 5 hours]; second click gave \"ascending\" and [nodehealth 5 hours, demo, base]. Sorting on the rendered string would have put \"2 min ago\" first in ascending order, so this is sorting on the timestamp behind it. The cells also carry a title with the real reason (\"An uncommitted file was edited then. The last commit is older.\").",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-running-on",
+      "status": "pass",
+      "evidence": "Ascending put nodehealth (\"catalog · v0.1.0\", installed) above base and demo (\"local (preview)\"); descending reversed it. That is the documented order (installed, then previewing, then neither).",
+      "defect": null
+    },
+    {
+      "id": "01-home-sort-source",
+      "status": "pass",
+      "evidence": "The header is a live sort control: clicking it moved aria-sort to \"ascending\" then \"descending\" on that column only, and moved the .studio-home__sort--on glyph onto it. The row order did not change because all four extensions in this instance are Studio-authored with no repository, so sortValue returns the empty string for every one of them and the name tiebreak keeps the order. No repo-backed extension exists here to show a visible reorder.",
+      "defect": null
+    },
+    {
+      "id": "01-home-state-badge",
+      "status": "pass",
+      "evidence": "Every row leads with an .s-badge. Observed two real states side by side: base/nodehealth \"Unsaved\" as s-badge--warning and demo/v6r \"Live\" as s-badge--success, and the extension I created flipped Live -> Unsaved as soon as a file changed in its pod and back after a revert. Building, Published, Failed and Draft did not occur in this instance.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-subtitle",
+      "status": "pass",
+      "evidence": "Each name cell carries a second muted line that tracks state: \"3 changes waiting for your review\" / \"2 changes waiting for your review\" on the Unsaved rows and \"On main, nothing uncommitted\" on the Live ones. It changed as I added and reverted files in a pod.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-source",
+      "status": "pass",
+      "evidence": "All four rows read \"Created here · no repo yet\" with the sparkle, which is true - none of these extensions has a GitHub annotation. No repo-backed extension exists in this instance, so the \"owner/repo - branch\" half could not be observed.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-target",
+      "status": "pass",
+      "evidence": "nodehealth reads \"catalog · v0.1.0\" (it is the only one installed as a UIPlugin, at that version); base, demo and the extension I created read \"local (preview)\" (pod running, not installed). Every extension here has a live pod, so the dash placeholder for one running nowhere still could not be observed.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-when",
+      "status": "pass",
+      "evidence": "Cells read \"1 min ago\", \"2 min ago\", \"5 hours ago\". The extension I created showed \"5 min ago\" five minutes after creation and its cell carried the hint \"An uncommitted file was edited then. The last commit is older.\", so the value is read from the pod rather than from page load.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-open",
+      "status": "pass",
+      "evidence": "Clicked the name cell of a row: landed on /dashboard/barn/editor/<that extension>.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-review",
+      "status": "pass",
+      "evidence": "base and nodehealth (both with uncommitted work) each show a secondary \"Review\" button, [data-testid=studio-review-<name>]. Clicked the one on base: /dashboard/barn/extensions/base/review.",
+      "defect": null
+    },
+    {
+      "id": "01-home-row-actions",
+      "status": "pass",
+      "evidence": "The last cell is .studio-home__td--actions holding the Review button plus an overflow trigger. Opened it on an extension I created: five items - Open in the workspace, Review changes (disabled, \"none\"), Open files, Open the brief, Remove the local install (disabled, \"not installed\"). Drove three: /barn/editor/<ext>, /barn/extensions/<ext>/files, /barn/extensions/<ext>/brief. On base \"Review changes 3\" was enabled and went to /barn/extensions/base/review; on nodehealth \"Remove the local install v0.1.0\" was enabled, which matches the only installed UIPlugin (not clicked - it changes the Rancher everybody shares).",
+      "defect": null
+    },
+    {
+      "id": "01-home-new-extension",
+      "status": "pass",
+      "evidence": "Clicked the primary \"New extension\": /dashboard/barn/extensions/new.",
+      "defect": null
+    },
+    {
+      "id": "01-home-import-github",
+      "status": "pass",
+      "evidence": "The neutral GitHub-marked button in the title row is labelled \"Import\". Clicked it: the ImportExtensionModal opened, headed \"Import an extension from GitHub\" with \"Step 1. Connect GitHub\" and the repository form.",
+      "defect": null
+    },
+    {
+      "id": "01-home-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] on /barn/extensions: the notification centre opened, headed \"Notifications / Mark all as read\" with real entries from this session (\"Interrupt sent ... Escape went to the session\").",
+      "defect": null
+    },
+    {
+      "id": "01-home-header-more",
+      "status": "pass",
+      "evidence": "STALE VERDICT CORRECTED. The kebab is [data-testid=page-actions-menu-action-button], present in the header on /barn/extensions. Opened it: three .dropdownTarget [role=menuitem] items - \"Review queue\", \"Studio settings\", a divider, \"Installed extensions\". Drove all three from this screen: /barn/review (h1 \"Reviews\"), /barn/settings (h1 \"Studio settings\") and /c/local/uiplugins#installed. It does not leak: on /c/local/explorer and on /home the same kebab offers Rancher's own items (\"Set as login page\", \"Show/Hide Banner\") and none of the Studio's, both on a hard load and after SPA navigation out of the Studio.",
+      "defect": null
+    },
+    {
+      "id": "01-home-header-logo",
+      "status": "not-implemented",
+      "evidence": "[data-testid=header__brand-img] is a bare <img>; img.closest(\"a\") is null. Clicked it from /barn/extensions and the URL stayed /barn/extensions (same on all five screens I drove). Rancher shell chrome, not pkg/barn.",
+      "defect": "The header logo has no wrapping anchor and no click handler, so it navigates nowhere. It is Rancher shell chrome rather than barn code, and /dashboard/home is one click away in the rail. Recorded as not-implemented rather than fail because what the design draws and the product lacks is the link, and no link exists there at all: DEPARTURES.md #2 settles the logo as Rancher shell chrome with no slot, prop or action location an extension can reach."
+    },
+    {
+      "id": "01-home-header-apps",
+      "status": "not-implemented",
+      "evidence": "Queried the header for i.icon-apps, [data-testid=apps-menu], [class*=app-collection] and [class*=app-switcher] on /barn/extensions: 0 matches. The header holds only the hamburger, the brand image, the page-actions kebab, the notification bell and the user menu. grep over pkg/barn finds no app-collection code either; DEPARTURES.md #2 records this as Rancher chrome.",
+      "defect": "No grid launcher exists in this Rancher's header. The nearest control is the hamburger's Application Bar slide-out, which is a different thing."
+    },
+    {
+      "id": "01-home-nav-menu",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=top-level-menu]: [data-testid=side-menu] went from \"side-menu menu-close\" to \"side-menu menu-open\" and the drawer rendered its links; clicking again returned it to menu-close.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-home",
+      "status": "pass",
+      "evidence": "Opened the rail and clicked the house entry (a[href=\"/dashboard/home\"]): landed on /dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail has one cluster chip, [data-testid=menu-cluster-local] \"local\"; clicking it opened /dashboard/c/local/explorer#cluster-events. The design's LT1/CD2/AFT are three clusters this instance does not have - the mechanism works, there is one cluster to jump to.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-server",
+      "status": "pass",
+      "evidence": "Clicked \"Cluster Management\" in the rail: /dashboard/c/_/manager/provisioning.cattle.io.cluster.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-gear",
+      "status": "pass",
+      "evidence": "Clicked \"Global Settings\" in the rail: /dashboard/c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-about",
+      "status": "pass",
+      "evidence": "Clicked \"About\" at the foot of the rail: /dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-extensions",
+      "status": "pass",
+      "evidence": "On /barn/extensions the rail's \"Extension Studio\" entry is the only one carrying \"option active-menu-link\" (the accent treatment). From /dashboard/home, clicking it returned to /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-user",
+      "status": "pass",
+      "evidence": "[data-testid=nav_header_showUserMenu] is present in the header on every Studio screen and opens the account menu (this is Rancher's own control; the notification centre beside it opened from the same click surface in the same run).",
+      "defect": null
+    },
+    {
+      "id": "01-home-nav-book",
+      "status": "not-implemented",
+      "evidence": "Opened the rail and listed every link: Home, the local cluster chip, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings, About. There is no docs or catalog entry; Apps/Charts live inside a cluster explorer, not the rail.",
+      "defect": "No docs or catalog entry exists in this Rancher's top-level menu."
+    },
+    {
+      "id": "02-new-card-title",
+      "status": "pass",
+      "evidence": "/barn/extensions/new renders one centred bordered .new-ext__card whose .new-ext__title reads \"New extension\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-card-intro",
+      "status": "pass",
+      "evidence": ".new-ext__lede reads verbatim: \"Describe what you want in your own words. The assistant writes the code, runs it against this Rancher, and shows you the result before anything is shared.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt-label",
+      "status": "pass",
+      "evidence": "The first .new-ext__label above the description textarea reads \"What should it do?\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-prompt",
+      "status": "pass",
+      "evidence": "On load document.activeElement is the .new-ext__prompt-input textarea (autofocus). Its placeholder is the worked example from the design. I typed a description, submitted, and the text arrived verbatim in the created extension's BRIEF.md under \"## What you were handed\" and on the brief screen.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-label",
+      "status": "pass",
+      "evidence": "SLabel \"Try\" renders to the left of the three chips in .new-ext__examples.",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-cost-report",
+      "status": "pass",
+      "evidence": "Clicked the \"a cost report per namespace\" chip on an empty form: the description became \"Add a cost report per namespace.\" and the Name field filled with \"cost-report-per\". With \"Seed text\" already in the field the chip appended rather than replaced: \"Seed text a cost report per namespace\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-longhorn",
+      "status": "pass",
+      "evidence": "Clicked the \"a Longhorn volume health tab\" chip: the description became \"Add a Longhorn volume health tab.\" and Name filled with \"longhorn-volume-health\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-example-fleet-drift",
+      "status": "pass",
+      "evidence": "Clicked the \"a fleet drift dashboard\" chip: the description became \"Add a fleet drift dashboard.\" and Name filled with \"fleet-drift-dashboard\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome-label",
+      "status": "pass",
+      "evidence": "Both lines render above the outcome field: the label \"What can someone not do today?\" and the hint \"The question a ticket usually skips.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome-note",
+      "status": "pass",
+      "evidence": "A sparkle-marked .new-ext__note under the outcome field reads \"Answer this and the assistant can tell you when your description is a solution rather than a problem - which is most of the time, and is where the rewrites come from.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-outcome",
+      "status": "pass",
+      "evidence": "Typed a problem statement into the outcome field and submitted: it reached the created extension's BRIEF.md under \"## The problem\" verbatim and the brief screen rendered it under \"What you said a good outcome would be\". The pushback half is real machinery but cannot complete here - the brief's callout offers \"Ask it to argue with this\" and the pod's claude has no credential, so it answers \"Not logged in - Please run /login\", which the card says up front rather than pretending.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-label",
+      "status": "pass",
+      "evidence": "Both lines render above the four cards: \"Where should it appear?\" and \"This decides the parent route - the single hardest thing to fix later.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-cluster",
+      "status": "pass",
+      "evidence": "On load [data-testid=new-ext-placement-cluster] \"Inside a cluster / Cluster nav, below Storage\" is the only card with aria-pressed=\"true\". Clicking another card moved the selection and clicking back returned it. I created an extension with this placement selected: its product.ts in the pod is the cluster shape - inStore: \"cluster\", showClusterSwitcher: true, HOME_ROUTE \"<name>-c-cluster-home\" - with the comment naming the explorer nav, and its BRIEF.md records \"Parent route: `c-cluster`\" and \"Inside a cluster - cluster nav, below storage. Registered in `product.ts`.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-top-level",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=new-ext-placement-global] \"Top-level nav / Its own entry in the global menu\": aria-pressed moved to it and off all three others, and clicking \"Inside a cluster\" moved it back. The generated code for this placement is the global shape (extension-placement.ts writes inStore management with route params { cluster: \"_\" }); whether it then appears in the running global menu is not observable until the extension is published, which I did not do.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-resource",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=new-ext-placement-resource] \"On a resource / A new tab on a resource detail page\": it became the only card with aria-pressed=\"true\" and a follow-up appeared - \"On which resource?\" with [data-testid=new-ext-resource] and the hint naming node / pod / apps.deployment. Selecting any other card removed the follow-up again.",
+      "defect": null
+    },
+    {
+      "id": "02-new-where-unsure",
+      "status": "pass",
+      "evidence": "Clicked \"Not sure yet / Let the assistant pick and explain\": only that card selected. It is the placement that produces \"Parent route: `undecided`\" in the brief with the paragraph telling the assistant to choose between c-cluster, root and resource-detail and say why, seeded as a top-level entry meanwhile - so the decision is genuinely deferred and written where the assistant reads it.",
+      "defect": null
+    },
+    {
+      "id": "02-new-name",
+      "status": "pass",
+      "evidence": "Typing \"Show longhorn volume capacity trends per node\" put \"longhorn-volume-capacity\" in the Name field unprompted. Editing it to \"my-own-name\" stopped the suggestion overwriting it - retyping the description left the edited value alone. And the edited value is what gets built: I typed \"v6r\" over the suggested \"v6r-audit-probe\" and the extension created was named v6r (Deployment/Service/ConfigMap barn-v6r-extension, package pkg/v6r in the pod).",
+      "defect": null
+    },
+    {
+      "id": "02-new-name-hint",
+      "status": "pass",
+      "evidence": "The SField under Name renders the hint \"Suggested from your description - editable\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-target",
+      "status": "not-implemented",
+      "evidence": "[data-testid=new-ext-target] reads \"Build and preview against / local - v1.36.1+k3s1\" and both halves are real readings of the local cluster. But it is a <div class=\"new-ext__box new-ext__box--static\">: it contains no select, input or button, and clicking it opened nothing (0 poppers, listboxes or selects appeared). The design draws a cluster picker; the product ships a static readout and says why in the hint.",
+      "defect": "The design draws a cluster picker and the product ships a static readout. Honest (every extension pod lives in the local cluster) but the promised control does not exist - a design decision rather than a code fix."
+    },
+    {
+      "id": "02-new-target-hint",
+      "status": "pass",
+      "evidence": "[data-testid=new-ext-target-note] under the target box reads \"Changes only ever run here until you publish. Not a choice, and nothing to choose from: this is the only cluster this Rancher manages, and every extension pod the Studio creates lives in it.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-git-note",
+      "status": "pass",
+      "evidence": "A grey .new-ext__git panel with the GitHub mark reads \"No GitHub connection needed to start. You can connect one later when you want to keep the source or publish to the catalog.\" And the claim holds: I created an extension end to end with no GitHub token configured in this Studio.",
+      "defect": null
+    },
+    {
+      "id": "02-new-connect-github",
+      "status": "pass",
+      "evidence": "Clicked \"Connect GitHub\" inside the git note with \"keepme text\" in the description: the EditorSettingsModal opened (\"Connect GitHub / Used to clone repositories when you import one, to push when you publish ... \"). Closing it left the description still reading \"keepme text\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-footer-note",
+      "status": "pass",
+      "evidence": "[data-testid=new-ext-hint] in the card footer, to the left of the buttons, reads \"Next: agree a one-page brief. It takes about a minute and becomes the reviewer's checklist. You are recorded in it as the person who asked, which is what the outcome sign-off later checks against.\"",
+      "defect": null
+    },
+    {
+      "id": "02-new-import-instead",
+      "status": "pass",
+      "evidence": "Clicked the neutral GitHub-marked \"Import a repo instead\" in the footer: the same ImportExtensionModal that screen 01's Import opens (\"Import an extension from GitHub ... Step 1. Connect GitHub\").",
+      "defect": null
+    },
+    {
+      "id": "02-new-cancel",
+      "status": "pass",
+      "evidence": "Typed \"partial text\" into the description, clicked the ghost \"Cancel\": landed back on /dashboard/barn/extensions, and no new extension appeared (the row count and the extension list were unchanged).",
+      "defect": null
+    },
+    {
+      "id": "02-new-draft-brief",
+      "status": "pass",
+      "evidence": "Filled the description, the outcome, the placement and Name \"v6r\", pressed \"Draft the brief\". It created the extension for real (Deployment, Service and ConfigMap barn-v6r-extension in namespace barn, package pkg/v6r) and routed to /barn/extensions/v6r/brief?prompt=...&outcome=...&placement=c-cluster. The brief screen rendered the typed request verbatim and BRIEF.md in the pod held \"## What you were handed\" = the description and \"## The problem\" = the outcome. REGRESSION CHECK: the same BRIEF.md, in the seed ConfigMap and on disk in the pod, carries \"## Who asked\" with \"local://user-btc48 - Default Admin, on 2026-08-24.\" followed by the explanatory paragraph, and once the pod was Ready the brief screen read it back as \"Asked for by Default Admin · today local://user-btc48\". Screen 02 still writes it at creation. (Worth noting for screen 10, not this one: in the ~2 minutes before the pod is Ready the brief screen says \"Nobody is recorded as having asked for this. The brief has no ## Who asked section\", which is a wrong sentence for a file it simply cannot read yet.)",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] on /barn/extensions/new: the notification centre opened with real entries.",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-more",
+      "status": "pass",
+      "evidence": "STALE VERDICT CORRECTED. [data-testid=page-actions-menu-action-button] is present in the header on /barn/extensions/new and opens the three page actions: \"Review queue\", \"Studio settings\", \"Installed extensions\". Drove \"Studio settings\" from this screen: /barn/settings, h1 \"Studio settings\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-header-logo",
+      "status": "not-implemented",
+      "evidence": "[data-testid=header__brand-img] has no wrapping anchor (closest(\"a\") is null); clicking it from /barn/extensions/new left the URL at /barn/extensions/new.",
+      "defect": "The header logo is not a link and carries no handler. Rancher shell chrome, not pkg/barn, and the same not-implemented classification as 01-home-header-logo for the same reason: the link the design draws is absent rather than broken."
+    },
+    {
+      "id": "02-new-header-apps",
+      "status": "not-implemented",
+      "evidence": "Same query as on screen 01 run on /barn/extensions/new: 0 matches for i.icon-apps, [data-testid=apps-menu] or any app-collection element in the header.",
+      "defect": "Rancher's header has no grid switcher. Same root as 01-home-header-apps."
+    },
+    {
+      "id": "02-new-nav-menu",
+      "status": "pass",
+      "evidence": "On /barn/extensions/new the hamburger toggled [data-testid=side-menu] between \"menu-close\" and \"menu-open\".",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-home",
+      "status": "pass",
+      "evidence": "From /barn/extensions/new the rail's Home entry goes to /dashboard/home. The rail is Rancher's Application Bar and is identical on all five screens I drove; I listed its links from this screen and drove every destination once: Home -> /dashboard/home, the local cluster chip -> /c/local/explorer, Cluster Management -> /c/_/manager/provisioning.cattle.io.cluster, Global Settings -> /c/local/settings/management.cattle.io.setting, About -> /dashboard/about, Extensions -> /c/local/uiplugins.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail on this screen carries the same single cluster chip [data-testid=menu-cluster-local], which opens /c/local/explorer.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-server",
+      "status": "pass",
+      "evidence": "Cluster Management in the rail opens /c/_/manager/provisioning.cattle.io.cluster.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-gear",
+      "status": "pass",
+      "evidence": "Global Settings in the rail opens /c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-about",
+      "status": "pass",
+      "evidence": "About at the foot of the rail opens /dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-extensions",
+      "status": "pass",
+      "evidence": "On /barn/extensions/new the rail's \"Extension Studio\" entry still carries \"option active-menu-link\" and is the only entry that does - the selected treatment survives into the create flow.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-user",
+      "status": "pass",
+      "evidence": "[data-testid=nav_header_showUserMenu] is present on this screen and opens the account menu.",
+      "defect": null
+    },
+    {
+      "id": "02-new-nav-book",
+      "status": "not-implemented",
+      "evidence": "The rail on this screen lists the same eleven entries as on screen 01 and none of them is docs or a catalog.",
+      "defect": "No docs entry in Rancher's rail on this instance."
+    },
+    {
+      "id": "05-files-masthead-title",
+      "status": "pass",
+      "evidence": "On /barn/extensions/base/files the masthead reads \"base\" over the eyebrow \"Files\"; on the extension I created it read that extension's name, so it is the route parameter and not a hardcoded string.",
+      "defect": null
+    },
+    {
+      "id": "05-files-state-badge",
+      "status": "pass",
+      "evidence": "With uncommitted work in base the masthead badge read \"Unsaved\"; the extension I created read \"Live\" with a clean tree, flipped to \"Unsaved\" the moment I appended to three files in its pod, and back to \"Live\" after I reverted them.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-chip",
+      "status": "pass",
+      "evidence": "The masthead SChip reads \"main\" with the branch icon, which is what `git rev-parse --abbrev-ref HEAD` reports in the pod.",
+      "defect": null
+    },
+    {
+      "id": "05-files-branch-select",
+      "status": "pass",
+      "evidence": "The branch row at the top of the tree column is an SMenu: clicking .files__branch opened a list, and with one branch in the pod the single item read \"main / checked out\". Its subtitle is honest about what it can say - \"1 branch in the pod · sync with origin is not read here\" - rather than inventing an ahead/behind count. Only one branch exists in these pods, so switching to a different one could not be driven.",
+      "defect": null
+    },
+    {
+      "id": "05-files-review-changes",
+      "status": "pass",
+      "evidence": "[data-testid=files-review-changes] read \"Review 3 changes\" with three uncommitted files, \"Review 2 changes\" after I reverted one and plain \"Review changes\" on a clean tree - the count tracks the pod. Clicking it went to /barn/extensions/base/review.",
+      "defect": null
+    },
+    {
+      "id": "05-files-publish",
+      "status": "pass",
+      "evidence": "[data-testid=files-publish] is disabled with nothing to publish and enabled with changes. Clicked it on base: the publish flow opened - the PublishModal headed \"Publish base\", explaining that the package is built in its pod and this Rancher pointed at the result, with the destination rows and their gates. Cancelled rather than publishing into a Rancher four other verifiers share.",
+      "defect": null
+    },
+    {
+      "id": "05-files-back-arrow",
+      "status": "pass",
+      "evidence": "Clicked the chevron button[aria-label=\"Back\"] at the start of the masthead: left the Files screen for /dashboard/barn/extensions.",
+      "defect": null
+    },
+    {
+      "id": "05-files-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked the overflow at the right end of the masthead: a menu with \"Refresh the tree\", \"Copy this file's path\", \"Open the workspace\" and \"Review changes <n>\" (the count matching the tree).",
+      "defect": null
+    },
+    {
+      "id": "05-files-panel-tabs",
+      "status": "pass",
+      "evidence": "The four-tab strip switches the surface and the underline: Assistant -> /barn/editor/base?tab=assistant with the conversation, Changes -> /barn/extensions/base/review with the change list (\"Changed files 0 / Nothing has changed\"), Terminal -> /barn/editor/base?tab=terminal with the live terminal, Files -> back here. On each destination aria-selected is true on exactly the tab clicked (.s-tab--selected), and on the Files screen itself it is Files.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tab-changes-count",
+      "status": "pass",
+      "evidence": "On a clean tree the Changes tab reads \"Changes\" with no badge. I appended to three files in the pod and it read \"Changes3\"; reverting one through the UI took it to \"Changes2\"; reverting the rest took the badge away again. The number matched `git status --porcelain` each time.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-heading",
+      "status": "pass",
+      "evidence": "The first .files__panel-title in the tree column reads \"Files\", above the branch row, the filter and the tree.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-select-file",
+      "status": "pass",
+      "evidence": "Clicked product.ts in the tree: the editor header title, the provenance line, the code pane and the \"Where used\" panel all switched to product.ts and the --current highlight moved off the previously open file. Repeated for Home.vue, BRIEF.md, index.ts, CLAUDE.md, package.json and l10n/en-us.yaml.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-expand-folder",
+      "status": "pass",
+      "evidence": "Clicked the \"pages\" folder row: Home.vue disappeared from the tree (16 rows to 15); clicked again and it came back (16). Same for the other folders.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-change-marks",
+      "status": "pass",
+      "evidence": "With base's tree holding one added and two modified files, the tree showed HARNESS.md with a \"new\" badge and BRIEF.md and product.ts with \"edited\"; untouched files carried none. When I appended to package.json and tsconfig.json in another pod they gained \"edited\" badges on the next load, and after a revert the badge went.",
+      "defect": null
+    },
+    {
+      "id": "05-files-tree-sort",
+      "status": "pass",
+      "evidence": "The control at the right of the FILES heading opens a two-item menu: \"Name / folders first, then A to Z\" and \"Changed first / uncommitted files at the top · current\". Choosing \"Name\" moved BRIEF.md (edited) out of its position above .gitignore and down into alphabetical order; choosing \"Changed first\" put it back at the head of the loose files. So the order really changes.",
+      "defect": null
+    },
+    {
+      "id": "05-files-editor-header-path",
+      "status": "pass",
+      "evidence": "The header names the open file and [data-testid=files-provenance] states its provenance, and it changes per file: index.ts \"Last commit by barn, 2 days ago · 14 lines · committed\", product.ts \"... 42 lines · uncommitted changes\", pages/Home.vue \"... 46 lines · committed\", BRIEF.md \"Last commit by barn, 19 hours ago · 36 lines · uncommitted changes\". The line counts and the commit state match the pod.",
+      "defect": null
+    },
+    {
+      "id": "05-files-code-view",
+      "status": "pass",
+      "evidence": "The pane renders numbered .files__code-line rows with a .files__ln gutter starting at 1, and .files__tok spans for keywords, strings and markdown headings. LOSSLESS CHECK (regression): I read the rendered line text back for nine files - index.ts, routing/index.ts, product.ts, package.json, CLAUDE.md, BRIEF.md, .gitignore, vue.config.js, l10n/en-us.yaml and pages/Home.vue - and compared it byte for byte against `cat` in the pod. Every one matched exactly, same line count and same content per line (14, 16, 42, 20, 97, 36, 1, 1, 2 and 46 lines). The highlighter loses nothing.",
+      "defect": null
+    },
+    {
+      "id": "05-files-code-scroll",
+      "status": "pass",
+      "evidence": "Opened CLAUDE.md (97 lines): .files__code has scrollHeight 2330 against clientHeight 383, so it scrolls internally. Set scrollTop to 600 and it moved to 600 while the editor header, the tree column and the \"Where used\" panel all stayed at the same viewport top (160px before and after).",
+      "defect": null
+    },
+    {
+      "id": "05-files-ask-about-file",
+      "status": "pass",
+      "evidence": "With product.ts open, clicked [data-testid=files-ask-about-file]: the app moved to /barn/editor/base?tab=terminal, the workspace with this file handed to the assistant. The turn it sends carries the file - the activity stream in that pod holds earlier turns of exactly this shape, \"Context: pages/W5Probe.vue. ...\" and \"Read product.ts in this package and explain it ...\", stamped \"Sent from the workspace screen by Default Admin\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-edit-file",
+      "status": "pass",
+      "evidence": "The pane is read-only until Edit. Clicked [data-testid=files-edit]: it became a [data-testid=files-edit-area] textarea. Appended a marker line and pressed Save; `grep` in the pod found the marker in the file and `git status` showed it modified. Save is disabled while the draft equals the file, so a no-op cannot be saved.",
+      "defect": null
+    },
+    {
+      "id": "05-files-revert-file",
+      "status": "pass",
+      "evidence": "Appended to package.json in a pod, opened it and clicked [data-testid=files-revert]: a confirm appeared (\"package.json goes back to its last commit ... Only this file. Nothing else in the working tree is touched\"). Confirmed: in the pod `git status` lost package.json (the two other modified files stayed), the appended line was gone from the file, and the tree badge and the Changes count both dropped by one.",
+      "defect": null
+    },
+    {
+      "id": "05-files-where-used-panel",
+      "status": "pass",
+      "evidence": "The right-hand panel is headed \"Where used\" and its contents change per file: for pages/Home.vue \"Where it surfaces ... Home.vue is mounted at /<ext>/c/local/home, read out of routing/index.ts\"; for product.ts \"product.ts does not render a page of its own. Only the components named in routing/index.ts have a route\"; for index.ts the CLAUDE.md references. It is a reading of the file, not a fixed block.",
+      "defect": null
+    },
+    {
+      "id": "05-files-references-heading",
+      "status": "pass",
+      "evidence": "The reference list is labelled \"References to <basename>\" (SLabel), under the \"Where used\" section heading, and the label changes with the open file. The design's wording is \"Referenced by\"; the product names the file in the heading instead.",
+      "defect": null
+    },
+    {
+      "id": "05-files-open-reference",
+      "status": "pass",
+      "evidence": "With pages/Home.vue open the only reference row was \"routing/index.ts:3 imports it\". Clicked it: the editor header, the code pane and the tree selection all moved to routing/index.ts.",
+      "defect": null
+    },
+    {
+      "id": "05-files-reference-reasons",
+      "status": "pass",
+      "evidence": "Each row carries a reason read off the matching line, not just a path: \"routing/index.ts:3 imports it - import Home from '../pages/Home.vue';\" for Home.vue, \"CLAUDE.md:19 describes it in a table\" for product.ts, two CLAUDE.md rows for index.ts. The panel says what it is - a fixed-string search, with \"mentions it\" when the line shows no relationship - rather than claiming a symbol index.",
+      "defect": null
+    },
+    {
+      "id": "05-files-preview-thumb",
+      "status": "pass",
+      "evidence": "With pages/Home.vue open the panel offers \"Show the running extension\"; clicking it framed a real 307x192 iframe at /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-<ext>-extension:8005/proxy/ - I read the document inside the frame and it is the extension's own dev-server dashboard, not a fixed image. It is labelled with the cluster chip \"local\" and [data-testid=files-surface-route] \"/<ext>/c/local/home\", which is the route registered for that file in routing/index.ts. Selecting product.ts (which renders no page) removed the thumbnail and said why.",
+      "defect": null
+    },
+    {
+      "id": "05-files-open-live-preview",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=files-open-live-preview]: a new browser tab opened on https://magic-closet-rancher/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-<ext>-extension:8005/proxy/home and rendered the running page.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-heading",
+      "status": "pass",
+      "evidence": "The history column is headed \"History\" (a .files__panel-title, above the entries). The design's wording is \"RECENT ACTIVITY\"; the label is present and names the list, with the entries below it.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-metadata",
+      "status": "pass",
+      "evidence": "Every entry states its source and its time and they match the pod: commits read \"<short sha> <subject> barn · <relative>\" (e.g. \"d135b78 Reviewed: 3 files barn · 3 minutes ago\", which is in `git log`), automatic snapshots read \"snapshot autosave HHMM on Aug 24 automatic · N minutes ago\" (matching the refs/tags/barn-snap/* tags), and the top entry is \"working / Working changes / N files not yet committed · now\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-open-entry",
+      "status": "pass",
+      "evidence": "Clicked the commit entry \"d135b78 Reviewed: 3 files\": the pane switched to that commit - header \"d135b78 Reviewed: 3 files barn · 3 minutes ago\" with a \"Back to index.ts\" way out, and a DiffView of that commit's real patch (3 files +23 -4, the BRIEF.md hunk included). The sha is a real commit in the pod's git log.",
+      "defect": null
+    },
+    {
+      "id": "05-files-history-working-changes",
+      "status": "pass",
+      "evidence": "Clicked the top \"Working changes\" entry: the pane showed the uncommitted diff (DiffView, \"Working changes 1 file +1 -1\" on BRIEF.md), the header read \"working / Working changes / 1 file not yet committed · now\" with a \"Review them\" button, and the count matched `git status --porcelain` at that moment.",
+      "defect": null
+    },
+    {
+      "id": "05-files-header-notifications",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] on /barn/extensions/base/files: the notification centre opened with real entries.",
+      "defect": null
+    },
+    {
+      "id": "05-files-header-more",
+      "status": "pass",
+      "evidence": "[data-testid=page-actions-menu-action-button] is present in the header on /barn/extensions/base/files and opens \"Review queue\", \"Studio settings\", \"Installed extensions\". Drove \"Installed extensions\" from this screen: /c/local/uiplugins#installed. It does not leak onto Rancher's own routes - the same kebab on /c/local/explorer offers only Rancher's \"Set as login page\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-header-apps",
+      "status": "not-implemented",
+      "evidence": "Queried the header on this screen for i.icon-apps, [data-testid=apps-menu] and any app-collection element: 0 matches.",
+      "defect": "Same as 01-home-header-apps: Rancher's header has no app-collection grid."
+    },
+    {
+      "id": "05-files-nav-menu",
+      "status": "pass",
+      "evidence": "On /barn/extensions/base/files the hamburger toggled [data-testid=side-menu] between \"menu-close\" and \"menu-open\".",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-home",
+      "status": "pass",
+      "evidence": "The rail's Home entry from this screen goes to /dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail's single cluster chip [data-testid=menu-cluster-local] opens /c/local/explorer#cluster-events. The design's three chips are three clusters this instance does not have.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-about",
+      "status": "pass",
+      "evidence": "About at the foot of the rail opens /dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "05-files-nav-rail-icons",
+      "status": "pass",
+      "evidence": "Drove each from the Files screen: Cluster Management -> /c/_/manager/provisioning.cattle.io.cluster, Global Settings -> /c/local/settings/management.cattle.io.setting, Extensions -> /c/local/uiplugins, About -> /dashboard/about, Home -> /dashboard/home, and the user icon opens the account menu. \"Extension Studio\" is the only entry carrying active-menu-link while the Files screen is open. There is no book/docs icon in this Rancher's rail.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-title",
+      "status": "pass",
+      "evidence": "The masthead reads the extension's real name over the eyebrow \"Extension Studio\" - \"base\" on base and the created extension's own name on that one. Driven on /barn/editor/<ext> with a failure recorded in sessionStorage (barn.publish.failure, a 4-line webpack log naming ./pages/Home.vue), which is what screen 08 is - build-failed.vue says so itself and mounts the same components/BuildFailure.vue.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-state-badge",
+      "status": "pass",
+      "evidence": "[data-testid=barn-state-badge] reads \"Failed\" in the masthead as soon as the failure is recorded, and flipped to \"Unsaved\" the moment a roll back cleared the record. Driven on /barn/editor/<ext> with a failure recorded in sessionStorage (barn.publish.failure, a 4-line webpack log naming ./pages/Home.vue), which is what screen 08 is - build-failed.vue says so itself and mounts the same components/BuildFailure.vue.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-branch-chip",
+      "status": "pass",
+      "evidence": "[data-testid=barn-branch-menu] renders \"main\" with the branch icon in the masthead.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-target-chip",
+      "status": "pass",
+      "evidence": "[data-testid=barn-preview-target] reads \"Preview on: local\" with the server icon.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-failure-card",
+      "status": "pass",
+      "evidence": "[data-testid=barn-failure-card] renders with the .bf__alert icon, the headline \"The publish did not finish\", the sub-line \"The build itself failed. Nothing was installed, and this Rancher is still loading whatever it was loading before.\" and the message paragraph carrying the recorded reason - not a raw error dump. The raw log is behind its own collapsed row.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-changes-summary",
+      "status": "pass",
+      "evidence": "[data-testid=barn-changes-summary] above the ways-back reads \"The working tree still holds the change that failed\", then the point it would go back to with a real relative time (\"Taken 59 seconds ago. A snapshot is a point somebody chose, not necessarily a build that worked.\") and a real count (\"0 changed files since.\" on a clean tree, and the count moved when I changed files in the pod).",
+      "defect": null
+    },
+    {
+      "id": "08-failed-snapshot-note",
+      "status": "pass",
+      "evidence": "[data-testid=barn-snapshot-note] under the ways-back reads \"Rolling back snapshots the failed tree first, so nothing you have done is lost - and if that snapshot cannot be taken, nothing is rolled back and this says why ...\". Both halves of that sentence are true: I drove the roll back for real and the safety snapshot appeared as refs/tags/barn-snap/<ts> \"the failed build before rolling back\", and I blocked the snapshot and the roll back refused (see 08-failed-rollback-inline).",
+      "defect": null
+    },
+    {
+      "id": "08-failed-raw-output",
+      "status": "pass",
+      "evidence": "[data-testid=barn-raw-output-toggle] starts collapsed reading \"Show raw output / 4 lines\" with aria-expanded=\"false\" and no .bf__log in the DOM. Clicked it: aria-expanded became \"true\", the label flipped to \"Hide raw output\", and the log rendered the recorded output verbatim - \"ERROR in ./pages/Home.vue / Module not found: Error: Cannot resolve / webpack compiled with 1 error / build exited 1\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-fix-snippet",
+      "status": "pass",
+      "evidence": "With a proposed fix recorded, [data-testid=barn-fix-snippet] renders the path and both lines as a diff: .bf__snippet-line--removed with a \"-\" sign and the exact text being replaced, .bf__snippet-line--added with \"+\" and the replacement.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-apply-fix",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=barn-apply-fix] against a fix whose before-text was a real line of pages/Home.vue in my own extension's pod. The toast said the fix was applied and `grep` in the pod found the replacement on line 3 with `git status` showing the file modified - the file really changed. (When the same call cannot write, it says so and changes nothing: I hit that state after making the file root-owned by hand, and the toast carried the shell's own reason.)",
+      "defect": null
+    },
+    {
+      "id": "08-failed-canvas-apply-fix",
+      "status": "pass",
+      "evidence": "[data-testid=barn-preview-apply-fix] renders in the preview explainer whenever a fix is proposed, labelled \"Apply the suggested fix\". Clicked it with a fresh fix: toast \"Fix applied / pages/Home.vue changed. Publish again to build it.\" and the pod's file carried the replacement, exactly as the card's button had. Both run publish-fix.ts's applyProposedFix.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-show-file",
+      "status": "pass",
+      "evidence": "[data-testid=barn-show-file] is labelled with the offending path (\"Show me pages/Home.vue\"). Clicked it: the left panel switched to the Files view with pages/Home.vue open in the header.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-undo-last-change",
+      "status": "pass",
+      "evidence": "Appended a probe line to product.ts in the pod, then clicked [data-testid=barn-undo-last]. Afterwards `git status --porcelain` in the pod was empty and `grep` no longer found the probe line - the last change was really reverted, and the change count went back with it.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-undo-request",
+      "status": "not-implemented",
+      "evidence": "No such control exists: grep over pkg/barn for \"Undo my request\", undo-request, undoRequest and undoTurn finds only the comment at the head of components/BuildFailure.vue explaining why it was not built - the failure record carries no turn id, so \"the request that caused this\" would be a guess, and the pod's provenance capture produces prompts but no per-turn commits in this Rancher. The panel offers the undo it can do instead.",
+      "defect": "Deliberately not built; the reasoning is at the top of components/BuildFailure.vue."
+    },
+    {
+      "id": "08-failed-rollback-inline",
+      "status": "pass",
+      "evidence": "DRIVEN END TO END this round, on extensions nobody else was using. Working: with a probe line in product.ts I clicked [data-testid=barn-rollback] (\"Roll back to the last commit\") and got \"Rolled back to the last commit / The tree as you left it was snapshotted first, so nothing is lost.\" The pod's tree really went back (the probe line was gone), a refs/tags/barn-snap/<ts> \"the failed build before rolling back\" appeared, the failure card disappeared and the badge went Failed -> Unsaved. MANDATORY SAFETY SNAPSHOT: I then made the place the snapshot has to be written unwritable in the pod (a regular file at .git/refs/tags/barn-snap, so `git tag -f barn-snap/<ts>` cannot create the directory - verified directly in the pod, exit 128) and clicked it again. It refused: \"The roll back did not happen / Nothing has been rolled back. The tree could not be snapshotted first, and the Studio will not replace a tree it cannot put back: the snapshot of <ext> failed in the pod (exit 1): fatal: cannot lock ref ...\". HEAD and the working tree were byte-identical before and after, the failure record was still in sessionStorage and the failure card was still on screen. Repeated on demo as instructed, with a durable refs/barn/working-build ref in place so the button read \"Roll back to the last working build\": same refusal, demo's HEAD and its modified product.ts untouched, failure record not cleared. Everything I broke was put back afterwards (demo: tags dir restored, working-build ref deleted, product.ts checked out, and `git tag` verified working again).",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rollback-masthead",
+      "status": "pass",
+      "evidence": "Same action, second affordance, and they run the same roll-back.ts. [data-testid=barn-rollback-masthead] carries the same resolved label as the panel's button (\"Roll back to the last working build\" on the pod with a working-build ref, \"Roll back to the last commit\" without one, \"Roll back to the snapshot \\\"...\\\"\" when the best point is a snapshot). Driven for real: toast \"Rolled back to the snapshot ... The tree as you left it was snapshotted first\", the pod's tree restored to that point, a second safety snapshot written, the failure record cleared and the badge back to Unsaved. With the snapshot blocked it refused with git's own reason and nothing moved, on both the extension I created and on demo.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-canvas-explainer",
+      "status": "pass",
+      "evidence": "[data-testid=barn-preview-explainer] renders over the preview with an alert icon, the headline \"This is not the build you asked for\" and the paragraph \"The build itself failed. Nothing was installed, and this Rancher is still loading whatever it was loading before. What is framed below is the pod's dev server, which serves the working tree as it is now - the same tree the build failed on, compiled by a different build.\" - not an empty iframe, and on an extension with no installed version it adds \"No version of this extension is installed in this Rancher, so there is no working build to show\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-canvas-show-working",
+      "status": "pass",
+      "evidence": "Driven on nodehealth, the one extension in this Rancher with a UIPlugin installed (catalog v0.1.0). [data-testid=barn-preview-show-working] \"Show the last working build\" is drawn there and clicking it swapped the frame from the pod's dev server to /dashboard/home - this Rancher's own pages, where the installed version runs - and the explainer changed to \"This is v0.1.0, not the build that failed / The frame is on this Rancher's own pages, where the version it is loading runs. That version is the last build of this extension that installed - the failed one never replaced it.\" with \"Back to the live preview\", which returned the frame to the dev server. On an extension with no installed version the button is correctly absent and the panel says why.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-back",
+      "status": "pass",
+      "evidence": "Typed /<ext>/c/local/home into the preview address bar and pressed Enter (frame moved to .../proxy/<ext>/c/local/home), then clicked button[title=\"Back\"]: the address bar went back to /home and the iframe's URL went back to .../proxy/home.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-forward",
+      "status": "pass",
+      "evidence": "After that Back, clicked button[title=\"Forward\"]: the address bar returned to /<ext>/c/local/home and the iframe URL followed.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-refresh",
+      "status": "pass",
+      "evidence": "Clicked button[title=\"Reload the preview\"]: the iframe reloaded on the same route (.../proxy/<ext>/c/local/home) and the address bar was unchanged.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-route",
+      "status": "pass",
+      "evidence": "The toolbar shows the path inside the frame behind a padlock icon, in an editable input. It followed navigation both ways: \"/home\" on load, \"/<ext>/c/local/home\" after I navigated, back to \"/home\" on Back. Typing a path and pressing Enter moves the frame, so it is an address bar rather than a readout.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-external",
+      "status": "pass",
+      "evidence": "The external-link control is an <a class=\"preview-panel__popout\" target=\"_blank\" title=\"Open this page on its own\"> (an anchor, not a button, which is why a button sweep misses it). Its href tracked the preview: after navigating the frame to /<ext>/c/local/home it read /k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-<ext>-extension:8005/proxy/<ext>/c/local/home. The same URL opened in a new tab and rendered when driven from the Files screen's equivalent control.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-preview-state",
+      "status": "pass",
+      "evidence": "[data-testid=barn-preview-state] renders a dot plus \"Build failed · 02:15 AM\" while a failure is recorded - a real clock time taken from the record, which moved between runs.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-viewport-chip",
+      "status": "pass",
+      "evidence": "[data-testid=barn-preview-viewport] reads \"Desktop\" and opens a three-item menu: \"Desktop / Showing\", \"Tablet / 834px\", \"Mobile / 390px\". Choosing Mobile changed the chip to \"Mobile\" and the iframe's measured width from 810px to exactly 390px. (Tablet's 834px is wider than the pane at this window size, so that one clamps and the width does not visibly change.)",
+      "defect": null
+    },
+    {
+      "id": "08-failed-composer-input",
+      "status": "pass",
+      "evidence": "The composer is a multi-line textarea whose placeholder is exactly 'Describe the next change - e.g. \"colour the bars by severity and add a 7-day toggle\"'. Typed several lines into it and it took them.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-composer-hint",
+      "status": "pass",
+      "evidence": "The hint under the composer reads \"Shift + Enter for a new line · the assistant never publishes on its own\". Drove both halves: Shift+Enter inserted a newline (the field held \"line one\\nline two\"), and plain Enter sent - the field cleared and a \"You · 10 seconds ago\" turn carrying my exact message appeared in the stream.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-send",
+      "status": "pass",
+      "evidence": "Typed a unique probe message and clicked the composer's Send button: a user turn appeared in the stream reading \"You · 11 seconds ago <my message> Sent from the workspace screen by Default Admin\". Same for Enter.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-user-turn",
+      "status": "pass",
+      "evidence": "My own turns render as \"You\" with a relative timestamp and the message text, followed by the assistant's turn. The stream holds dozens of them from this session and earlier ones, each stamped with who sent it and from which screen.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-stop",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=barn-stop-assistant]: toast \"Interrupt sent / Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.\" - it really sends the interrupt to the tmux session rather than pretending to cancel a run it cannot see.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-label",
+      "status": "pass",
+      "evidence": "An SLabel reading \"Context\" precedes the chip row in the composer.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-chip-cluster",
+      "status": "pass",
+      "evidence": "A chip reading \"cluster: local\" with the server icon renders in the context row on load.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-chip-file",
+      "status": "pass",
+      "evidence": "File chips render with the file icon, name the file and are removable. They are not pre-populated on load (the two standing chips are the extension and the cluster); a file arrives when one is attached - through Add, or through the Files screen's \"Ask about this file\", whose turns in the stream read \"Context: pages/W5Probe.vue. ...\". I attached product.ts through the picker and the chips became [<ext>, cluster: local, product.ts, Add]. The design draws the file chip already there; the product attaches it when a file is chosen.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-context-add",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=barn-add-context]: a picker opened, \"Add a file to the context / Whatever is on the context chips is named in the line the assistant receives ... Paths are relative to the package in the pod\", with a search field and the pod's real file list. Chose product.ts and a new removable chip appeared in the context row.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-model-chip",
+      "status": "pass",
+      "evidence": "[data-testid=barn-model-chip] reads \"Default model\" and is a picker, not a readout: clicking it opened a menu offering fable, opus, sonnet and \"Choose in the terminal /model\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-permission-chip",
+      "status": "pass",
+      "evidence": "[data-testid=barn-permission-chip] renders in the composer bar and states the current mode - here \"Edits apply without asking\" rather than the mock's \"Ask before each file edit\", because it reports the session's real mode. Clicking it lists all of them: \"Edits apply without asking (in use)\", \"File edits apply, everything else asks (accept edits)\", \"Planning only, no edits (plan mode)\", \"claude decides what to ask about (auto mode)\", \"Open the terminal (shift+tab)\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-session-identity",
+      "status": "pass",
+      "evidence": "[data-testid=barn-session-state] renders a dot plus the session's real state. In this cluster the pods' claude has no credential, so it reads \"The assistant is not signed in · run /login in the terminal\" rather than claiming a connection - which is the honest reading of the same row.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-session-expand",
+      "status": "pass",
+      "evidence": "Clicked the control at the end of the session status row ([data-testid=barn-session-menu]): a menu opened with \"Clear the composer\", \"Open the terminal\", \"Start a new conversation /clear\", \"Reattach the terminal\", \"Copy the session name mc-editor\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-assistant",
+      "status": "pass",
+      "evidence": "Clicking Assistant makes it the only tab with aria-selected=\"true\" and shows the .assistant-panel__stream (the conversation turns), with the other three panes display:none.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-files",
+      "status": "pass",
+      "evidence": "Clicking Files moves aria-selected to it and the visible pane becomes the file browser - \"Branch main ... Commits on main f592ee9 The seeded extension 45 minutes ago\" over the extension's tree (l10n, pages/Home.vue, ...).",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-changes",
+      "status": "pass",
+      "evidence": "Clicking Changes moves aria-selected to it and the visible pane becomes the diff: \"Uncommitted changes / Nothing has changed / The working tree matches the last commit\" on a clean tree. The tab carries a count badge matching `git status` - it read \"Changes3\" with three modified files and lost the badge when the tree was clean.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-tab-terminal",
+      "status": "pass",
+      "evidence": "Clicking Terminal moves aria-selected to it and the visible pane is the live xterm attached to the pod's tmux session (rendered characters present in .xterm-screen). It is v-shown rather than unmounted, so switching tabs does not end the session.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-masthead-more",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=barn-masthead-overflow]: a menu with \"Files and history\", \"Review changes\", \"Verification\", \"The brief\", \"Re-read this extension\" and \"Remove the local install\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-publish",
+      "status": "pass",
+      "evidence": "Clicked the primary masthead Publish: the PublishModal opened, headed \"Publish <ext>\", with the five destination rows and their gates (\"Every destination below is a separate choice and none of them is ticked for you\"). I drove the hand-over destination fully on my own extension - it assembled a real packet (refs/barn/packets/1, branch barn/<ext>/1) and wrote the entry into the review record - and cancelled the rest.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-back",
+      "status": "pass",
+      "evidence": "Clicked the chevron button[aria-label=\"Back\"] at the start of the masthead: /dashboard/barn/extensions. The build-failed route's own back arrow does the same.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-bell",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=notifications-center] on the failed screen: the notification centre opened with real entries from this session (\"Code approved / Committed as b2aa834 ...\").",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-more",
+      "status": "pass",
+      "evidence": "[data-testid=page-actions-menu-action-button] is present in the header on /barn/editor/<ext> - which is screen 08 - and opens \"Review queue\", \"Studio settings\", \"Installed extensions\", all three of which land. Note the legacy /barn/extensions/<ext>/build-failed shell route does NOT commit pageActions and so has no kebab there; that route is the measurement shell build-failed.vue describes itself as, and the workspace is where screen 08 actually lives.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-logo",
+      "status": "pass",
+      "evidence": "The header renders the product brand mark, [data-testid=header__brand-img] (alt \"Logo\"), with a second copy at the head of the Application Bar ([data-testid=side-menu__brand-img], alt \"Main menu Rancher logo\"). This instance is not Prime-branded, so the mark is Rancher's logo rather than the SUSE chameleon with \"SUSE / Rancher Prime\" - the header slot is filled and its content is the running Rancher's branding, which is not barn's to choose.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-header-apps",
+      "status": "not-implemented",
+      "evidence": "Queried the header on the failed screen for i.icon-apps, [data-testid=apps-menu] and any app-collection element: 0 matches, same as every other screen.",
+      "defect": "Rancher's header has no app-collection grid. DEPARTURES.md #2."
+    },
+    {
+      "id": "08-failed-rail-menu",
+      "status": "pass",
+      "evidence": "On the failed screen the hamburger toggled [data-testid=side-menu] between \"menu-close\" and \"menu-open\".",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-home",
+      "status": "pass",
+      "evidence": "The rail's Home entry goes to /dashboard/home.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-server",
+      "status": "pass",
+      "evidence": "Cluster Management in the rail opens /c/_/manager/provisioning.cattle.io.cluster.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-gear",
+      "status": "pass",
+      "evidence": "Global Settings in the rail opens /c/local/settings/management.cattle.io.setting.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-about",
+      "status": "pass",
+      "evidence": "About at the foot of the rail opens /dashboard/about.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-user",
+      "status": "pass",
+      "evidence": "[data-testid=nav_header_showUserMenu] is present on the failed screen and opens the account menu.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-cluster-chips",
+      "status": "pass",
+      "evidence": "The rail carries [data-testid=menu-cluster-local] and clicking it opens /c/local/explorer#cluster-events. The design's LT1, CD2 and AFT are three clusters this Rancher does not have - there is one cluster and one chip, and it works.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-selected",
+      "status": "pass",
+      "evidence": "On the failed screen exactly one rail entry carries \"option active-menu-link\" and it is \"Extension Studio\" (href /dashboard/barn/extensions), drawn in the accent treatment against the plain entries.",
+      "defect": null
+    },
+    {
+      "id": "08-failed-rail-book",
+      "status": "not-implemented",
+      "evidence": "The rail lists Home, the cluster chip, Cluster Management, Continuous Delivery, Extension Studio, Virtualization Management, Base, Users & Authentication, Extensions, Global Settings and About. No docs entry.",
+      "defect": "No docs entry in this Rancher's rail."
+    },
+    {
+      "id": "11-queue-breadcrumb",
+      "status": "pass",
+      "evidence": "Clicked the \"Extensions\" crumb on /barn/review: landed on /dashboard/barn/extensions. The trailing crumb \"Reviews\" is not a link.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-preview-only-notice",
+      "status": "pass",
+      "evidence": ".queue__lede under the title row reads \"Nothing in this list is live. Everything here is still running only in its author's preview, and you are both its author and its only reviewer, so nothing here is waiting on anybody else. A change is only a review request once it has been handed over as a packet; until then it is its author's own work and it is not in this list at all.\"",
+      "defect": null
+    },
+    {
+      "id": "11-queue-footnote",
+      "status": "pass",
+      "evidence": "The sparkle-marked .queue__footnote-text at the end of the list reads \"Rows lead with what the change is for, taken from its brief - not with a file count. A change with no brief says so, which is the point: a reviewer should never have to reverse-engineer intent from a diff.\"",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-waiting-on-you",
+      "status": "pass",
+      "evidence": "\"Waiting on you\" is the selected tab on load (aria-selected=\"true\"), its badge read 1 and the list under it held exactly one card. When I handed a second extension over the badge read 2 and two cards rendered; when that change moved to the outcome sign-off the badge went back to 1 and the card left this tab. The count and the list agree.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-waiting-on-others",
+      "status": "pass",
+      "evidence": "Clicked it: aria-selected moved to it and the list changed. With nothing half-answered it read 0 and showed the empty state \"Nothing is waiting on anybody else / A change appears here once you have answered one of its two questions and it is still not through the gate.\" After I approved the code on my own extension and handed the approved commit over, the badge read 1 and the row appeared here - a real state transition, not a static filter.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-tab-signed-off",
+      "status": "pass",
+      "evidence": "Clicked \"Signed off this week\": aria-selected moved to it, the other two lists went away and it rendered \"Nothing signed off in the last 7 days / A change appears here once both questions have been answered against what was handed over - the code review and the outcome sign-off.\" Its window is the one the Review settings dialog sets (Count as signed off for N days).",
+      "defect": null
+    },
+    {
+      "id": "11-queue-sort",
+      "status": "pass",
+      "evidence": "Clicked the \"Oldest first\" control: a four-item menu - \"Oldest first / by last commit · current\", \"Newest first / by last commit\", \"Most changes\", \"Least changes\". With two rows in the queue, \"Newest first\" gave [my extension, base] and \"Most changes\" gave [base (2 files), my extension (0)], and \"Oldest first\" put base back on top - so the list really reorders and on the real value. The choice persists (it survived reloads); I set it back to \"Oldest first\", which is where I found it.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-intent",
+      "status": "pass",
+      "evidence": "Each row's first line is a purpose sentence taken from the brief - base's reads \"Mid-incident an operator cannot tell a spike in node pressure apart from a slow degradation, so they open Grafana or guess.\", which is the opening of its BRIEF.md - and the second line is \"<name> · <version> · packet <n>\" followed by the diff size (\"2 files · +17 -0 · 4 acceptance criteria\"). An extension whose brief I emptied led instead with \"No brief - nobody wrote down what this is for.\" rather than falling back to a diffstat.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-waiting",
+      "status": "pass",
+      "evidence": "Every row shows a \"Waiting\" label with a duration read from the hand-over time - \"1 hour\" on base, \"1 minute\" then \"4 minutes\" on the packet I created as time passed - and a requester line under it. base reads \"nothing records who asked for this\" (its BRIEF.md has no ## Who asked section, so the screen says so rather than naming whoever is looking); the extension I created through screen 02 reads \"asked for by local://user-btc48\", the principal its brief actually records.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-risk",
+      "status": "pass",
+      "evidence": "Every row carries a risk chip plus a one-line rationale, and the rating tracks the tree rather than being fixed: base \"medium\" with its reason, my extension \"none / nothing uncommitted\" on a clean tree, \"low\" with one changed file and \"medium\" once 46 lines had changed. The design's em-dash placeholder for a blocked row is not what the product does - my blocked row still showed \"medium\" with \"46 lines changed · ...\" beside the Blocked chip. That is a real measurement of a real diff rather than a blank, so the promise's substance holds; only the mock's placeholder does not.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-row-your-part",
+      "status": "not-implemented",
+      "evidence": "Judged against the corrected DEPARTURES.md #5 argument, not the old one. The corrected argument is right about the code: review-queue.vue models four parts (partFor(): blocked, handover, outcome, code) and chips three - I saw \"Blocked\" (lock) on a row whose brief I emptied and \"Outcome sign-off\" (eye) on a row whose code I had approved, and \"Not handed over\" has its own chip and testid. It is also right that the action button says which question is being asked: actionLabel() returned \"Open the brief\" on the blocked row, \"Sign off\" (primary variant) on the outcome row and \"Review\" on the ordinary one, all from one map. So the removal is defensible and the redundancy the design draws is real. It is still a fail against the promise as written, because the promise is that EVERY row says which kind of review is being asked and the ordinary code-review row - the common case, and the only one of the four with no chip - says it only in the verb on its button, never as the named readout (\"Code review\") the design draws. That is a deliberate, argued gap rather than a bug.",
+      "defect": "The \"Your part\" readout is rendered only for the exceptional parts. review-queue.vue chips part blocked, handover and outcome and has none for code, with the comment \"a chip that says the same thing on every row is not a readout, which is why there is no \\\"Your part\\\" column here any more\". On an ordinary code-review row the only thing naming the part is the word \"Review\" on the action button. DEPARTURES.md #5 argues the removal and the corrected argument survives scrutiny; keep this as a recorded departure rather than fixing it, unless the design owner wants the pill back on all four."
+    },
+    {
+      "id": "11-queue-row-open",
+      "status": "pass",
+      "evidence": "Clicked the row body (the purpose sentence, away from the button) on two rows with different parts: an ordinary code-review row went to /barn/review/<ext>/working and a row whose part was the outcome sign-off went to /barn/extensions/<ext>/verification. The whole row is a target and it goes where that row's question is asked.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-open-review",
+      "status": "pass",
+      "evidence": "Clicked \"Review\" on a queued row ([data-testid=queue-review-<ext>]): navigated to /dashboard/barn/review/<ext>/working, the review-a-change screen.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-open-brief",
+      "status": "pass",
+      "evidence": "Made a real blocked row: emptied BRIEF.md in my own extension's pod, whose packet was already handed over. Its row led with \"No brief - nobody wrote down what this is for.\", carried a \"Blocked\" chip beside the risk chip, and its primary action changed from \"Review\" to \"Open the brief\". Clicking it landed on /dashboard/barn/extensions/<ext>/brief. I restored the brief afterwards and the row went back to \"Review\".",
+      "defect": null
+    },
+    {
+      "id": "11-queue-sign-off",
+      "status": "pass",
+      "evidence": "Made a real outcome row on my own extension: approved the code on /barn/review/<ext>/working (which committed the tree and recorded signoffs.code = approved against that commit), then handed that commit over as a packet so the sign-off covers it. The row moved to \"Waiting on others\" with chips [risk, \"Outcome sign-off\"] and its button changed from secondary \"Review\" to primary \"Sign off\". Clicking \"Sign off\" landed on /dashboard/barn/extensions/<ext>/verification - screen 13 - and not on the code review screen.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-since-banner",
+      "status": "pass",
+      "evidence": "Before any approval the row carried no banner. After I approved the code and then changed a file in the pod, the row was topped with a tinted banner reading \"1 uncommitted file since Default Admin approved this on 2026-08-24.\" with an undo icon and the \"Show only what changed since then\" link beside it; after a further hand-over it read \"1 change landed since you last looked at packet 2.\" The count and the date are read from the sign-off record, not asserted.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-since-filter",
+      "status": "pass",
+      "evidence": "Clicked \"Show only what changed since then\" ([data-testid=queue-since-filter]): opened /barn/review/<ext>/working?scope=since&from=<the exact commit the approval was given against>, and on that screen the \"Since you approved it\" scope chip was already active. So the scope really is applied from the banner rather than the link merely opening the review screen.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-review-settings",
+      "status": "pass",
+      "evidence": "Clicked [data-testid=queue-review-settings]: a dialog opened - \"Review settings / Order the queue by <the sort> / Count as signed off for <N> Days. A change whose two sign-offs both landed inside this window shows in the third tab. There is nothing here about who reviews what. This product has one reviewer - you - and a setting that could only ever have one value would be a control that lies.\" with Cancel and Save. The order it shows is the queue's current order, so the two are the same setting.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-nav-rail",
+      "status": "pass",
+      "evidence": "On /barn/review the rail opens with the same eleven entries as every other Studio screen, \"Extension Studio\" is the only one carrying active-menu-link, and I drove each destination: Home -> /dashboard/home, cluster chip -> /c/local/explorer, Cluster Management -> /c/_/manager/provisioning.cattle.io.cluster, Global Settings -> /c/local/settings/..., Extensions -> /c/local/uiplugins, About -> /dashboard/about, and the person icon opens the account menu. There is no docs/book icon in this Rancher's rail.",
+      "defect": null
+    },
+    {
+      "id": "11-queue-header-actions",
+      "status": "not-implemented",
+      "evidence": "Two of the three now work and the third does not exist. Overflow: [data-testid=page-actions-menu-action-button] is in the header on /barn/review and opens the Studio's page actions - here \"Studio settings\" and \"Installed extensions\", with \"Review queue\" correctly filtered out because you are standing on it (review-queue.vue filters STUDIO_ACTION_QUEUE out of pageActions on purpose). Both destinations land. Bell: [data-testid=notifications-center] opens the notification centre with real entries. App collection: queried the header for i.icon-apps, [data-testid=apps-menu], [class*=app-collection] and [class*=app-switcher] - 0 matches, as on every other screen.",
+      "defect": "Two of the three promised header controls work; the third, the app-collection grid the design draws, does not exist anywhere in this Rancher's header, so it cannot be opened. DEPARTURES.md #2 records the grid as Rancher chrome rather than a barn gap, so the shortfall is in the promise's scope rather than in the code."
+    }
+  ]
+}

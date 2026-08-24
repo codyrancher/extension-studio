@@ -161,6 +161,9 @@ export default {
       // file, so agreeing before it has been read back would replace it with a form
       // that never contained it.
       loading:  true,
+      // True when the pod could not be asked for BRIEF.md at all, as opposed to answering that
+      // there is none. Only the second of those licenses a sentence about what the brief contains.
+      unread:   false,
       // The file as it was last read or written, which every save is merged into rather than
       // replacing. Sections this form does not own - the verification block screen 13 writes,
       // anything a person added by hand - live in here and nowhere else.
@@ -532,14 +535,26 @@ export default {
      * what it has rather than blanking itself.
      */
     async load() {
+      // `unread` is the difference between two things this screen used to say the same sentence
+      // about: a pod that answered and has no brief, and a pod that could not be asked at all.
+      // A new extension's pod is not Ready for a couple of minutes, and during that window the
+      // ticket card asserted "the brief has no `## Who asked` section" about a file it had never
+      // read. An absence of data reported as data, which is the thing this product exists not to
+      // do.
+      let unread = false;
       const [text, createdAt] = await Promise.all([
-        readExtensionFile(this.extension, 'BRIEF.md').catch(() => ''),
+        readExtensionFile(this.extension, 'BRIEF.md').catch(() => {
+          unread = true;
+
+          return '';
+        }),
         // The one fact about the age of this thing that exists whether or not anybody wrote a
         // brief section. '' when the object cannot be read, which reads as "no age known".
         extensionCreatedAt(this.extension).catch(() => ''),
       ]);
 
       this.createdAt = createdAt;
+      this.unread = unread;
 
       if (text.trim()) {
         const sections = this.parseBrief(text);
@@ -1636,6 +1651,14 @@ export default {
                     {{ askedBy.principal }}
                   </span>
                 </template>
+                <span v-else-if="loading || unread" data-testid="brief-raised-unread">
+                  <template v-if="loading">Reading the brief.</template>
+                  <template v-else>
+                    This extension's pod has not answered yet, so the brief has not been read. A
+                    pod takes a couple of minutes to come up after an extension is created; until
+                    it does, nothing here can say who asked for this, including that nobody did.
+                  </template>
+                </span>
                 <span v-else>
                   Nobody is recorded as having asked for this. The brief has no
                   <code>## Who asked</code> section, which is how every extension made before the
