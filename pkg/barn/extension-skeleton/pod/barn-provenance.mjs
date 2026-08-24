@@ -63,8 +63,37 @@ const PROMPT_LIMIT = 4000;
  * that package is called.
  */
 function packageDir() {
+  // The extension's own directory, by name, before any guessing.
+  //
+  // This used to take the first directory under /app/pkg, on the assumption that a pod holds
+  // exactly one package. Pods created before extensions were renamed off their seed hold two:
+  // `demo`'s pod has both /app/pkg/base and /app/pkg/demo, and readdir returns them
+  // alphabetically. So this recorder committed demo's turns into base's repository and blamed
+  // demo's hunks against base's history, which is why per-hunk provenance could never resolve a
+  // line to a prompt even once the assistant was signed in and really working.
+  //
+  // `extensions.ts` was fixed to resolve by name and these pod-side scripts were not, so the two
+  // halves of the product disagreed about which tree they were working in. EXTENSION_NAME is set
+  // on the pod by the deployment that created it.
+  const named = process.env.EXTENSION_NAME && path.join('/app/pkg', process.env.EXTENSION_NAME);
+
+  if (named && fs.existsSync(path.join(named, '.git'))) {
+    return named;
+  }
+
   try {
     const dirs = fs.readdirSync('/app/pkg', { withFileTypes: true }).filter((e) => e.isDirectory());
+
+    // Only when there is no ambiguity to get wrong. An imported repository keeps its upstream
+    // package name, which need not match the extension, so one directory is still a fair guess -
+    // picking alphabetically among several is not.
+    if (dirs.length === 1) {
+      return path.join('/app/pkg', dirs[0].name);
+    }
+
+    if (dirs.length > 1 && named) {
+      return named;
+    }
 
     if (dirs.length) {
       return path.join('/app/pkg', dirs[0].name);

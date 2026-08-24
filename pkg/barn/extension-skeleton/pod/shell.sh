@@ -35,7 +35,15 @@ SESSION=${1:-main}
 WORKDIR=$2
 
 if [ -z "$WORKDIR" ]; then
-  WORKDIR=$(ls -d /app/pkg/*/ 2>/dev/null | head -1 | sed 's|/$||')
+  # By name first. A pod created before extensions were renamed off their seed holds two package
+  # directories, and `head -1` takes them alphabetically - which started demo's assistant in
+  # base's tree, so every turn it committed and every file it touched belonged to the wrong
+  # extension. The glob stays for an imported repository, whose package keeps its upstream name.
+  if [ -n "$EXTENSION_NAME" ] && [ -d "/app/pkg/$EXTENSION_NAME" ]; then
+    WORKDIR="/app/pkg/$EXTENSION_NAME"
+  else
+    WORKDIR=$(ls -d /app/pkg/*/ 2>/dev/null | head -1 | sed 's|/$||')
+  fi
   WORKDIR=${WORKDIR:-/app}
 fi
 
