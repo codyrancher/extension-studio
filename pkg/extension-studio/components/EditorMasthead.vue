@@ -26,7 +26,7 @@ import {
   checkoutBranch, publishedVersion, workingDiff
 } from '../extensions';
 import {
-  FILES_ROUTE, REVIEW_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
+  FILES_ROUTE, REVIEW_ROUTE, VERIFICATION_ROUTE
 } from '../editor-product';
 import { readFailure, FAILURE_EVENT } from '../publish-failure';
 import { findWayBack, rollBack, rollBackLabel } from '../roll-back';
@@ -36,7 +36,6 @@ const OVERFLOW_ROUTES = {
   files:        FILES_ROUTE,
   review:       REVIEW_ROUTE,
   verification: VERIFICATION_ROUTE,
-  brief:        BRIEF_ROUTE,
 };
 
 /** Snapshot tags are `barn-snap/<epoch ms>`, which is where the exact time comes from. */
@@ -309,7 +308,6 @@ export default {
         { id: 'files', label: 'Files and history', icon: 'file' },
         { id: 'review', label: 'Review changes', icon: 'compare' },
         { id: 'verification', label: 'Verification', icon: 'check' },
-        { id: 'brief', label: 'The brief', icon: 'book' },
         { divider: true },
         {
           id: 'snapshot', label: 'Take a snapshot', icon: 'clock', note: this.lastSnapshot.label,

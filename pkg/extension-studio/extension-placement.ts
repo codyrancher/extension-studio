@@ -436,7 +436,6 @@ export function placementFiles(plan: PlacementPlan, seed: string): Record<string
     'product.ts':       productTs(plan),
     'routing/index.ts': routingTs(plan),
     'l10n/en-us.yaml':  l10nYaml(plan),
-    'BRIEF.md':         briefDraft(plan),
   };
 
   const index = indexTs(plan);

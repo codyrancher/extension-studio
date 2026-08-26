@@ -21,10 +21,25 @@ export default {
       required: true,
     },
 
-    /** Installing a fresh cluster, or bringing an existing one up to date. Only the words differ. */
+    /**
+     * Installing a fresh cluster, bringing an existing one up to date, or making an extension
+     * that does not exist yet. Only the words differ.
+     */
     mode: {
       type:    String,
       default: 'install',
+    },
+
+    /** Which stock package to seed from, when this is the one making the seed. */
+    source: {
+      type:    String,
+      default: '',
+    },
+
+    /** Files written over the stock seed - the placement, when creating. */
+    extras: {
+      type:    Object,
+      default: null,
     },
   },
 
@@ -36,13 +51,17 @@ export default {
 
   computed: {
     title() {
-      return this.mode === 'update' ? 'Updating the editor' : 'Setting up the editor';
+      return {
+        update: 'Updating the editor',
+        create: `Creating ${ this.extension }`,
+      }[this.mode] || 'Setting up the editor';
     },
 
     subtitle() {
-      return this.mode === 'update'
-        ? 'Bringing this cluster up to date with the version you just installed. What is already right is left alone.'
-        : 'Making what the editor needs in this cluster. This happens once; afterwards the editor opens straight away.';
+      return {
+        update: 'Bringing this cluster up to date with the version you just installed. What is already right is left alone.',
+        create: 'Every object it needs, made in this cluster. The pod installs and compiles after this, which takes a few minutes the first time.',
+      }[this.mode] || 'Making what the editor needs in this cluster. This happens once; afterwards the editor opens straight away.';
     },
 
     total() {
@@ -76,7 +95,7 @@ export default {
       this.running = true;
       this.progress = await runInstall(this.extension, (progress) => {
         this.progress = progress;
-      });
+      }, this.source || undefined, this.extras || undefined);
       this.running = false;
 
       if (!this.failed.length) {

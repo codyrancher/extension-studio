@@ -64,7 +64,7 @@ import {
   readReview, updateReview, gateFrom, currentSigner, whoAsked, signOutcome
 } from '../review';
 import {
-  REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+  REVIEW_QUEUE_ROUTE, EDITOR_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
 } from '../editor-product';
 import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
@@ -344,7 +344,7 @@ export default {
      * looks live and does nothing, silently - which is exactly how these were found.
      */
     routes() {
-      return { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE };
+      return { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE };
     },
 
     extension() {
@@ -2076,14 +2076,6 @@ export default {
 
       <span class="verify__grow" />
 
-      <SButton
-        variant="ghost"
-        size="sm"
-        icon="book"
-        @click="$router.push({ name: routes.BRIEF_ROUTE, params: { extension } })"
-      >
-        Open the brief
-      </SButton>
     </div>
 
     <div class="verify__body">
@@ -2106,14 +2098,14 @@ export default {
             v-if="!loading && !criteria.length"
             icon="book"
             title="No acceptance criteria"
-            message="This extension's brief has no checklist, or has no brief at all. Verification is checking a thing against what somebody said it should do - without that, there is nothing to check against."
+            message="Verification is checking a thing against what somebody said it should do. Nothing here says what this one should do, so there is nothing to check against - ask for it in the editor and the conversation becomes the record."
           >
             <SButton
               variant="secondary"
-              icon="book"
-              @click="$router.push({ name: routes.BRIEF_ROUTE, params: { extension } })"
+              icon="sparkle"
+              @click="$router.push({ name: routes.EDITOR_ROUTE, params: { extension } })"
             >
-              Write the brief
+              Open the editor
             </SButton>
           </SEmpty>
 

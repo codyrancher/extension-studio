@@ -3,7 +3,7 @@ import { IPlugin } from '@shell/core/types';
 import { ensureBrowser, ensureDefaultExtension } from './extensions';
 import {
   EDITOR_ROUTE, EXTENSION_STARTING_ROUTE, STUDIO_ROUTE, NEW_EXTENSION_ROUTE,
-  REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, REVIEW_QUEUE_ROUTE, REVIEW_CHANGE_ROUTE,
+  REVIEW_ROUTE, FILES_ROUTE, REVIEW_QUEUE_ROUTE, REVIEW_CHANGE_ROUTE,
   VERIFICATION_ROUTE, BUILD_FAILED_ROUTE, SETTINGS_ROUTE, EDITOR_PRODUCT
 } from './editor-product';
 
@@ -102,7 +102,6 @@ export default function(plugin: IPlugin): void {
   // template-literal import into a context module over the whole pages directory, which pulls
   // every page into the graph whether or not a route reaches it.
   [
-    { name: BRIEF_ROUTE, path: '/extension-studio/extensions/:extension/brief', component: () => import('./pages/brief.vue') },
     { name: REVIEW_ROUTE, path: '/extension-studio/extensions/:extension/review', component: () => import('./pages/review.vue') },
     { name: FILES_ROUTE, path: '/extension-studio/extensions/:extension/files', component: () => import('./pages/files.vue') },
     { name: REVIEW_QUEUE_ROUTE, path: '/extension-studio/review', component: () => import('./pages/review-queue.vue') },

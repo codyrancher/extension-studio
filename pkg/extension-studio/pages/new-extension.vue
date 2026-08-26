@@ -45,6 +45,7 @@ import {
   SButton, SField
 } from '../components/ui';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
+import InstallProgress from '../components/InstallProgress.vue';
 import { toastError } from '../toast';
 import {
   ensureExtension, normalizeExtensionName, BUILT_IN_SEEDS, DEFAULT_SEED
@@ -54,7 +55,7 @@ import {
   PLACEMENTS, placementById, placementFiles, normalizeResource
 } from '../extension-placement';
 import {
-  STUDIO_ROUTE, BRIEF_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+  STUDIO_ROUTE, EDITOR_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
 } from '../editor-product';
 import pageActionsMixin from '@shell/mixins/page-actions';
 import '../design/tokens';
@@ -70,7 +71,7 @@ export default {
   name: 'BarnNewExtension',
 
   components: {
-    SButton, SField, ImportExtensionModal
+    SButton, SField, ImportExtensionModal, InstallProgress,
   },
 
   mixins: [fullBleed, pageActionsMixin],
@@ -91,6 +92,11 @@ export default {
       seed:       DEFAULT_SEED,
       importing:  false,
       creating:   false,
+      // `{ name, extras }` once Create has been pressed: what the progress list below is
+      // making. Null while the form is still the thing on screen.
+      making:     null,
+      // Whether the list under it has finished making them.
+      made:       false,
       error:      '',
       // Where the build runs, read from Rancher rather than written into the template. Starts
       // as the cluster's id, which is true before the reading arrives and stays true if it
@@ -182,7 +188,6 @@ export default {
       this.error = '';
 
       const name = normalizeExtensionName(this.name);
-      const spec = placementById(this.placement);
       // Who to record as having asked. `currentSigner` rather than a second reading of
       // Rancher's user API, so the principal in the brief is the exact string `signOutcome`
       // compares against later - two derivations of "who am I" are two chances to disagree,
@@ -199,23 +204,27 @@ export default {
         asked,
       };
 
-      try {
-        await ensureExtension(name, this.seed, placementFiles(plan, this.seed));
+      // Nothing is created here any more. The progress list below does it, because doing it
+      // there is what lets it be watched: `runInstall` reports every object as it goes, and a
+      // page that awaited one opaque call could only show a spinner and a guess.
+      this.making = { name, extras: placementFiles(plan, this.seed) };
+    },
 
-        this.$router.push({
-          name:   BRIEF_ROUTE,
-          params: { extension: name },
-          query:  {
-            prompt:    plan.prompt,
-            outcome:   plan.outcome,
-            placement: spec.route,
-          },
-        });
-      } catch (e) {
-        this.error = e?.message || String(e);
-        toastError(this.$store, 'Could not create the extension', this.error);
-        this.creating = false;
-      }
+    /**
+     * Every object exists.
+     *
+     * This does not move anybody on. Most of these objects already exist by the time somebody
+     * creates their second extension, so the list finishes in a second or two - and a page that
+     * navigated on its own would have shown a flash of a list nobody could read. What is left
+     * to wait for is the pod compiling, which is minutes and is watched in the editor, so the
+     * editor is offered rather than forced.
+     */
+    onMade() {
+      this.made = true;
+    },
+
+    openEditor() {
+      this.$router.push({ name: EDITOR_ROUTE, params: { extension: this.making.name } });
     },
 
     onNameInput(v) {
@@ -246,7 +255,40 @@ export default {
 <template>
   <div class="new-ext">
     <div class="new-ext__wrap">
-      <div class="new-ext__card">
+      <!--
+        Staying on the page rather than moving off it.
+        
+        Create used to push straight to the brief screen, so the objects were made behind a
+        route change and the only sign of them was the next screen appearing. They are made
+        here now, one at a time, in front of whoever pressed the button.
+      -->
+      <div v-if="making" class="new-ext__making">
+        <InstallProgress
+          :extension="making.name"
+          :source="seed"
+          :extras="making.extras"
+          mode="create"
+          data-testid="new-ext-progress"
+          @done="onMade"
+        />
+
+        <div v-if="made" class="new-ext__made">
+          <span class="new-ext__made-text">
+            Every object is made. {{ making.name }} is installing and compiling in its pod, which
+            takes a few minutes the first time - the editor shows it as it goes.
+          </span>
+          <SButton
+            variant="primary"
+            icon="arrowRight"
+            data-testid="new-ext-open-editor"
+            @click="openEditor"
+          >
+            Open the editor
+          </SButton>
+        </div>
+      </div>
+
+      <div v-else class="new-ext__card">
         <!-- head (13:308) -->
         <div class="new-ext__head">
           <h1 class="new-ext__title">
@@ -644,6 +686,30 @@ export default {
 
     > * { flex: 1 1 0; }
   }
+
+  // One column, the card's width. Without it the wrap's `justify-content: center` lays the
+  // list and its footer out as two flex children side by side.
+  &__making {
+    display:        flex;
+    flex-direction: column;
+    width:          820px;
+    max-width:      100%;
+  }
+
+  &__made {
+    display:       flex;
+    align-items:   center;
+    gap:           16px;
+    margin-top:    16px;
+    padding:       14px 16px;
+    border:        1px solid var(--studio-border);
+    border-radius: var(--studio-radius, 4px);
+    background:    var(--studio-surface);
+    font-size:     13px;
+    color:         var(--studio-text-secondary);
+  }
+
+  &__made-text { flex: 1; }
 
   &__footer {
     display:        flex;

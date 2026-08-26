@@ -954,9 +954,12 @@ export const EXT_PORTS = [{ name: 'http', port: EXT_PORT, targetPort: 'http' }];
  * and both are asked for on demand rather than during the install a fresh cluster runs by
  * itself. Those go through ensureExtension, which can wait for them.
  */
-export function seedConfigMapBody(name: string, source: string = DEFAULT_SEED): Record<string, unknown> {
+export function seedConfigMapBody(
+  name: string, source: string = DEFAULT_SEED, extras?: Record<string, string>,
+): Record<string, unknown> {
   const object = extensionObject(name);
   const from = BUILT_IN_SEEDS.includes(source) ? source : DEFAULT_SEED;
+  const files = renameSeedPackage(seedFiles(from), from, name);
 
   return {
     apiVersion: 'v1',
@@ -967,7 +970,10 @@ export function seedConfigMapBody(name: string, source: string = DEFAULT_SEED): 
       labels:      { app: object },
       annotations: { [SOURCE_ANNOTATION]: from },
     },
-    data: seedData(renameSeedPackage(seedFiles(from), from, name)),
+    // Whatever the caller wants on top of the stock seed - today that is the placement, which
+    // is written as code rather than described in prose. Applied after the rename so a file it
+    // means to replace is replaced rather than renamed out from under it.
+    data: seedData({ ...files, ...(extras || {}) }),
   };
 }
 

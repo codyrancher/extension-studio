@@ -114,7 +114,9 @@ function browserSteps(): InstallStep[] {
 }
 
 /** One extension: the tree it is seeded from, the pod that serves it, and the way in. */
-export function extensionSteps(name: string, source?: string): InstallStep[] {
+export function extensionSteps(
+  name: string, source?: string, extras?: Record<string, string>,
+): InstallStep[] {
   const object = extensionObject(name);
 
   return [
@@ -126,7 +128,7 @@ export function extensionSteps(name: string, source?: string): InstallStep[] {
       uiType:      'configmap',
       namespace:   EXT_NS,
       name:        object,
-      body:        () => seedConfigMapBody(name, source),
+      body:        () => seedConfigMapBody(name, source, extras),
     },
     {
       id:          `deployment-${ name }`,
@@ -152,8 +154,10 @@ export function extensionSteps(name: string, source?: string): InstallStep[] {
 }
 
 /** Everything a cluster needs for the editor to open on `name`. */
-export function installSteps(name: string, source?: string): InstallStep[] {
-  return [...sharedSteps(), ...extensionSteps(name, source), ...browserSteps()];
+export function installSteps(
+  name: string, source?: string, extras?: Record<string, string>,
+): InstallStep[] {
+  return [...sharedSteps(), ...extensionSteps(name, source, extras), ...browserSteps()];
 }
 
 /**
@@ -189,8 +193,9 @@ export async function runInstall(
   name: string,
   onProgress: (progress: StepProgress[]) => void,
   source?: string,
+  extras?: Record<string, string>,
 ): Promise<StepProgress[]> {
-  const steps = installSteps(name, source);
+  const steps = installSteps(name, source, extras);
   const progress: StepProgress[] = steps.map((step) => ({ step, state: 'waiting' as StepState }));
   const report = () => onProgress(progress.map((entry) => ({ ...entry })));
 

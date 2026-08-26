@@ -45,7 +45,7 @@ import {
   migrateDeferral, sameCommit, handedOverExtensions, assessRisk
 } from '../review';
 import {
-  STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE,
+  STUDIO_ROUTE, REVIEW_CHANGE_ROUTE, VERIFICATION_ROUTE, EDITOR_ROUTE,
   STUDIO_PAGE_ACTIONS, STUDIO_ACTION_QUEUE, handleStudioPageAction
 } from '../editor-product';
 import pageActionsMixin from '@shell/mixins/page-actions';
@@ -916,14 +916,14 @@ export default {
     /**
      * Where a row goes, which is not the same screen for every row.
      *
-     * A change with no brief goes to the brief rather than into the diff: the design sends the
-     * reviewer to settle the open questions, and a diff read against nothing is the reading
-     * this whole screen exists to stop somebody doing. A change whose code is already approved
-     * goes to the verification screen, which is the other question and the other person.
+     * A blocked change goes to the editor. It used to go to the brief, to settle the open
+     * questions first; there is no brief now, and the conversation that replaced it is in the
+     * editor. A change whose code is already approved goes to the verification screen, which
+     * is the other question and the other person.
      */
     open(row) {
       if (row.part === 'blocked') {
-        this.$router.push({ name: BRIEF_ROUTE, params: { extension: row.name } });
+        this.$router.push({ name: EDITOR_ROUTE, params: { extension: row.name } });
 
         return;
       }

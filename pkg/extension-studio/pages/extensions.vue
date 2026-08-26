@@ -22,7 +22,7 @@ import {
   ensureExtension, removeLocalInstall
 } from '../extensions';
 import {
-  EDITOR_ROUTE, NEW_EXTENSION_ROUTE, REVIEW_ROUTE, FILES_ROUTE, BRIEF_ROUTE, SETTINGS_ROUTE,
+  EDITOR_ROUTE, NEW_EXTENSION_ROUTE, REVIEW_ROUTE, FILES_ROUTE, SETTINGS_ROUTE,
   STUDIO_PAGE_ACTIONS, handleStudioPageAction
 } from '../editor-product';
 import pageActionsMixin from '@shell/mixins/page-actions';
@@ -504,9 +504,6 @@ export default {
         {
           id: 'files', label: 'Open files', icon: 'file', disabled: !row.ready, note: row.ready ? '' : 'still building',
         },
-        {
-          id: 'brief', label: 'Open the brief', icon: 'book', disabled: !row.ready, note: row.ready ? '' : 'still building',
-        },
         { divider: true },
         {
           id:       'remove',
@@ -527,7 +524,7 @@ export default {
       }
 
       const route = {
-        open: EDITOR_ROUTE, review: REVIEW_ROUTE, files: FILES_ROUTE, brief: BRIEF_ROUTE,
+        open: EDITOR_ROUTE, review: REVIEW_ROUTE, files: FILES_ROUTE,
       }[id];
 
       if (route) {

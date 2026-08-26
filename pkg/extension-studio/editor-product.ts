@@ -29,7 +29,6 @@ export const NEW_EXTENSION_ROUTE = 'barn-new-extension';
  */
 export const REVIEW_ROUTE = 'barn-review';
 export const FILES_ROUTE = 'barn-files';
-export const BRIEF_ROUTE = 'barn-brief';
 export const REVIEW_QUEUE_ROUTE = 'barn-review-queue';
 export const REVIEW_CHANGE_ROUTE = 'barn-review-change';
 export const VERIFICATION_ROUTE = 'barn-verification';

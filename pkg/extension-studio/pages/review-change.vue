@@ -65,7 +65,7 @@ import {
 import { readFailure } from '../publish-failure';
 import { applyProposedFix } from '../publish-fix';
 import {
-  REVIEW_QUEUE_ROUTE, EDITOR_ROUTE, BRIEF_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
+  REVIEW_QUEUE_ROUTE, EDITOR_ROUTE, STUDIO_PAGE_ACTIONS, handleStudioPageAction
 } from '../editor-product';
 import '../design/tokens';
 import fullBleed from '../design/full-bleed';
@@ -506,7 +506,7 @@ export default {
      * looks live and does nothing, silently - which is exactly how these were found.
      */
     routes() {
-      return { REVIEW_QUEUE_ROUTE, BRIEF_ROUTE, EDITOR_ROUTE };
+      return { REVIEW_QUEUE_ROUTE, EDITOR_ROUTE };
     },
 
     extension() {
@@ -3032,15 +3032,6 @@ export default {
               <SLabel text="What this is for" />
               <!-- 38:1135. The packet quotes the brief; this opens the document it quotes, with
                    its open questions and its history, which no quote can carry. -->
-              <button
-                type="button"
-                class="rc__link"
-                data-testid="rc-open-brief"
-                title="Opens this extension's brief: the whole document, its open questions and what has been agreed against it."
-                @click="$router.push({ name: routes.BRIEF_ROUTE, params: { extension } })"
-              >
-                Open the brief
-              </button>
             </div>
             <div class="rc__section-body">
               <p v-for="(line, i) in purpose.lines" :key="i" class="rc__section-line">
