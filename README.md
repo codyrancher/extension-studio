@@ -5,16 +5,47 @@ rancher instance it's hosted on.
 
 
 ## Installing
-Install it from this repository's Helm repo - add `https://codyrancher.github.io/extension-studio`
-under **Apps -> Repositories**, then install **Extension Studio** from **Extensions**.
+
+1. **Enable extension support.** Go to **Extensions** in the cluster explorer. If this Rancher
+   has not used extensions before it offers to enable them; accept, and wait for the plugin
+   operator to come up.
+2. **Add the repository.** **Apps -> Repositories -> Create**, target **http(s) URL**, index URL
+   `https://codyrancher.github.io/extension-studio`. Give it any name.
+3. **Install it.** Back on **Extensions**, under **Available**, install **Extension Studio**.
+4. **Reload the page** when it asks. **Extensions** now has an **Open the Studio** button on it.
+
+## Architecture
+
+An extension you make here never leaves the cluster, and never has to be hosted anywhere for you
+to use it.
+
+```
+browser ---> Rancher ---> apiserver service proxy ---> pod (dashboard + your package)
+                |                                       ^
+                +-- UIPlugin (direct: true) ------------+
+```
+
+- **Each extension is a pod.** Creating one writes a Deployment, a Service and a ConfigMap of
+  source into the `barn` namespace. The pod runs a whole Rancher dashboard with your package
+  compiled into it, on port 8005.
+- **The browser reaches it through the apiserver**, at
+  `/api/v1/namespaces/barn/services/http:<name>:8005/proxy`. That is Rancher's own origin
+  carrying the session you already have, so nothing is exposed and there is nothing extra to log
+  into.
+- **Editing happens inside the pod.** The assistant runs there too, so a save recompiles and hot
+  reloads the Preview. There is no build step and nothing to reinstall.
+- **Publish writes a UIPlugin**, in `cattle-ui-plugin-system`, marked `direct: "true"` and
+  pointing at that same proxy URL. Rancher's own index picks it up and the browser loads the
+  bundle straight from the pod, which is why the extension lives exactly as long as the pod does.
+- **A release does not involve the pod at all.** Publish to GitHub, tag it, and the chart on
+  `gh-pages` is what other people add as a repository, the same way you added this one.
 
 ## Creating
 
 - **Extensions -> Open the Studio -> Create.** Give it a name and a sentence about what it
   should do. There is nothing to scaffold and nothing to install first.
-- The new extension is a **pod in the cluster**, not a checkout on your machine: a whole Rancher
-  dashboard with your package compiled into it, reached through the apiserver's service proxy on
-  Rancher's own origin. Existing work comes in the same way through **Import from GitHub**.
+- It starts as a pod in the cluster rather than a checkout on your machine, so there is nothing
+  to run locally. Existing work comes in the same way through **Import from GitHub**.
 
 ## Editing
 
