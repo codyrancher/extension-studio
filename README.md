@@ -1,123 +1,48 @@
-# barn
+# extension-studio
 
-A Rancher dashboard extension, and a second extension that it plants in the cluster.
+A Rancher extension for writing Rancher extensions. It adds a Studio to the Extensions page:
+describe what you want, and an assistant writes it, runs it against the Rancher you are already
+logged into, and shows you the result before anything is installed.
 
-`pkg/extension-studio` is the extension you load into Rancher. It adds two things to the cluster
-explorer: **Closets**, dev environments provisioned from the `closet` Helm chart in
-`deploy/`, and **Secret Sets**, per-user bundles of credentials those closets are handed at
-start. It also registers an **Editor** page, which is claude in a pod on the left and what
-claude is editing on the right.
+Install it from this repository's Helm repo - add `https://codyrancher.github.io/extension-studio`
+under **Apps -> Repositories**, then install **Extension Studio** from **Extensions**.
 
-An extension it creates is a whole Rancher dashboard with that package compiled into it,
-running as a pod in the cluster, reached through the Kubernetes apiserver's service proxy on
-Rancher's own origin. Editing a file in that pod recompiles and hot-reloads it in the browser,
-so it is an extension you develop by using it, with no build step and nothing to reinstall.
+## Creating
 
-`pkg/extension-studio/extension-skeleton` is what a pod is built out of - the dashboard around the package
-and the scripts that run inside it - and `pkg/extension-studio/base-extension` is the stock package a new
-extension is seeded from. Both are baked into the bundle, because a pod has to be given a tree
-before anything in it can fetch one.
+- **Extensions -> Open the Studio -> Create.** Give it a name and a sentence about what it
+  should do. There is nothing to scaffold and nothing to install first.
+- The new extension is a **pod in the cluster**, not a checkout on your machine: a whole Rancher
+  dashboard with your package compiled into it, reached through the apiserver's service proxy on
+  Rancher's own origin. Existing work comes in the same way through **Import from GitHub**.
 
-Anything else comes from a repository. The **Dev** product - the Claude Harness rebuilt on
-Kubernetes, where a workspace is a namespace with a Deployment and a Service, with terminals on
-the pod's exec subresource, conversations that are tmux sessions, forwarded and password-shared
-ports, GitHub work queues and a SQLite database per person - used to be vendored here as a
-second seed. It lives in [codyrancher/dev-extension](https://github.com/codyrancher/dev-extension)
-now, and arrives through **Import from GitHub** like anybody else's would.
+## Editing
 
-## Layout
+- **Ask, in the Assistant tab.** The assistant edits the package in its pod and the Preview
+  reloads - no build step, no reinstall. Attach a screenshot, or use the target button beside the
+  URL to point at the element you mean.
+- **Read what it did, in the Changes tab.** Every turn is a change set with before and after
+  screenshots and the changed region outlined. Approve them, or reject back to any point.
 
-```
-barn/
-├── pkg/extension-studio/                     the extension Rancher loads
-│   ├── product.ts                nav, spoofed types, the two resources
-│   ├── api.ts                    closets, secret sets, the editor pod
-│   ├── extensions.ts             creates an extension's pod in the cluster
-│   ├── extension-seed.generated.ts    the skeleton and base package, baked in
-│   ├── detail/ edit/ models/     barn.closet, barn.secret-set
-│   ├── base-extension/           the stock package a new extension starts as
-│   └── extension-skeleton/       what a pod is built out of
-│       └── pod/                  the scripts a terminal runs in the pod
-├── deploy/closet/                the Helm chart a closet is
-├── images/closet/                the container a closet runs
-└── scripts/                      seed generation and applying
-```
+## Deploying
 
-## Building it
+- **Publish**, in the editor, builds the package in its pod and installs it into the Rancher
+  you are looking at. It is a dev loop: it lives as long as the pod does and nobody else can
+  reach it.
+- **Publish to GitHub** puts the source in a repository of your own. Tagging a release there
+  builds the Helm chart and serves it from `gh-pages`, which is how anyone else installs it.
+
+## Building this extension
 
 Node 24.
 
 ```bash
 yarn install
-yarn build-pkg barn
+yarn build-pkg extension-studio     # dist-pkg/extension-studio-<version>/
+node scripts/gen-extension-seed.mjs # after editing extension-skeleton/ or base-extension/
 ```
 
-That writes `dist-pkg/extension-studio-<version>/barn-<version>.umd.min.js`. Load it into Rancher with
-Extensions → ⋮ → Developer Load, after enabling extension developer features in user
-preferences.
-
-## Working on what a pod is made of
-
-The skeleton (`pkg/extension-studio/extension-skeleton/`) and the stock package
-(`pkg/extension-studio/base-extension/`) are baked into the bundle as a seed, which is generated and
-committed. Regenerate it after editing either:
-
-```bash
-node scripts/gen-extension-seed.mjs
-```
-
-That reaches a **fresh pod**. Editing anything in `pod/` needs a third step, and it is the one
-that gets forgotten: those files are mounted from a ConfigMap and are run straight off the
-mount, so writing the ConfigMap reaches a pod that already exists, without restarting it.
-
-```bash
-node scripts/apply-extension-seed.mjs            # the default extension
-node scripts/apply-extension-seed.mjs myThing    # a particular one
-```
-
-See `pkg/extension-studio/extension-skeleton/README.md` for how the proxy, the asset URLs and hot reload
-fit together.
-
-Working on an extension's *package* does not happen here at all. It happens in the pod, which
-is the point of the thing: edit it in the Editor and it hot-reloads. Getting it out of the pod
-and somewhere permanent is Publish to GitHub.
-
-## Publishing it
-
-Two different things are called publishing here, and they are for two different moments.
-
-**Publish in the editor** builds the extension in its own pod, serves the bundle from that pod,
-and installs it into the Rancher you are looking at. It is a dev loop: what it installs lives
-exactly as long as the pod does, and nobody else can reach it.
-
-**A release** puts it on this repository's `gh-pages` branch as a Helm repository, which is how
-a Rancher extension is normally distributed. Somebody installing barn adds the Pages URL under
-Apps -> Repositories and it appears in Extensions. Tag the commit and publish the release:
-
-```bash
-# The tag has to be <package>-<version> and match pkg/extension-studio/package.json, or the build stops.
-git tag barn-0.5.15 && git push origin barn-0.5.15
-gh release create barn-0.5.15 --generate-notes
-```
-
-`.github/workflows/build-extension-charts.yml` does the rest, through rancher/dashboard's own
-reusable workflow. It can also be run by hand from the Actions tab, which builds whatever
-version package.json currently names.
-
-Two things have to be true before the first release, and neither is something the workflow can
-arrange for itself:
-
-- **`gh-pages` has to exist.** The publish script checks for the branch and stops rather than
-  creating it.
-- **The repository has to be public**, or on a plan whose Pages are public. Rancher fetches the
-  chart index from Pages and the extension's files from `raw.githubusercontent.com`, with no
-  credential belonging to the person installing it, so a private repository publishes
-  successfully and then serves 404 to everyone.
-
-## What lives elsewhere
-
-`deploy/closet` deploys two images. `images/closet` builds one of them. The other, the
-closet's control API, is built and published by the closet project, and barn talks to it over
-HTTP rather than carrying a copy. `pkg/extension-studio/credentials.generated.ts` is likewise generated
-from that project's sidecar declarations by `scripts/gen-credentials.mjs`, and is committed so
-that a normal build never needs them.
+Releasing goes through `.github/workflows/build-extension-charts.yml`, which can be run from the
+Actions tab and publishes whatever version `pkg/extension-studio/package.json` names. It needs
+`gh-pages` to exist and the repository to be public - Rancher fetches the chart index from Pages
+and the files from `raw.githubusercontent.com` with no credential of the installer's, so a
+private repository publishes successfully and then serves 404 to everyone.
