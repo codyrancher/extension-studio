@@ -79,7 +79,7 @@ export default function(plugin: IPlugin): void {
   // Rancher's Extensions page points here, and each row opens the editor below.
   plugin.addRoute('plain', {
     name:      STUDIO_ROUTE,
-    path:      '/barn/extensions',
+    path:      '/extension-studio/extensions',
     meta:      STUDIO_META,
     component: () => import('./pages/extensions.vue'),
   });
@@ -87,7 +87,7 @@ export default function(plugin: IPlugin): void {
   // Describing a new one before it exists (Figma screen 02).
   plugin.addRoute('plain', {
     name:      NEW_EXTENSION_ROUTE,
-    path:      '/barn/extensions/new',
+    path:      '/extension-studio/extensions/new',
     meta:      STUDIO_META,
     component: () => import('./pages/new-extension.vue'),
   });
@@ -102,14 +102,14 @@ export default function(plugin: IPlugin): void {
   // template-literal import into a context module over the whole pages directory, which pulls
   // every page into the graph whether or not a route reaches it.
   [
-    { name: BRIEF_ROUTE, path: '/barn/extensions/:extension/brief', component: () => import('./pages/brief.vue') },
-    { name: REVIEW_ROUTE, path: '/barn/extensions/:extension/review', component: () => import('./pages/review.vue') },
-    { name: FILES_ROUTE, path: '/barn/extensions/:extension/files', component: () => import('./pages/files.vue') },
-    { name: REVIEW_QUEUE_ROUTE, path: '/barn/review', component: () => import('./pages/review-queue.vue') },
-    { name: REVIEW_CHANGE_ROUTE, path: '/barn/review/:extension/:change', component: () => import('./pages/review-change.vue') },
-    { name: VERIFICATION_ROUTE, path: '/barn/extensions/:extension/verification', component: () => import('./pages/verification.vue') },
-    { name: BUILD_FAILED_ROUTE, path: '/barn/extensions/:extension/build-failed', component: () => import('./pages/build-failed.vue') },
-    { name: SETTINGS_ROUTE, path: '/barn/settings', component: () => import('./pages/settings.vue') },
+    { name: BRIEF_ROUTE, path: '/extension-studio/extensions/:extension/brief', component: () => import('./pages/brief.vue') },
+    { name: REVIEW_ROUTE, path: '/extension-studio/extensions/:extension/review', component: () => import('./pages/review.vue') },
+    { name: FILES_ROUTE, path: '/extension-studio/extensions/:extension/files', component: () => import('./pages/files.vue') },
+    { name: REVIEW_QUEUE_ROUTE, path: '/extension-studio/review', component: () => import('./pages/review-queue.vue') },
+    { name: REVIEW_CHANGE_ROUTE, path: '/extension-studio/review/:extension/:change', component: () => import('./pages/review-change.vue') },
+    { name: VERIFICATION_ROUTE, path: '/extension-studio/extensions/:extension/verification', component: () => import('./pages/verification.vue') },
+    { name: BUILD_FAILED_ROUTE, path: '/extension-studio/extensions/:extension/build-failed', component: () => import('./pages/build-failed.vue') },
+    { name: SETTINGS_ROUTE, path: '/extension-studio/settings', component: () => import('./pages/settings.vue') },
   ].forEach((route) => plugin.addRoute('plain', { ...route, meta: STUDIO_META }));
 
   // The editor itself: two panes under Rancher's own header.
@@ -127,7 +127,7 @@ export default function(plugin: IPlugin): void {
   // default one, which is what the side-menu button and every existing link point at.
   plugin.addRoute('plain', {
     name:      EDITOR_ROUTE,
-    path:      '/barn/editor/:extension?',
+    path:      '/extension-studio/editor/:extension?',
     meta:      STUDIO_META,
     component: () => import('./pages/editor.vue'),
   });
@@ -136,7 +136,7 @@ export default function(plugin: IPlugin): void {
   plugin.addRoute('plain', {
     name:      EXTENSION_STARTING_ROUTE,
     meta:      STUDIO_META,
-    path:      '/barn/extension/:extension/starting',
+    path:      '/extension-studio/extension/:extension/starting',
     component: () => import('./pages/extension-starting.vue'),
   });
 

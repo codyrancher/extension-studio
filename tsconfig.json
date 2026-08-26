@@ -38,7 +38,7 @@
   },
   "exclude": [
     "node_modules",
-    "pkg/barn/extension-skeleton",
-    "pkg/barn/base-extension"
+    "pkg/extension-studio/extension-skeleton",
+    "pkg/extension-studio/base-extension"
   ]
 }

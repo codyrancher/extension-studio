@@ -1,5 +1,5 @@
 {
-  "name": "barn",
+  "name": "extension-studio",
   "description": "Provision and manage closet dev environments from Rancher",
   "version": "0.5.22",
   "private": false,

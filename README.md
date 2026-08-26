@@ -2,7 +2,7 @@
 
 A Rancher dashboard extension, and a second extension that it plants in the cluster.
 
-`pkg/barn` is the extension you load into Rancher. It adds two things to the cluster
+`pkg/extension-studio` is the extension you load into Rancher. It adds two things to the cluster
 explorer: **Closets**, dev environments provisioned from the `closet` Helm chart in
 `deploy/`, and **Secret Sets**, per-user bundles of credentials those closets are handed at
 start. It also registers an **Editor** page, which is claude in a pod on the left and what
@@ -13,8 +13,8 @@ running as a pod in the cluster, reached through the Kubernetes apiserver's serv
 Rancher's own origin. Editing a file in that pod recompiles and hot-reloads it in the browser,
 so it is an extension you develop by using it, with no build step and nothing to reinstall.
 
-`pkg/barn/extension-skeleton` is what a pod is built out of - the dashboard around the package
-and the scripts that run inside it - and `pkg/barn/base-extension` is the stock package a new
+`pkg/extension-studio/extension-skeleton` is what a pod is built out of - the dashboard around the package
+and the scripts that run inside it - and `pkg/extension-studio/base-extension` is the stock package a new
 extension is seeded from. Both are baked into the bundle, because a pod has to be given a tree
 before anything in it can fetch one.
 
@@ -29,7 +29,7 @@ now, and arrives through **Import from GitHub** like anybody else's would.
 
 ```
 barn/
-├── pkg/barn/                     the extension Rancher loads
+├── pkg/extension-studio/                     the extension Rancher loads
 │   ├── product.ts                nav, spoofed types, the two resources
 │   ├── api.ts                    closets, secret sets, the editor pod
 │   ├── extensions.ts             creates an extension's pod in the cluster
@@ -52,14 +52,14 @@ yarn install
 yarn build-pkg barn
 ```
 
-That writes `dist-pkg/barn-<version>/barn-<version>.umd.min.js`. Load it into Rancher with
+That writes `dist-pkg/extension-studio-<version>/barn-<version>.umd.min.js`. Load it into Rancher with
 Extensions → ⋮ → Developer Load, after enabling extension developer features in user
 preferences.
 
 ## Working on what a pod is made of
 
-The skeleton (`pkg/barn/extension-skeleton/`) and the stock package
-(`pkg/barn/base-extension/`) are baked into the bundle as a seed, which is generated and
+The skeleton (`pkg/extension-studio/extension-skeleton/`) and the stock package
+(`pkg/extension-studio/base-extension/`) are baked into the bundle as a seed, which is generated and
 committed. Regenerate it after editing either:
 
 ```bash
@@ -75,7 +75,7 @@ node scripts/apply-extension-seed.mjs            # the default extension
 node scripts/apply-extension-seed.mjs myThing    # a particular one
 ```
 
-See `pkg/barn/extension-skeleton/README.md` for how the proxy, the asset URLs and hot reload
+See `pkg/extension-studio/extension-skeleton/README.md` for how the proxy, the asset URLs and hot reload
 fit together.
 
 Working on an extension's *package* does not happen here at all. It happens in the pod, which
@@ -95,7 +95,7 @@ a Rancher extension is normally distributed. Somebody installing barn adds the P
 Apps -> Repositories and it appears in Extensions. Tag the commit and publish the release:
 
 ```bash
-# The tag has to be <package>-<version> and match pkg/barn/package.json, or the build stops.
+# The tag has to be <package>-<version> and match pkg/extension-studio/package.json, or the build stops.
 git tag barn-0.5.15 && git push origin barn-0.5.15
 gh release create barn-0.5.15 --generate-notes
 ```
@@ -118,6 +118,6 @@ arrange for itself:
 
 `deploy/closet` deploys two images. `images/closet` builds one of them. The other, the
 closet's control API, is built and published by the closet project, and barn talks to it over
-HTTP rather than carrying a copy. `pkg/barn/credentials.generated.ts` is likewise generated
+HTTP rather than carrying a copy. `pkg/extension-studio/credentials.generated.ts` is likewise generated
 from that project's sidecar declarations by `scripts/gen-credentials.mjs`, and is committed so
 that a normal build never needs them.

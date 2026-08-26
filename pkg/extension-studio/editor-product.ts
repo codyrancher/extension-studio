@@ -4,7 +4,7 @@ import { IPlugin } from '@shell/core/types';
 // button in the side menu's top (multi-cluster) group, alongside Cluster
 // Management and Continuous Delivery. It owns no resources - `to` points
 // straight at the editor page registered in index.ts.
-export const EDITOR_PRODUCT = 'barn-editor';
+export const EDITOR_PRODUCT = 'extension-studio-editor';
 export const EDITOR_ROUTE = 'barn-editor';
 
 /**
@@ -60,7 +60,7 @@ export const SETTINGS_ROUTE = 'barn-settings';
 export const EXTENSION_STARTING_ROUTE = 'barn-extension-starting';
 
 /** Every route this product owns lives under here. */
-const STUDIO_PATH_PREFIX = '/barn';
+const STUDIO_PATH_PREFIX = '/extension-studio';
 
 /**
  * Tell Rancher that all of `/barn/*` is this product, not just the one route the rail links to.

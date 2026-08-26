@@ -1,8 +1,8 @@
-# Publish barn as a Rancher extension, to this repository's gh-pages branch.
+# Publish the Extension Studio as a Rancher extension, to this repository's gh-pages branch.
 #
 # What Rancher consumes is a Helm repository: an index.yaml at the root of the branch, the
 # chart archives under assets/, and the built extension itself under extensions/. Somebody
-# installing barn adds the Pages URL of this repository under Apps -> Repositories, and the
+# installing it adds the Pages URL of this repository under Apps -> Repositories, and the
 # extension appears in Extensions like any other.
 #
 # All of that is built by rancher/dashboard's own reusable workflow, pinned by SHA rather than
@@ -24,7 +24,7 @@
 name: Build and Release Extension Charts
 
 on:
-  # A release, which is the normal path: tag the commit `barn-<version>` and publish the
+  # A release, which is the normal path: tag the commit `extension-studio-<version>` and publish the
   # release. The tag has to match the package name and version or the build stops, which is
   # deliberate - it is what keeps the chart version and package.json from drifting apart.
   release:
@@ -40,7 +40,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'pkg/barn/package.json'
+      - 'pkg/extension-studio/package.json'
 
 defaults:
   run:
@@ -62,16 +62,16 @@ jobs:
       - uses: actions/checkout@v4
       - id: decide
         run: |
-          version=$(node -p "require('./pkg/barn/package.json').version")
+          version=$(node -p "require('./pkg/extension-studio/package.json').version")
           git fetch --depth=1 origin gh-pages 2>/dev/null || true
           if git show origin/gh-pages:index.yaml > /tmp/index.yaml 2>/dev/null; then
             if grep -qE "^[[:space:]]+version: ${version}$" /tmp/index.yaml; then
-              echo "barn ${version} is already on gh-pages - nothing to publish"
+              echo "extension-studio ${version} is already on gh-pages - nothing to publish"
               echo "publish=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
-          echo "barn ${version} is not published yet"
+          echo "extension-studio ${version} is not published yet"
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
   build-extension-charts:
