@@ -16,10 +16,17 @@ rancher instance it's hosted on.
 
 ## Creating
 
-- **Extensions -> Open the Studio -> Create.** Give it a name and a sentence about what it
-  should do. There is nothing to scaffold and nothing to install first.
-- It starts as a pod in the cluster rather than a checkout on your machine, so there is nothing
-  to run locally. Existing work comes in the same way through **Import from GitHub**.
+- **Extensions -> Open the Studio -> Create.** Give it a name and say where it should appear.
+  There is nothing to scaffold and nothing to install first, and it starts as a pod in the
+  cluster rather than a checkout on your machine.
+
+https://github.com/user-attachments/assets/86bd77d6-f5ec-480e-9879-3040aa34fa8e
+
+- **Import from GitHub** brings existing work in the same way. A public repository needs no
+  token, and Studio reads the repository before importing it, so you find out it is not an
+  extension before it is cloned rather than after.
+
+https://github.com/user-attachments/assets/ad3d85c2-d6e5-4de2-a41f-34aafd1ddb5e
 
 ## Editing
 

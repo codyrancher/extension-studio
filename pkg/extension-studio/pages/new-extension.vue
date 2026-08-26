@@ -112,6 +112,27 @@ export default {
     },
 
     /**
+     * Whether there is enough here to make the extension.
+     *
+     * This went missing rather than being written wrong. It used to read
+     * `name.trim() && prompt.trim() && !creating`, and when the description field came off this
+     * screen the clause that referenced it went with the whole computed - leaving two callers,
+     * `submit`'s guard and the button's `:disabled`, reading an undefined property. Vue does not
+     * fail a build for that: `!undefined` is `true`, so Create was disabled no matter what was
+     * typed, and the only way to make an extension was to already have one.
+     *
+     * What is left is what the form still collects. A resource is only part of it while the
+     * placement that asks for one is chosen, because it is the only field that is conditional.
+     */
+    canSubmit() {
+      if (this.creating || !this.name.trim()) {
+        return false;
+      }
+
+      return !this.asksResource || !!this.resource.trim();
+    },
+
+    /**
      * What Rancher's header kebab offers on this screen (Figma 53:1430).
      *
      * Read by @shell/mixins/page-actions, which commits it on `created` and clears it on
@@ -121,7 +142,19 @@ export default {
     pageActions() {
       return STUDIO_PAGE_ACTIONS;
     },
+  },
 
+  /**
+   * These were in `computed` until now, which is not a place a handler works from.
+   *
+   * A computed is a getter: `@click="submit"` reads `submit`, which runs the getter and hands
+   * the click the value it returned rather than calling it on the click - so the button ran
+   * its own guard at render time and did nothing when pressed. `onNameInput` and `cancel` had
+   * gone altogether, so the Name field recorded nothing and Cancel did nothing. Together that
+   * is the whole of "create an extension", and none of it is a build error: Vue resolves a
+   * template identifier at runtime and an undefined one is simply undefined.
+   */
+  methods: {
     /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
     handlePageAction(action) {
       handleStudioPageAction(this, action);
@@ -183,6 +216,15 @@ export default {
         toastError(this.$store, 'Could not create the extension', this.error);
         this.creating = false;
       }
+    },
+
+    onNameInput(v) {
+      this.nameEdited = true;
+      this.name = v;
+    },
+
+    cancel() {
+      this.$router.push({ name: STUDIO_ROUTE });
     },
 
     onImported({ name, source, done }) {
