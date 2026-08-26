@@ -70,6 +70,20 @@ export default {
     },
 
     /**
+     * What the assistant has on its own screen, while this turn is the one in flight.
+     *
+     * A turn is only recorded when it ends, so between "sent" and "recorded" there is a start
+     * time and nothing else - which is what the indicator alone was saying, at length. This is
+     * the pane claude is actually drawing into, tailed, so "Working" has the working under it.
+     *
+     * Empty for every turn that is not pending, and the panel above only reads it for that one.
+     */
+    output: {
+      type:    String,
+      default: '',
+    },
+
+    /**
      * How long the turn in flight has been going, already worded ("12s", "2m").
      *
      * Passed in rather than counted here: the panel above is the thing that knows when the
@@ -230,9 +244,17 @@ export default {
       going. Claude's own pane answers that with a spinner and a clock, so this does.
     -->
     <div v-if="pending" class="turn__working" data-testid="barn-turn-working">
-      <span class="turn__pulse" />
-      <span class="turn__working-text">Working</span>
-      <span v-if="elapsed" class="turn__working-for">· {{ elapsed }}</span>
+      <div class="turn__working-head">
+        <span class="turn__pulse" />
+        <span class="turn__working-text">Working</span>
+        <span v-if="elapsed" class="turn__working-for">· {{ elapsed }}</span>
+      </div>
+
+      <pre
+        v-if="output"
+        class="turn__output"
+        data-testid="barn-turn-output"
+      >{{ output }}</pre>
     </div>
 
     <!-- user: bubble (11:240) -->
@@ -445,11 +467,34 @@ export default {
   }
 
   &__working {
+    display:        flex;
+    flex-direction: column;
+    gap:            8px;
+    font:           var(--studio-caption-12);
+    color:          var(--studio-text-secondary);
+  }
+
+  &__working-head {
     display:     flex;
     align-items: center;
     gap:         6px;
-    font:        var(--studio-caption-12);
-    color:       var(--studio-text-secondary);
+  }
+
+  // The tail of the assistant's own pane. Scrolls in both directions rather than wrapping,
+  // because what is in it is terminal output that was laid out for a fixed width, and rewrapping
+  // it turns a tidy tree of tool calls into ragged prose.
+  &__output {
+    max-height:    220px;
+    margin:        0;
+    padding:       8px 10px;
+    overflow:      auto;
+    border-radius: var(--studio-radius, 4px);
+    background:    var(--studio-surface-sunken, rgb(0 0 0 / 18%));
+    font-family:   var(--studio-font-mono, monospace);
+    font-size:     11px;
+    line-height:   1.45;
+    white-space:   pre;
+    color:         var(--studio-text-secondary);
   }
 
   &__working-for { color: var(--studio-text-tertiary); }

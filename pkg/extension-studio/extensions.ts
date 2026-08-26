@@ -5686,6 +5686,36 @@ export async function publishedVersion(name: string): Promise<string> {
  * Empty string when the extension has no running pod - there is no log of a server that is not
  * running, and that is a different thing from a log that could not be read, which throws.
  */
+/**
+ * What the assistant is putting on its own screen, right now.
+ *
+ * The pane of the tmux session claude runs in, which is the only place its working is visible
+ * as it happens: a turn is recorded when it ends, so between "sent" and "recorded" the panel
+ * has a start time and nothing else.
+ *
+ * This is deliberately not the pod's container log. That log is `vue-cli-service serve`
+ * talking about compiles and websocket upgrades - true, and about the dev server rather than
+ * about the assistant, so it answered "what is it doing?" with build output.
+ *
+ * ASCII only, and for the reason `assistantMode` gives: `podExecResult` decodes a frame with
+ * `atob`, so a UTF-8 glyph from claude's own spinner comes back as its bytes. The words are
+ * ASCII; the box-drawing is not, and mojibake here would read as a bug in this rather than in
+ * the decoding.
+ *
+ * Empty string when there is no session to read - not an error, just nothing running yet.
+ */
+export async function assistantOutput(name: string, lines = 120): Promise<string> {
+  const out = await inPackage(name, [
+    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    // -S -<n> starts the capture n lines back into the scrollback, so this is the tail of what
+    // has been on screen rather than only what fits on it now.
+    `tmux capture-pane -p -S -${ lines } -t ${ ASSISTANT_SESSION } | tr -cd '\\11\\12\\15\\40-\\176' ;`,
+    'fi',
+  ].join(' ')).catch(() => '');
+
+  return out;
+}
+
 export async function devServerLog(name: string, lines = 400): Promise<string> {
   const pod = await extensionPod(name);
 

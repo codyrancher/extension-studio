@@ -73,7 +73,7 @@ import { promptSaid, promptContextChips } from '../../prompt-context';
 import { stickToBottom } from '../../stick-to-bottom';
 import {
   countChanges, publishedVersion, writePodImage, assistantLogin, assistantTurns, approvalState,
-  devServerLog, interruptAssistant, assistantConversation,
+  assistantOutput, interruptAssistant, assistantConversation,
   readPodImage, elementShot, startNewConversation, conversationSince
 } from '../../extensions';
 
@@ -112,20 +112,15 @@ const SEND_SETTLE_MS = 4000;
 const TURN_LIMIT = 25;
 
 /**
- * The raw output strip (32:893), and what has to come off the log before it can be read.
+ * How much of the assistant's pane the working card tails, and how often.
  *
- * A container log keeps every control sequence the program wrote, and webpack's progress
- * plugin redraws one line hundreds of times a compile. Stripped and collapsed, what is left is
- * the compile's own output, which is what the strip's label names. The pane says it has been
- * tidied rather than calling it verbatim.
+ * No ANSI stripping here any more. The capture is sanitised in the pod, by the same `tr` the
+ * other readers of that pane use, so what arrives is already printable - and the control
+ * sequences a container log needed stripping for belonged to the dev server's compile output,
+ * which this no longer reads.
  */
-// eslint-disable-next-line no-control-regex -- the escape character is what is being stripped
-const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
-const PROGRESS = /^\[\s*\d{1,3}%\]/;
-
-/** How much of the dev server's log to read, and how much of it to draw. */
-const LOG_TAIL = 600;
-const LOG_LINES = 200;
+const OUTPUT_TAIL = 120;
+const OUTPUT_POLL_MS = 3000;
 
 
 
@@ -243,10 +238,8 @@ export default {
       // Set while the interrupt is on its way to the pane.
       stopping:    false,
       // The dev server's own output, under the strip the design draws collapsed (32:893).
-      rawOpen:     false,
-      rawText:     '',
-      rawState:    '',
-      rawError:    '',
+      // The assistant's own pane, tailed while a turn is in flight and shown in its card.
+      output:      '',
       /**
        * The turns the pod recorded, newest first, exactly as `assistantTurns` returns them.
        *
@@ -564,41 +557,6 @@ export default {
       return `mc-${ this.session }`;
     },
 
-    /** The dev server's output, tidied enough to be readable in a pre. */
-    rawLines() {
-      if (!this.rawText) {
-        return [];
-      }
-
-      const lines = [];
-
-      this.rawText.replace(ANSI, '').split('\n').forEach((line) => {
-        const text = line.replace(/\r/g, '').trimEnd();
-
-        // The progress plugin's redraws, and the same line written twice in a row, are the
-        // whole of the noise. Everything else is what the compile said.
-        if (!text.trim() || PROGRESS.test(text.trim()) || text === lines[lines.length - 1]) {
-          return;
-        }
-
-        lines.push(text);
-      });
-
-      return lines.slice(-LOG_LINES);
-    },
-
-    rawNote() {
-      if (this.rawState === 'reading') {
-        return 'Reading the dev server\'s output.';
-      }
-
-      if (this.rawError) {
-        return this.rawError;
-      }
-
-      return 'The dev server has written nothing this side of the log it keeps.';
-    },
-
     /**
      * What the session menu offers, which is four things that exist plus the composer's own
      * clear.
@@ -662,6 +620,9 @@ export default {
 
     this.readSince().then(() => this.refreshTurns());
     this.turnsTimer = setInterval(() => this.refreshTurns(), TURNS_POLL_MS);
+    // Faster than the turns poll: this is what the card is showing while a turn runs, and at
+    // the turns cadence it would look frozen between updates.
+    this.outputTimer = setInterval(() => this.readOutput(), OUTPUT_POLL_MS);
 
     this.nowTimer = setInterval(() => {
       this.now = Date.now();
@@ -676,6 +637,7 @@ export default {
     clearInterval(this.countTimer);
     clearInterval(this.loginTimer);
     clearInterval(this.turnsTimer);
+    clearInterval(this.outputTimer);
     clearInterval(this.nowTimer);
     clearTimeout(this.sendTimer);
   },
@@ -701,9 +663,7 @@ export default {
       this.version = '';
       this.login = null;
       this.conversation = null;
-      this.rawOpen = false;
-      this.rawText = '';
-      this.rawError = '';
+      this.output = '';
         this.podTurns = [];
         this.since = '';
         this.readSince();
@@ -869,11 +829,17 @@ export default {
           // other end is spelled rather than handed over as milliseconds, which parses to NaN
           // and would have made this quietly always empty.
           elapsed: working && turn.at ? this.lasted(turn.at, new Date(this.now).toISOString()) : '',
+          // Only the turn in flight gets it; every other card is reporting a finished turn and
+          // the pane says nothing about those.
+          output:  working ? this.output : '',
           // No prose about the silence while it is still working: the indicator says that, and
           // saying it twice - once as motion and once as an apology - reads as a failure.
           // An abandoned turn says so in words, since it has no indicator to say it with.
           text:    said.text || (working ? '' : why),
-          note:    said.text ? [why, open].filter(Boolean).join(' · ') : '',
+          // `why` says there is nothing yet to show for the turn, which stopped being true when
+          // the card started showing the assistant's pane. It still belongs on a turn that was
+          // abandoned - there really is nothing there - so it goes only while one is running.
+          note:    said.text ? [working ? '' : why, open].filter(Boolean).join(' · ') : '',
           files,
           filesLabel: n ? `${ n } file${ plural } its editing tools have touched so far` : '',
         };
@@ -1459,34 +1425,31 @@ export default {
       }
     },
 
-    async toggleRaw() {
-      this.rawOpen = !this.rawOpen;
-
-      if (this.rawOpen) {
-        await this.readRaw();
-      }
-    },
-
-    async readRaw() {
+    /**
+     * Tail what the assistant has on its screen, for the card of the turn in flight.
+     *
+     * Only while something is running: this is an exec into the pod, and doing it on a timer
+     * for a conversation nobody is waiting on is a round trip a second buying nothing. Errors
+     * are swallowed to the last good text rather than surfaced - the card is reporting on a
+     * turn, not on this reader, and a failed capture is not news about the turn.
+     */
+    async readOutput() {
       const asked = this.extension;
 
-      this.rawState = 'reading';
-      this.rawError = '';
+      if (!this.stream.some((entry) => entry.props?.pending)) {
+        this.output = '';
+
+        return;
+      }
 
       try {
-        const text = await devServerLog(asked, LOG_TAIL);
+        const text = await assistantOutput(asked, OUTPUT_TAIL);
 
-        if (asked !== this.extension) {
-          return;
+        if (asked === this.extension) {
+          this.output = text.trimEnd();
         }
-
-        this.rawText = text;
-        this.rawError = text ? '' : `${ asked } has no running pod, so there is no dev server output to read.`;
-      } catch (e) {
-        this.rawText = '';
-        this.rawError = e?.message || String(e);
-      } finally {
-        this.rawState = '';
+      } catch {
+        // Kept as it was.
       }
     },
 
@@ -1720,84 +1683,23 @@ export default {
             <span>{{ streamStalled }}</span>
           </div>
 
-          <!--
-            The raw output strip (32:893): collapsed, and it opens in place. What it opens is
-            the dev server's own output, which is the command the design labels the strip with.
-            The terminal is still one line away, because claude's own stream is in there and
-            this is not it.
-          -->
-          <div class="assistant-panel__raw-panel">
-            <button
-              type="button"
-              class="assistant-panel__raw"
-              :aria-expanded="rawOpen"
-              data-testid="barn-open-raw-output"
-              @click="toggleRaw"
-            >
-              <SIcon name="terminal" :size="14" />
-              <span class="assistant-panel__raw-label">
-                {{ rawOpen ? 'Hide raw output' : 'Show raw output' }}
-              </span>
-              <span class="assistant-panel__raw-cmd">vue-cli-service serve</span>
-              <span class="assistant-panel__grow" />
-              <span class="assistant-panel__raw-note">the terminal is still here</span>
-              <SIcon :name="rawOpen ? 'chevronUp' : 'chevronDown'" :size="13" />
-            </button>
-
-            <template v-if="rawOpen">
-              <pre
-                v-if="rawLines.length"
-                class="assistant-panel__raw-body"
-                data-testid="barn-raw-output"
-              >{{ rawLines.join('\n') }}</pre>
-
-              <p v-else class="assistant-panel__raw-empty">
-                {{ rawNote }}
-              </p>
-
-              <div class="assistant-panel__raw-foot">
-                <span class="assistant-panel__raw-note">
-                  The pod's own log, with the progress redraws and the terminal control codes
-                  taken out. The last {{ rawLines.length }} of them.
-                </span>
-                <span class="assistant-panel__grow" />
-                <SButton
-                  variant="ghost"
-                  size="sm"
-                  icon="refresh"
-                  :loading="rawState === 'reading'"
-                  data-testid="barn-raw-output-reread"
-                  @click="readRaw"
-                >
-                  Re-read
-                </SButton>
-                <SButton
-                  variant="ghost"
-                  size="sm"
-                  icon="terminal"
-                  @click="$emit('update:tab', 'terminal')"
-                >
-                  Open the terminal
-                </SButton>
-              </div>
-            </template>
-          </div>
         </template>
 
+        <!--
+          Nothing at all before the first turn.
+
+          What stood here explained what a turn is, over four lines, with a button to the
+          terminal - an explanation of the feature to somebody who has just opened the feature,
+          in the one spot where their first message is about to appear. A composer sits directly
+          below it and says what to do. So the only state worth drawing is the one where this
+          cannot yet know whether there are turns: reading the pod takes an exec round trip, and
+          a blank pane during it would read as "there is nothing" rather than "not yet asked".
+        -->
         <SEmpty
-          v-else
+          v-else-if="!podRead"
           icon="sparkle"
-          :title="podRead ? 'No turn has been recorded for this extension' : 'Reading what this pod has recorded'"
-          message="Every prompt this pod's assistant receives is recorded as a turn - from the composer, from another Studio screen, or typed into the Terminal tab - with when it was sent, who sent it, what it replied and what it left behind."
-        >
-          <SButton
-            variant="secondary"
-            icon="terminal"
-            @click="$emit('update:tab', 'terminal')"
-          >
-            Open the terminal
-          </SButton>
-        </SEmpty>
+          title="Reading what this pod has recorded"
+        />
       </div>
 
       <div v-show="tab === 'files'" class="assistant-panel__pane">

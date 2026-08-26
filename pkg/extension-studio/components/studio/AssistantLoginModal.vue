@@ -20,7 +20,6 @@ import {
   SModal, SButton, SField, SIcon
 } from '../ui';
 import { setAssistantToken, beginAssistantLogin, completeAssistantLogin } from '../../extensions';
-import { toastSuccess } from '../../toast';
 
 export default {
   name: 'AssistantLoginModal',
@@ -125,15 +124,16 @@ export default {
         // The code from the authorise page goes back to the waiting process, which exchanges it
         // and prints a token. A token pasted directly is stored as-is - both end in the same
         // place, and which one somebody has depends on where they got it.
-        const kind = this.url && !value.startsWith('sk-ant-')
-          ? await completeAssistantLogin(this.extension, value)
-          : await setAssistantToken(this.extension, value);
+        //
+        // No toast on the way out. The dialog closing is the confirmation, and the strip behind
+        // it stops saying the assistant is not signed in - two signals for one event, and the
+        // toast was the one that covered the pane it was reporting on.
+        if (this.url && !value.startsWith('sk-ant-')) {
+          await completeAssistantLogin(this.extension, value);
+        } else {
+          await setAssistantToken(this.extension, value);
+        }
 
-        toastSuccess(
-          this.$store,
-          `${ this.extension }'s assistant is using ${ kind === 'apikey' ? 'an API key' : 'an OAuth token' } from now on.`,
-          { title: 'Signed in' },
-        );
         this.$emit('signed-in');
         this.$emit('close');
       } catch (e) {
@@ -155,11 +155,6 @@ export default {
     :width="560"
     @close="$emit('close')"
   >
-    <p class="login-modal__say">
-      The credential belongs to the pod this extension runs in, not to this browser, and it is
-      shared by every extension here - so when it expires, they all stop at once.
-    </p>
-
     <!--
       The choice, before anything is started. Both routes end in the same place; which one
       somebody takes depends on what they already have.
@@ -266,12 +261,6 @@ export default {
 
 <style lang="scss" scoped>
 .login-modal {
-  &__say {
-    margin:    0 0 12px;
-    font-size: 13px;
-    color:     var(--body-text);
-  }
-
   &__error {
     margin:    8px 0 0;
     font-size: 12px;
