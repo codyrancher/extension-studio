@@ -5,7 +5,7 @@
 //
 //   Real. The name (which is what the extension is actually created as, and is suggested from
 //   the description until somebody edits it), the template it starts from, "Import a repo
-//   instead", "Connect GitHub", and Draft the brief - which creates the extension, writes what
+//   instead" and Create - which creates the extension, writes what
 //   was typed here into its BRIEF.md, and writes the placement into its code.
 //
 //   Two of those used to be promises rather than facts, and both were the same mistake: the
@@ -31,7 +31,7 @@
 //   rule that did nothing at all until something wrote the section it reads. Creation is also
 //   the only moment it can be written: the next screen has a "Skip the brief" button.
 //
-//   Stated rather than chosen. "Build and preview against" is a field with one possible value
+//   The build target is not shown at all: it has one possible value
 //   and it is now read rather than typed: the cluster's own name and the Kubernetes version it
 //   reports, off Rancher's API. It is not a picker and does not pretend to be one - every pod
 //   this Studio creates is created in the `local` cluster, because that is where the Studio's
@@ -42,14 +42,12 @@
 //   reassurance the design puts there - changes only ever run here until you publish - is the
 //   same sentence either way.
 import {
-  SButton, SField, SIcon, SLabel
+  SButton, SField
 } from '../components/ui';
-import { rancherFetch } from '../api';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
-import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import { toastError } from '../toast';
 import {
-  ensureExtension, normalizeExtensionName, previewTarget, BUILT_IN_SEEDS, DEFAULT_SEED
+  ensureExtension, normalizeExtensionName, BUILT_IN_SEEDS, DEFAULT_SEED
 } from '../extensions';
 import { currentSigner } from '../review';
 import {
@@ -72,7 +70,7 @@ export default {
   name: 'BarnNewExtension',
 
   components: {
-    SButton, SField, SIcon, SLabel, ImportExtensionModal, EditorSettingsModal
+    SButton, SField, ImportExtensionModal
   },
 
   mixins: [fullBleed, pageActionsMixin],
@@ -92,17 +90,14 @@ export default {
       nameEdited: false,
       seed:       DEFAULT_SEED,
       importing:  false,
-      settings:   false,
       creating:   false,
       error:      '',
       // Where the build runs, read from Rancher rather than written into the template. Starts
       // as the cluster's id, which is true before the reading arrives and stays true if it
       // never does.
-      target:     { name: 'local', version: '' },
       // How many other clusters this Rancher manages, which is what decides whether the line
       // under the box is a statement about a choice or about the absence of one. `null` until
       // the reading arrives, and if it never does the line says nothing it cannot back.
-      others:     null,
     };
   },
 
@@ -116,14 +111,6 @@ export default {
       return !!placementById(this.placement).asksResource;
     },
 
-    examples() {
-      return EXAMPLES;
-    },
-
-    seeds() {
-      return BUILT_IN_SEEDS;
-    },
-
     /**
      * What Rancher's header kebab offers on this screen (Figma 53:1430).
      *
@@ -135,115 +122,9 @@ export default {
       return STUDIO_PAGE_ACTIONS;
     },
 
-    /**
-     * Why the box above it is a readout and not the picker the design draws (13:372).
-     *
-     * The sentence used to assert this from the source: it said there was nowhere else to
-     * point the build because that is what `extensions.ts` does. True, but unfalsifiable from
-     * the screen, and a claim about how many clusters exist that never looked. It reads the
-     * cluster list now, so what it says is a reading: with one cluster there is nothing to
-     * choose, with several there is, and the reason the Studio still does not offer them is
-     * the part that is about this product rather than about this Rancher.
-     */
-    targetNote() {
-      const here = 'Changes only ever run here until you publish.';
-
-      if (this.others === null) {
-        return `${ here } Not a choice: every extension pod this Studio creates lives in this cluster.`;
-      }
-
-      if (this.others === 0) {
-        return `${ here } Not a choice, and nothing to choose from: this is the only cluster this Rancher manages, and every extension pod the Studio creates lives in it.`;
-      }
-
-      const n = this.others === 1 ? 'one other cluster' : `${ this.others } other clusters`;
-
-      return `${ here } Not a choice: this Rancher manages ${ n }, but the Studio's namespace, its pods and the proxy the preview is served through are all here, so the build cannot run there.`;
-    },
-
-    canSubmit() {
-      if (this.asksResource && !normalizeResource(this.resource)) {
-        return false;
-      }
-
-      return !!this.name.trim() && !!this.prompt.trim() && !this.creating;
-    },
-  },
-
-  watch: {
-    /**
-     * Suggest a name from the description.
-     *
-     * The design's field says "Suggested from your description - editable", which is exactly
-     * this: the first few meaningful words, hyphenated. It is a poor name generator and that is
-     * fine - it is a starting point that stops the field being empty, and the moment anybody
-     * types in it this stops firing.
-     */
-    prompt(text) {
-      if (this.nameEdited) {
-        return;
-      }
-
-      const stop = new Set(['add', 'a', 'an', 'the', 'to', 'for', 'of', 'that', 'shows', 'show', 'with', 'and', 'on', 'in', 'page', 'tab']);
-      const words = text.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/)
-        .filter((w) => w && !stop.has(w))
-        .slice(0, 3);
-
-      this.name = normalizeExtensionName(words.join('-'));
-    },
-  },
-
-  mounted() {
-    this.readTarget();
-  },
-
-  methods: {
-    /**
-     * What the build will actually run against.
-     *
-     * The design draws "local - K3s v1.34.3", which is a name and a version, and both are
-     * readable: Rancher's own management API knows the cluster's display name and the
-     * Kubernetes version its nodes report. A failure leaves the id showing, which is the part
-     * that was never in doubt.
-     */
-    async readTarget() {
-      const cluster = await rancherFetch('/v1/management.cattle.io.clusters/local').catch(() => null);
-
-      if (cluster) {
-        this.target = {
-          name:    cluster.spec?.displayName || cluster.metadata?.name || 'local',
-          version: cluster.status?.version?.gitVersion || '',
-        };
-      }
-
-      // And how many clusters there are to not be choosing between. `previewTarget` is the
-      // same reading the workspace masthead's "Preview on" chip makes, so the two screens
-      // cannot say different things about the same Rancher.
-      const { cluster: here, clusters, read } = await previewTarget();
-
-      if (read) {
-        // By name rather than by subtracting one, because the list is display names and the
-        // one this cluster answers to is whichever of `local` and its display name it gave us.
-        this.others = clusters.filter((c) => c !== here && c !== this.target.name).length;
-      }
-    },
-
     /** One of the header kebab's items was chosen. Dispatched here by the same mixin. */
     handlePageAction(action) {
       handleStudioPageAction(this, action);
-    },
-
-    useExample(text) {
-      this.prompt = this.prompt ? `${ this.prompt.trim() } ${ text }` : `Add ${ text }.`;
-    },
-
-    onNameInput(v) {
-      this.nameEdited = true;
-      this.name = v;
-    },
-
-    cancel() {
-      this.$router.push({ name: STUDIO_ROUTE });
     },
 
     /**
@@ -330,61 +211,10 @@ export default {
             New extension
           </h1>
           <p class="new-ext__lede">
-            Describe what you want in your own words. The assistant writes the code, runs it
-            against this Rancher, and shows you the result before anything is shared.
+            Name it and say where it goes. The assistant writes the code, runs it against this
+            Rancher, and shows you the result before anything is shared - and what it should do
+            is the first thing you ask it, in the conversation.
           </p>
-        </div>
-
-        <!-- prompt (13:311) -->
-        <div class="new-ext__section new-ext__section--tight">
-          <div class="new-ext__label">
-            What should it do?
-          </div>
-          <div class="new-ext__prompt">
-            <textarea
-              v-model="prompt"
-              class="new-ext__prompt-input"
-              rows="3"
-              autofocus
-              placeholder="Add a tab to the cluster page that shows how node conditions have trended over the last 24 hours, with a chart and a legend."
-            />
-          </div>
-          <div class="new-ext__examples">
-            <SLabel text="Try" />
-            <button
-              v-for="ex in examples"
-              :key="ex"
-              type="button"
-              class="new-ext__example"
-              @click="useExample(ex)"
-            >
-              {{ ex }}
-            </button>
-          </div>
-        </div>
-
-        <!-- outcome (42:1195) -->
-        <div class="new-ext__section">
-          <div class="new-ext__section-head">
-            <span class="new-ext__label">What can someone not do today?</span>
-            <span class="new-ext__hint">The question a ticket usually skips.</span>
-          </div>
-          <div class="new-ext__box">
-            <textarea
-              v-model="outcome"
-              class="new-ext__box-input"
-              rows="2"
-              placeholder="Mid-incident they cannot tell a spike apart from a slow degradation, so they open Grafana or guess."
-            />
-          </div>
-          <div class="new-ext__note">
-            <SIcon name="sparkle" :size="13" />
-            <span>
-              Answer this and the assistant can tell you when your description is a solution
-              rather than a problem - which is most of the time, and is where the rewrites come
-              from.
-            </span>
-          </div>
         </div>
 
         <!-- where (13:324) -->
@@ -448,51 +278,15 @@ export default {
             :model-value="name"
             label="Name"
             placeholder="node-health-panel"
-            hint="Suggested from your description - editable"
+            hint="What the package and its route are called - editable"
             @update:model-value="onNameInput"
           />
-
-          <div class="new-ext__field">
-            <div class="new-ext__box new-ext__box--static" data-testid="new-ext-target">
-              <span class="new-ext__box-label">Build and preview against</span>
-              <span class="new-ext__box-value">
-                {{ target.name }}<template v-if="target.version"> - {{ target.version }}</template>
-              </span>
-            </div>
-            <span
-              class="new-ext__hint"
-              data-testid="new-ext-target-note"
-            >{{ targetNote }}</span>
-          </div>
-        </div>
-
-        <!-- git note (13:377) -->
-        <div class="new-ext__section new-ext__section--row">
-          <div class="new-ext__git">
-            <SIcon name="github" :size="16" />
-            <span class="new-ext__git-text">
-              No GitHub connection needed to start. You can connect one later when you want to
-              keep the source or publish to the catalog.
-            </span>
-            <SButton variant="ghost" size="sm" @click="settings = true">
-              Connect GitHub
-            </SButton>
-          </div>
         </div>
 
         <!-- footer (13:384) -->
         <div class="new-ext__footer">
           <span v-if="error" class="new-ext__error">{{ error }}</span>
-          <!--
-            The second sentence is the only place the recording is announced, and it belongs
-            here rather than in a field: it is not a question, because the answer is already
-            known, and a person should still be told what is being written about them.
-          -->
-          <span v-else class="new-ext__hint" data-testid="new-ext-hint">
-            Next: agree a one-page brief. It takes about a minute and becomes the reviewer's
-            checklist. You are recorded in it as the person who asked, which is what the
-            outcome sign-off later checks against.
-          </span>
+
 
           <div class="new-ext__buttons">
             <SButton variant="ghost" @click="cancel">
@@ -508,7 +302,7 @@ export default {
               :disabled="!canSubmit"
               @click="submit"
             >
-              Draft the brief
+              Create
             </SButton>
           </div>
         </div>
@@ -521,10 +315,6 @@ export default {
       @create="onImported"
     />
 
-    <EditorSettingsModal
-      v-if="settings"
-      @close="settings = false"
-    />
   </div>
 </template>
 
@@ -702,16 +492,30 @@ export default {
     }
   }
 
+  // A grid, not a flex row.
+  //
+  // Four cards had to share whatever width the card gave them, and as a flex row they did not:
+  // a flex item will not shrink below its own content, so the longest note in them ("A new tab
+  // on a resource detail page") set a floor and the row ran off the right edge. Giving them a
+  // basis to wrap at fixed the overflow and made the wrapping lumpy - three on one line, one
+  // on the next, widths differing by whatever their text happened to need.
+  //
+  // `auto-fit` with a `minmax` floor says the thing that was actually meant: as many equal
+  // columns as fit at eleven rem or wider, and the rest wrap. The columns are equal by
+  // construction rather than by every card happening to hold a similar sentence.
   &__options {
-    display: flex;
-    gap:     10px;
+    display:               grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap:                   10px;
   }
 
   &__option {
     display:        flex;
     flex-direction: column;
     gap:            5px;
-    flex:           1 1 0;
+    // A grid item's `min-width` is `auto` too, so without this the column floor is the card's
+    // longest line rather than the 11rem the grid was told.
+    min-width:      0;
     padding:        11px var(--studio-space-12);
     text-align:     left;
     background:     var(--studio-surface);
@@ -754,21 +558,17 @@ export default {
   }
 
   &__option-label {
-    font:  var(--studio-heading-14);
-    color: var(--studio-text);
+    font:      var(--studio-heading-14);
+    color:     var(--studio-text);
+    // The label sits beside a radio in a flex row, so it needs its own floor removed too.
+    min-width: 0;
   }
 
   &__option-note {
-    font:  var(--studio-caption-12);
-    color: var(--studio-text-secondary);
-  }
-
-  &__details {
-    display: flex;
-    gap:     14px;
-    padding: 22px 28px 0;
-
-    > * { flex: 1 1 0; }
+    font:          var(--studio-caption-12);
+    color:         var(--studio-text-secondary);
+    // Prose: it wraps rather than setting the card's width.
+    overflow-wrap: anywhere;
   }
 
   &__field {
@@ -793,6 +593,14 @@ export default {
     flex:  1 1 auto;
     font:  var(--studio-caption-12);
     color: var(--studio-text-secondary);
+  }
+
+  &__details {
+    display: flex;
+    gap:     14px;
+    padding: 22px 28px 0;
+
+    > * { flex: 1 1 0; }
   }
 
   &__footer {

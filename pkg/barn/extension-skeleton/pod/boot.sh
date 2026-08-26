@@ -61,6 +61,13 @@ cd /app
 for f in /seed/*; do
   name=$(basename "$f")
 
+  # Skills are not part of the tree: shell.sh un-flattens them out of /seed into
+  # the assistant's home, which is writable. /seed is a read-only ConfigMap mount,
+  # so nothing here can put them anywhere for it.
+  case "$name" in
+    skills"$SEP"*) continue ;;
+  esac
+
   # /seed holds two kinds of file: this app tree, whose paths are flattened with $SEP, and
   # the pod's own scripts, which are run straight out of /seed so that a terminal tab always
   # starts the version the extension last wrote, with no pod restart in between. Only the

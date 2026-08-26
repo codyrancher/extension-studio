@@ -1547,9 +1547,18 @@ export function ensureBrowser(): Promise<void> {
  * The command is `/seed/shell.sh`, which is in the pod's ConfigMap rather than
  * its filesystem, so what a tab starts is whatever this extension last wrote.
  */
-export function extensionShellUrl(pod: string, session: string): string {
-  return execUrl(pod, ['/bin/sh', '/seed/shell.sh', session], true);
+export function extensionShellUrl(pod: string, session: string, mode: PaneMode = 'claude'): string {
+  // The empty strings are shell.sh's optional working directory and home
+  // directory: it reads the pane's mode from $4, so the two it defaults for
+  // itself still have to be occupied.
+  return execUrl(pod, ['/bin/sh', '/seed/shell.sh', session, '', '', mode], true);
 }
+
+/**
+ * What a pane runs. `claude` is the assistant's session; `shell` is a plain
+ * login shell, which is what the Terminal tab wants.
+ */
+export type PaneMode = 'claude' | 'shell';
 
 /** The exec subresource, for a shell (tty, stdin) or for one command (neither). */
 function execUrl(pod: string, command: string[], interactive: boolean): string {
@@ -1569,6 +1578,16 @@ function execUrl(pod: string, command: string[], interactive: boolean): string {
 
   return `${ origin }${ EXT_BASE }/api/v1/namespaces/${ EXT_NS }/pods/${ pod }/exec?${ params }`;
 }
+
+/**
+ * How long an exec may go without finishing before it is treated as broken.
+ *
+ * Generous, because the slowest thing anybody runs through here is a package build in the pod
+ * and that legitimately takes minutes. It is not a performance budget - it is the difference
+ * between a caller that fails and a caller that waits forever. Reads that should be quick pass
+ * their own, shorter, value.
+ */
+const EXEC_TIMEOUT_MS = 240000;
 
 /**
  * Everything one exec produced: its output, its error output, and whether it worked.
@@ -1647,7 +1666,7 @@ function statusExitCode(status: string): number {
  * --verify -q` on a ref that does not exist, a grep that matches nothing). The caller decides
  * whether the code matters. `podExecStrict` is the form that decides it is fatal.
  */
-export function podExecResult(pod: string, command: string[]): Promise<PodExecResult> {
+export function podExecResult(pod: string, command: string[], timeoutMs = EXEC_TIMEOUT_MS): Promise<PodExecResult> {
   return new Promise((resolve) => {
     // Decoded incrementally, not per frame. `atob` gives a binary string - one character per
     // byte - so a UTF-8 character read out of a pod arrived as mojibake: claude's own
@@ -1675,6 +1694,7 @@ export function podExecResult(pod: string, command: string[]): Promise<PodExecRe
     let stderr = '';
     let status = '';
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     // The socket can report twice - an error is usually followed by a close - and the first
     // report is the one that knows what happened.
@@ -1684,6 +1704,11 @@ export function podExecResult(pod: string, command: string[]): Promise<PodExecRe
       }
 
       settled = true;
+
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
 
       // A clean 1000 with no status frame is the only shape that means success. Anything else
       // with nothing on channel 3 is the connection failing rather than the command, which is
@@ -1731,6 +1756,34 @@ export function podExecResult(pod: string, command: string[]): Promise<PodExecRe
       // No close event to read a code off: a pod or container that does not exist fails the
       // upgrade and only ever fires this.
       socket.onerror = () => settle(0);
+
+      // And a socket that does neither.
+      //
+      // This promise used to have no way to end except a close or an error frame, so an exec
+      // whose socket opened and then went quiet - the apiserver holding it, a proxy dropping
+      // the upgrade halfway - never settled at all. Every caller awaiting it waited for the
+      // rest of the session: the Changes tab sat on "Taking this change set's picture in the
+      // pod" with no error anywhere, because from its point of view the request was still in
+      // flight and always would be. A caller can decide something did not work; it cannot
+      // decide anything about a promise that never resolves.
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          try {
+            socket.close();
+          } catch { /* already gone */ }
+
+          if (!settled) {
+            settled = true;
+            resolve({
+              stdout:    stdout + outDecoder.decode(),
+              stderr:    stderr + errDecoder.decode(),
+              status:    `the exec did not finish within ${ Math.round(timeoutMs / 1000) }s`,
+              code:      -1,
+              transport: true,
+            });
+          }
+        }, timeoutMs);
+      }
     } catch {
       settle(0);
     }
@@ -1998,6 +2051,124 @@ export async function readExtensionFile(name: string, path: string): Promise<str
 }
 
 /**
+ * One image out of the pod, as a data: URL.
+ *
+ * `readExtensionFile` cannot do this: it `cat`s, and the exec channel carries text, so a png
+ * comes back through it with every byte that is not valid UTF-8 replaced. base64 on the pod
+ * side is what makes the bytes survive the trip, which is the same thing `changeSetShot` does
+ * for the before and after pictures.
+ *
+ * The marker is there for the same reason it is there: the exec's stdout also carries whatever
+ * the shell wrote on the way past, so the reader looks for its own line rather than trusting
+ * that the stream holds nothing else.
+ */
+/**
+ * A picture of one page with one element outlined on it.
+ *
+ * The element picker's other half. What it is for is the case the picker cannot name: an
+ * element the framed page draws from no component of this extension's, where a file path would
+ * be a lie and the only honest thing to put in the conversation is what it looks like.
+ *
+ * The same skill and the same session token the change-set pictures use. Not cached on a
+ * commit, because this is a picture of the page as it is now rather than of a change: the
+ * caller picked an element a second ago and the answer has to be about that.
+ */
+export interface PickedShot {
+  /** The picture, for cropping and for showing here. Empty when the capture did not come back. */
+  src:    string;
+  /** Where it is in the pod. */
+  path:   string;
+  /**
+   * Where the picked element landed in that picture, in its own pixels.
+   *
+   * This is what makes the picker's attachment the same kind of thing the Changes tab's is: a
+   * crop of the element rather than a whole page with a ring on it. It comes from the capture's
+   * own sidecar - the skill records where it drew each outline - so the rectangle and the
+   * picture are measured by the same pass and cannot disagree.
+   */
+  region: { x: number; y: number; width: number; height: number } | null;
+}
+
+export async function elementShot(name: string, route: string, selector: string): Promise<PickedShot> {
+  const session = await captureToken().catch(() => '');
+  // Into .attachments rather than .shots, and kept. A picture the assistant is told about has
+  // to still be there when it goes looking: .shots is the change sets' own store, and a
+  // temporary file deleted at the end of this command would leave the message naming nothing.
+  const out = `/app/.attachments/pick-${ Date.now().toString(36) }.png`;
+
+  const answer = await inPackage(name, [
+    'mkdir -p /app/.attachments ;',
+    `node "$HOME/.claude/skills/barn-screenshot/screenshot.mjs"`,
+    `--path ${ shellQuote(route || '/') }`,
+    `--note ${ shellQuote(`${ selector }=picked`) }`,
+    session ? `--token ${ shellQuote(session) }` : '',
+    `--output ${ out } >/dev/null 2>&1 || true ;`,
+    `[ -f ${ out } ] && printf %s BARN-PICK: && base64 -w0 ${ out } && echo ;`,
+    `[ -f ${ out }.json ] && printf %s BARN-PICK-REGIONS: && base64 -w0 ${ out }.json && echo ;`,
+    `rm -f ${ out }.json ;`,
+    'true',
+  ].filter(Boolean).join(' ')).catch(() => '');
+
+  const read = (marker: string): string => {
+    const at = answer.indexOf(marker);
+
+    return at === -1 ? '' : answer.slice(at + marker.length).split('\n')[0].trim();
+  };
+
+  const data = read('BARN-PICK:');
+
+  if (!data) {
+    return { src: '', path: '', region: null };
+  }
+
+  let region: PickedShot['region'] = null;
+
+  try {
+    const raw = read('BARN-PICK-REGIONS:');
+    const parsed = raw ? JSON.parse(atob(raw)) : null;
+    const first = Array.isArray(parsed?.regions) ? parsed.regions[0] : null;
+
+    if (first && Number(first.width) > 0 && Number(first.height) > 0) {
+      region = {
+        x: Number(first.x) || 0, y: Number(first.y) || 0, width: Number(first.width), height: Number(first.height),
+      };
+    }
+  } catch {
+    // No region is a whole-page attachment rather than a failed one.
+    region = null;
+  }
+
+  return { src: `data:image/png;base64,${ data }`, path: out, region };
+}
+
+export async function readPodImage(name: string, path: string): Promise<string> {
+  const quoted = shellQuote(path);
+  const out = await inPackage(
+    name,
+    `[ -f ${ quoted } ] && printf %s BARN-IMAGE: && base64 -w0 ${ quoted } && echo ; true`,
+  ).catch(() => '');
+
+  const at = out.indexOf('BARN-IMAGE:');
+
+  if (at === -1) {
+    return '';
+  }
+
+  const data = out.slice(at + 'BARN-IMAGE:'.length).split('\n')[0].trim();
+
+  if (!data) {
+    return '';
+  }
+
+  // The extension is what names the type. Everything the composer writes into .attachments is
+  // one of these, and a wrong type here renders as a broken image rather than as nothing.
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  const type = ext === 'jpg' || ext === 'jpeg' ? 'jpeg' : ext === 'gif' ? 'gif' : ext === 'webp' ? 'webp' : 'png';
+
+  return `data:image/${ type };base64,${ data }`;
+}
+
+/**
  * What git knows about one path: who last committed it, when, and whether it is committed now.
  *
  * The Files screen's editor header states the open file's provenance, and until this existed
@@ -2237,6 +2408,148 @@ export const BASELINE_LOCAL_REF = 'refs/barn/published/local';
 export const WORKING_BUILD_REF = 'refs/barn/working-build';
 
 /**
+ * How far a person has reviewed.
+ *
+ * A pointer rather than a flag per change set, because the history is linear: approving the
+ * third turn but not the second would mean cherry-picking, and cherry-picking a range that
+ * touched the same file twice conflicts. "Reviewed up to here" is the shape git can honour
+ * cheaply, and it is honest about the fact that a change set is only meaningful on top of the
+ * ones before it.
+ *
+ * Unset on an extension nobody has reviewed yet, which reads as "everything is pending" rather
+ * than as "everything is approved" - the safe direction for a ref that gates publishing.
+ */
+export const APPROVED_REF = 'refs/barn/approved';
+
+export interface ApprovalState {
+  /** The commit review has reached. '' when nothing has been approved yet. */
+  sha:     string;
+  /** Commits newer than that, newest first. Empty when there is nothing to review. */
+  pending: string[];
+  /** True when there is nothing waiting, which is the only state publishing is allowed in. */
+  clear:   boolean;
+  /**
+   * Whether this is a reading at all.
+   *
+   * False when the pod could not be asked. "Nothing is waiting" and "this could not find out"
+   * are different answers and only one of them may open the gate, so they are different fields
+   * rather than one optimistic boolean.
+   */
+  read:    boolean;
+}
+
+/**
+ * What has been reviewed and what has not.
+ *
+ * `rev-list APPROVED..HEAD` is the whole question: the commits on the branch that the approval
+ * pointer has not reached. With no pointer it is every commit, which is why a fresh extension
+ * reports all of its turns as pending.
+ */
+export async function approvalState(name: string): Promise<ApprovalState> {
+  const out = await inPackage(name, [
+    'test -d .git || { echo BARN-NOGIT ; exit 0 ; }',
+    `approved=$(git rev-parse --verify -q ${ APPROVED_REF } 2>/dev/null || true)`,
+    'echo "APPROVED=$approved"',
+    // The floor when nothing has been approved yet.
+    //
+    // It was `git rev-list HEAD` - every commit in the repository, the seed included. A brand
+    // new extension has exactly one commit, "The seeded extension", so the Changes tab's badge
+    // read 1 while the tab underneath it said nothing had been asked for yet. It was counting
+    // the tree the extension started as as though somebody had to review it.
+    //
+    // The same chain every other screen measures from: what has been published, and failing
+    // that the root commit, which is the tree this extension started as and is therefore never
+    // itself something to approve.
+    'base="$approved"',
+    // One line, and each fallback on its own statement.
+    //
+    // This was a single `base=$(a || b || c)` split across three array entries, which joins to
+    // a command substitution broken over three lines - and the pod's shell is dash, which reads
+    // a line starting with `||` inside `$( )` as a syntax error rather than a continuation.
+    // Every read therefore died with `Syntax error: "||" unexpected`, and because the failure
+    // was in the script rather than in the exec, it came back as output with no PENDING marker:
+    // the review state was unreadable for every change set, which the rail then drew as
+    // "reviewed".
+    `[ -n "$base" ] || base=$(git rev-parse --verify -q ${ BASELINE_OCI_REF } 2>/dev/null || true)`,
+    `[ -n "$base" ] || base=$(git rev-parse --verify -q ${ BASELINE_LOCAL_REF } 2>/dev/null || true)`,
+    '[ -n "$base" ] || base=$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)',
+    'echo PENDING',
+    'if [ -n "$base" ] ; then git rev-list "$base"..HEAD 2>/dev/null ; else git rev-list HEAD 2>/dev/null ; fi',
+  ].join('\n')).catch(() => 'BARN-APPROVAL-FAILED');
+
+  // A tree with no history has nothing to review, which is the one honest `clear: true`.
+  if (out.includes('BARN-NOGIT')) {
+    return {
+      sha: '', pending: [], clear: true, read: true,
+    };
+  }
+
+  // Anything else that did not answer is unknown, and unknown is not clear.
+  //
+  // This used to fall back to `{ pending: [], clear: true }`, which reads everywhere as "all
+  // reviewed, ready to publish" - so an exec that failed for any reason turned the review gate
+  // off and marked every change set as looked at. The gate exists to stop exactly that, and a
+  // fallback that opens it is worse than no gate at all.
+  if (out.includes('BARN-APPROVAL-FAILED') || !out.includes('PENDING')) {
+    return {
+      sha: '', pending: [], clear: false, read: false,
+    };
+  }
+
+  const sha = (/APPROVED=(\S*)/.exec(out)?.[1] || '').trim();
+  const at = out.indexOf('PENDING');
+  const pending = at === -1
+    ? []
+    : out.slice(at + 'PENDING'.length).split('\n').map((l) => l.trim()).filter((l) => /^[0-9a-f]{7,40}$/i.test(l));
+
+  return {
+    sha, pending, clear: !pending.length, read: true,
+  };
+}
+
+/**
+ * Accept every change set up to and including this one.
+ *
+ * A ref move and nothing else: no rebase, no rewriting, no touching the working tree. The
+ * commits were already made and already photographed; approving them says a person has looked,
+ * which is a fact about the reviewer rather than about the code.
+ */
+export async function approveUpTo(name: string, commit: string): Promise<void> {
+  if (!/^[0-9a-f]{7,40}$/i.test(commit)) {
+    throw new Error(`${ commit || 'that change set' } is not a commit that can be approved`);
+  }
+
+  await inPackageStrict(
+    name,
+    `git update-ref ${ APPROVED_REF } ${ shellQuote(commit) }`,
+    `approving ${ commit.slice(0, 7) }`,
+  );
+}
+
+/**
+ * Undo every change set newer than this one.
+ *
+ * `revert --no-commit` over the range and one commit at the end, so rejecting three turns is
+ * one entry in the history rather than three. Reverted rather than rewritten on purpose: the
+ * turns that made these changes are still in the log with their prompts and their pictures,
+ * and a review that erased them would erase the record of what was reviewed.
+ *
+ * The approval pointer moves to the revert, because a person who rejected has, by rejecting,
+ * reviewed everything up to it.
+ */
+export async function rejectAfter(name: string, commit: string): Promise<void> {
+  if (!/^[0-9a-f]{7,40}$/i.test(commit)) {
+    throw new Error(`${ commit || 'that change set' } is not a commit that can be rejected from`);
+  }
+
+  await inPackageStrict(name, [
+    `git revert --no-commit ${ shellQuote(commit) }..HEAD || { git revert --abort 2>/dev/null ; exit 1 ; }`,
+    `git -c user.email=barn@rancher.local -c user.name=barn commit -q -m ${ shellQuote(`Reject the change sets after ${ commit.slice(0, 7) }`) } || exit 1`,
+    `git update-ref ${ APPROVED_REF } HEAD`,
+  ].join('\n'), 'rejecting the change sets after this one');
+}
+
+/**
  * Shell that leaves the baseline revision in `$BARN_BASE`.
  *
  * Inline rather than a round trip of its own: every caller below is already one exec into the
@@ -2245,6 +2558,23 @@ export const WORKING_BUILD_REF = 'refs/barn/working-build';
 const BASELINE_SH = [
   `BARN_BASE=$(git rev-parse --verify -q ${ BASELINE_OCI_REF }`,
   `|| git rev-parse --verify -q ${ BASELINE_LOCAL_REF }`,
+  // Before HEAD, and this is the line that makes the "what has changed" screens say anything
+  // at all on an unpublished extension.
+  //
+  // Falling straight to HEAD meant measuring the working tree against the last commit - and
+  // every turn ends in a commit, so HEAD *is* the working tree the moment the assistant stops.
+  // The diff was empty by construction: the masthead said "No changes" seconds after a change,
+  // and the preview's banner had nothing to outline. Now that review is a thing a person does,
+  // the honest baseline for an unpublished extension is the last change set they accepted.
+  `|| git rev-parse --verify -q ${ APPROVED_REF }`,
+  // Nothing published and nothing approved yet: measure from the seed.
+  //
+  // HEAD is the wrong last resort for the same reason it was the wrong one above - it is the
+  // commit the last turn just made, so the diff against it is empty whenever anything has
+  // happened. The root commit is the tree this extension started as, so on a pod where the
+  // assistant has done nothing it is HEAD (an empty diff, correctly) and on one where it has
+  // worked it is everything that work produced, which is exactly what has not been approved.
+  '|| git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1',
   '|| git rev-parse --verify -q HEAD)',
 ].join(' ');
 
@@ -3163,7 +3493,8 @@ export async function workingDiff(name: string): Promise<string> {
  * PodTerminal defaults to, which is the one the workspace pane is looking at. Anything typed
  * into it is typed into the claude running in that pane.
  */
-const ASSISTANT_SESSION = 'mc-editor';
+const ASSISTANT_TAB = 'editor';
+const ASSISTANT_SESSION = `mc-${ ASSISTANT_TAB }`;
 
 /** Where shell.sh looks for a prompt to open a new conversation with (see pod/shell.sh). */
 const ASSISTANT_QUEUE = '/app/.queue/editor';
@@ -3338,6 +3669,47 @@ export async function provenanceFor(name: string): Promise<ChangeAttribution> {
  * One line, always. The pane is a REPL: a newline in the middle of a prompt submits half a
  * question, so every caller's text is flattened before it goes anywhere near it.
  */
+/**
+ * Where a new conversation starts, for the stream that shows it.
+ *
+ * `/clear` is claude's own command and it clears claude's context. It does not - and must not -
+ * clear the pod's provenance log: that log is what every change set in the Changes tab is made
+ * of, and a commit whose prompt had been deleted would be a change nobody could account for.
+ *
+ * So the two are separated. The record keeps everything; the conversation on screen starts at
+ * this mark. Written into the pod rather than held in the browser so that it survives a reload
+ * and is the same for anybody else looking at the same extension.
+ */
+const CONVERSATION_MARK = '/app/.barn/conversation-since';
+
+/**
+ * Start a new conversation: clear claude's context, and move the mark.
+ *
+ * The `/clear` goes through the session the way a person at the pane would type it, and the
+ * mark is written first - if the typing fails, a stream that has already moved on is a worse
+ * lie than a conversation that did not clear.
+ */
+export async function startNewConversation(name: string): Promise<string> {
+  const since = new Date().toISOString();
+
+  await inPackageStrict(
+    name,
+    `mkdir -p /app/.barn && printf %s ${ shellQuote(since) } > ${ CONVERSATION_MARK }`,
+    'starting a new conversation',
+  );
+
+  await askAssistant(name, '/clear').catch(() => 'queued');
+
+  return since;
+}
+
+/** When the conversation on screen starts. '' when it has never been cleared. */
+export async function conversationSince(name: string): Promise<string> {
+  const out = await inPackage(name, `cat ${ CONVERSATION_MARK } 2>/dev/null`).catch(() => '');
+
+  return out.trim();
+}
+
 export async function askAssistant(
   name: string, prompt: string, origin?: AssistantOrigin
 ): Promise<'sent' | 'queued'> {
@@ -3361,7 +3733,20 @@ export async function askAssistant(
   // The pause between the text and the Return is not superstition: claude's input is a TUI that
   // redraws as it receives, and a Return in the same burst as a long paste is read before the
   // paste has finished being taken in.
+  // Start the session if it is not there, rather than going straight to the
+  // queue. The queue was written when the Terminal tab ran claude and was
+  // therefore certain to start it sooner or later; the Terminal tab is now a
+  // plain shell, so nothing else would ever start it and a queued prompt would
+  // wait for a pane that is never opened. `shell.sh ... start` creates it
+  // detached and is a no-op when it already exists, so this costs one exec the
+  // first time and nothing afterwards.
+  //
+  // The queue is still the fallback: if the session cannot be started, a prompt
+  // written down is better than one lost.
   const out = await inPackage(name, [
+    `if ! tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    `/bin/sh /seed/shell.sh ${ ASSISTANT_TAB } '' '' start >/dev/null 2>&1 || true ;`,
+    'sleep 2 ; fi ;',
     `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
     `tmux send-keys -t ${ ASSISTANT_SESSION } -l ${ text } && sleep 1 &&`,
     `tmux send-keys -t ${ ASSISTANT_SESSION } Enter && echo BARN-ASK-SENT ;`,
@@ -3404,11 +3789,369 @@ export interface AssistantLogin {
 
 const LOGIN_MARKER = 'BARN-LOGIN';
 
+/** The tmux session `claude setup-token` runs in, separate from the assistant's own. */
+const LOGIN_SESSION = 'mc-login';
+
+/**
+ * Everything the sign-in printed, kept where it can still be read after it has gone.
+ *
+ * The session ends the moment `claude setup-token` finishes, successfully or not, so the pane
+ * is not a place a result can be waited for. This file is.
+ */
+const LOGIN_LOG = '/app/.barn/login.log';
+
+/**
+ * Start the sign-in and hand back the page to authorise on.
+ *
+ * `claude setup-token` is the flow that produces a long-lived token, and it is interactive: it
+ * prints a URL, waits, and exchanges whatever code is pasted back. Nothing in a browser can run
+ * it on the pod's behalf, but the pod can run it and this can carry the two ends - which is the
+ * whole of what a person needs to do here, without a terminal.
+ *
+ * In a tmux session of its own, never the assistant's: the assistant's pane holds a
+ * conversation, and starting a login in it would leave a half-finished prompt in the middle of
+ * one. Detached, so this returns as soon as the URL is on screen rather than holding an exec
+ * open for as long as somebody takes to authorise.
+ */
+export async function beginAssistantLogin(name: string): Promise<string> {
+  await inPackage(name, [
+    `tmux kill-session -t ${ LOGIN_SESSION } 2>/dev/null || true`,
+    `mkdir -p /app/.barn ; : > ${ LOGIN_LOG }`,
+    `tmux -f /seed/tmux.conf new-session -d -x 200 -y 50 -s ${ LOGIN_SESSION } -c /app 'claude setup-token'`,
+    // Everything the pane prints, into a file as well.
+    //
+    // `claude setup-token` prints the token it obtained and then exits, which takes the tmux
+    // session with it - so a reader polling `capture-pane` every second and a half loses the
+    // one line it exists to read, and reports a sign-in that worked as one that produced
+    // nothing. `pipe-pane` keeps the TTY the TUI needs and writes a copy that outlives it.
+    `sleep 1 ; tmux pipe-pane -t ${ LOGIN_SESSION } -o ${ shellQuote(`cat >> ${ LOGIN_LOG }`) } 2>/dev/null || true`,
+  ].join(' ; ')).catch(() => '');
+
+  // It prints the URL a moment after starting. Polled rather than slept at, so a fast pod is
+  // not waited on and a slow one is not cut off.
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const pane = await inPackage(name, `tmux capture-pane -p -t ${ LOGIN_SESSION } 2>/dev/null`).catch(() => '');
+    const url = urlInPane(pane);
+
+    if (url) {
+      return url;
+    }
+  }
+
+  throw new Error('the pod started the sign-in but printed no address to authorise at');
+}
+
+/**
+ * The authorise URL, put back together out of the pane.
+ *
+ * claude wraps it at seventy columns with hard breaks, so the address is several lines and a
+ * pane of any width still splits it. The continuation lines are the only ones with no spaces
+ * in them, which is what makes rejoining them safe: the first line that contains a space is
+ * prose again ("Paste code here if prompted"), not more URL.
+ */
+export function urlInPane(pane: string): string {
+  const lines = String(pane || '').split('\n').map((line) => line.trim());
+  const start = lines.findIndex((line) => line.startsWith('https://'));
+
+  if (start === -1) {
+    return '';
+  }
+
+  let url = lines[start];
+
+  for (const next of lines.slice(start + 1)) {
+    if (!next || next.includes(' ')) {
+      break;
+    }
+
+    url += next;
+  }
+
+  return url;
+}
+
+/**
+ * Finish the sign-in with the code from that page.
+ *
+ * Typed and submitted separately, with a pause between: claude's input is a TUI that redraws as
+ * it receives, and a Return arriving in the same burst as a long paste is read before the paste
+ * has finished. The same reason `askAssistant` does it that way.
+ *
+ * What comes back is a token, which is then stored the way a pasted one would be, so there is
+ * one path into the pod's credential rather than two.
+ */
+/**
+ * Start the assistant's session again, so a credential written just now is the one it uses.
+ *
+ * A signed-in pod can still answer every prompt with `401 Invalid bearer token`, and this is
+ * why: claude reads its credential when it starts and holds it. The session in a pod that has
+ * been up for a day began before anybody signed in, so it goes on sending the auth it started
+ * with - none - while `.credentials.json` sits beside it, valid and unread. The strip said
+ * "the assistant is signed in", because the file it checks was there, and it was right about
+ * the pod and wrong about the process.
+ *
+ * Killed rather than reloaded, because there is no reload: the session is `claude` running
+ * under tmux, and the only way it re-reads that file is to be it again. `shell.sh` starts a new
+ * one with `-A`, so the next thing that attaches gets a fresh session rather than an error, and
+ * the conversation continues from claude's own transcript with `--continue`.
+ *
+ * Best effort. A sign-in that stored a credential has done the thing it was asked to do; if the
+ * restart fails, the next tab to open starts a session that reads it anyway.
+ */
+async function restartAssistantSession(name: string): Promise<void> {
+  await inPackage(name, [
+    `tmux kill-session -t ${ ASSISTANT_SESSION } 2>/dev/null || true`,
+    `/bin/sh /seed/shell.sh ${ ASSISTANT_TAB } '' '' start >/dev/null 2>&1 || true`,
+  ].join(' ; ')).catch(() => '');
+}
+
+/**
+ * The token in whatever the sign-in printed.
+ *
+ * Claude prints it into a TUI, so it arrives wrapped across two pane lines with terminal
+ * control sequences between the halves, and coloured - which puts an escape immediately after
+ * it. Two mistakes are available here and this made both:
+ *
+ *   Matching on the raw text stops at the first escape and stores half a token.
+ *   Stripping every escape first joins the token to the sentence after it ("Store this token
+ *   securely...") and stores 22 characters too many.
+ *
+ * Both fail the same way at the server - "OAuth access token is invalid" - which is why this
+ * took so long to see. So only the WRAP is undone: a carriage return followed by cursor-right
+ * or cursor-down, which is how the pane continues a long line. Every other escape is left in
+ * place, and one of them is what ends the match.
+ */
+function tokenIn(output: string): string {
+  const esc = String.fromCharCode(27);
+  const text = String(output || '');
+  const at = text.indexOf('sk-ant-');
+
+  if (at === -1) {
+    return '';
+  }
+
+  const unwrapped = text
+    .slice(at, at + 400)
+    .split(new RegExp(`\r?${ esc }\\[[0-9]*[CB]`, 'g'))
+    .join('')
+    .split('\r')
+    .join('');
+
+  return /^(sk-ant-[A-Za-z0-9_-]+)/.exec(unwrapped)?.[1] || '';
+}
+
+export async function completeAssistantLogin(name: string, code: string): Promise<'apikey' | 'oauth'> {
+  const value = String(code || '').trim();
+
+  if (!value) {
+    throw new Error('there is no code to send');
+  }
+
+  if (/\s/.test(value)) {
+    throw new Error('that does not look like a code: it has whitespace in it');
+  }
+
+  // The session has to be there, and has to be asking for a code.
+  //
+  // Two states this used to type into regardless. A sign-in that already succeeded kills its
+  // session, so a second attempt from a dialog left open sent the code to a name tmux no longer
+  // knows - `send-keys` fails quietly and nothing happens. And a code claude rejected leaves it
+  // showing "OAuth error: Invalid code · Press Enter to retry", which is not the paste prompt:
+  // anything typed there is dropped, so every retry after the first failure failed the same way
+  // whatever was pasted. Enter is what returns it to the prompt, so that is what this sends.
+  const opening = await inPackage(
+    name,
+    `tmux capture-pane -p -t ${ LOGIN_SESSION } 2>/dev/null || echo BARN-NO-LOGIN-SESSION`,
+  ).catch(() => 'BARN-NO-LOGIN-SESSION');
+
+  // A session that has already gone may still have left the answer behind.
+  if (opening.includes('BARN-NO-LOGIN-SESSION')) {
+    const finished = await inPackage(name, `cat ${ LOGIN_LOG } 2>/dev/null`).catch(() => '');
+    const already = tokenIn(finished);
+
+    if (already) {
+      const kind = await setAssistantToken(name, already);
+
+      await restartAssistantSession(name);
+
+      return kind;
+    }
+  }
+
+  if (opening.includes('BARN-NO-LOGIN-SESSION') || !opening.trim()) {
+    throw new Error('the sign-in this code belongs to has ended. Close this and open it again for a fresh address.');
+  }
+
+  if (/press enter to retry/i.test(opening)) {
+    await inPackage(name, [
+      `tmux send-keys -t ${ LOGIN_SESSION } Enter`,
+      'sleep 2',
+    ].join(' && ')).catch(() => '');
+  }
+
+  // What the credential looked like BEFORE the code was sent.
+  //
+  // The check further down used to be `test -f`, which is true of a pod that has signed in at
+  // any point in its life - including one whose token expired an hour ago. So a sign-in
+  // reported success the instant it was asked, restarted the session onto the same dead
+  // credential, and the next prompt came back "401 OAuth access token has been revoked". What
+  // says the exchange actually happened is the file CHANGING, so this is what it is compared
+  // against.
+  const before = await inPackage(
+    name,
+    `node -e 'const f=process.env.HOME+"/.claude/.credentials.json";let d={};try{d=require(f)}catch{};const o=d.claudeAiOauth||{};process.stdout.write(o.accessToken&&(!o.expiresAt||o.expiresAt>Date.now())?"valid:"+(o.expiresAt||0):"no")' 2>/dev/null`,
+  ).catch(() => 'no');
+
+  await inPackage(name, [
+    `tmux send-keys -t ${ LOGIN_SESSION } -l ${ shellQuote(value) }`,
+    'sleep 1',
+    `tmux send-keys -t ${ LOGIN_SESSION } Enter`,
+  ].join(' && '));
+
+  const done = async (kind: 'apikey' | 'oauth'): Promise<'apikey' | 'oauth'> => {
+    await inPackage(name, `tmux kill-session -t ${ LOGIN_SESSION } 2>/dev/null || true`).catch(() => '');
+    await restartAssistantSession(name);
+
+    return kind;
+  };
+
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // The live pane when there is one, and the log either way: the session may already have
+    // exited with the answer in it.
+    const pane = await inPackage(
+      name,
+      `tmux capture-pane -p -t ${ LOGIN_SESSION } 2>/dev/null ; cat ${ LOGIN_LOG } 2>/dev/null`,
+    ).catch(() => '');
+    const token = tokenIn(pane);
+
+    if (token) {
+      return done(await setAssistantToken(name, token));
+    }
+
+    // Claude stored it itself.
+    //
+    // `claude setup-token` used to print the token for the caller to do something with, and
+    // this scraped it out of the pane. It does not any more: it writes the credential into
+    // `$HOME/.claude/.credentials.json` and says so in words. Watching only for a printed
+    // token therefore failed a sign-in that had already succeeded - the dialog said "the pod
+    // took the code but printed no token, so nothing was stored" over a pod that was, at that
+    // moment, signed in. The credential is the thing that matters and the thing every other
+    // screen reads, so its arrival is what this waits for.
+    // Changed AND usable.
+    //
+    // "Changed" alone is not success, and waiting for it caused the loop this was meant to end.
+    // The credential file is touched by things that are not this sign-in: `claude-credentials
+    // .mjs pull` writes the shared copy from the Secret whenever a session starts, and claude
+    // rewrites the block itself when a token is refused. Both look like a change. Worse, this
+    // returning early restarts the session, and the restart runs a `pull` - so the fresh token
+    // was replaced by the shared, expired one before it had been written.
+    //
+    // What can only be true when the exchange worked is a credential with a token in it that
+    // has not expired. So that is what is waited for.
+    const now = await inPackage(
+      name,
+      `node -e 'const f=process.env.HOME+"/.claude/.credentials.json";let d={};try{d=require(f)}catch{};const o=d.claudeAiOauth||{};process.stdout.write(o.accessToken&&(!o.expiresAt||o.expiresAt>Date.now())?"valid:"+(o.expiresAt||0):"no")' 2>/dev/null`,
+    ).catch(() => 'no');
+
+    if (now.startsWith('valid:') && now.trim() !== before.trim()) {
+      return done('oauth');
+    }
+
+    // Claude's own words for a code it would not take. It says this and waits, so the message
+    // has to name the likely cause: a code can be exchanged once, and the one on screen has
+    // usually already been spent by the attempt before this one.
+    if (/oauth error|invalid code|expired|failed/i.test(pane)) {
+      throw new Error('the pod did not accept that code: claude reported it invalid. A code can only be used once - take a fresh one from the address above.');
+    }
+  }
+
+  // Neither printed nor stored. Say which, because "nothing happened" and "it worked and this
+  // could not tell" are different problems and the second one was this function's own bug.
+  throw new Error('the pod took the code but never ended up with a working credential. The code may have been used already, or pasted incomplete - take a fresh one from the address above.');
+}
+
+/**
+ * Give this pod's claude a credential, from a token somebody pasted.
+ *
+ * The interactive `/login` is an OAuth round trip through a browser, which a dialog in Rancher
+ * cannot perform on the pod's behalf. What it can do is take the artefact that flow produces -
+ * a token from `claude setup-token`, or an Anthropic API key - and put it where claude looks.
+ *
+ * Into `settings.json`'s `env` rather than a shell profile, because that is the one environment
+ * every claude in this pod inherits: the pane, and the hooks, which do not run under a login
+ * shell. Written 0600 and never read back by anything here.
+ *
+ * Which variable is decided by the token's own shape: an `sk-ant-` key is an API key, and
+ * anything else is treated as an OAuth token. Guessing wrong is a login that does not work, so
+ * the caller is told which one it chose.
+ */
+export async function setAssistantToken(name: string, token: string): Promise<'apikey' | 'oauth'> {
+  const value = String(token || '').trim();
+
+  if (!value) {
+    throw new Error('there is no token to set');
+  }
+
+  if (/\s/.test(value)) {
+    throw new Error('that does not look like a token: it has whitespace in it');
+  }
+
+  // Which of the two this is, by the prefix claude gives it.
+  //
+  // `sk-ant-oat…` is the long-lived OAuth token `claude setup-token` prints, and claude's own
+  // closing line says what to do with it: "Use this token by setting
+  // CLAUDE_CODE_OAUTH_TOKEN". `sk-ant-api…` is an API key. Both begin `sk-ant-`, and testing
+  // only that put every OAuth token into ANTHROPIC_API_KEY - where claude sends it as an API
+  // key, the server rejects it, and the pod answers "401 Invalid bearer token" with a
+  // perfectly good token stored. A sign-in that ends in a 401 is this line.
+  const oauth = /^sk-ant-oat/i.test(value);
+  const kind = oauth ? 'oauth' : 'apikey';
+  const variable = oauth ? 'CLAUDE_CODE_OAUTH_TOKEN' : 'ANTHROPIC_API_KEY';
+
+  const script = [
+    `node -e 'const fs=require("fs");const p=process.env.HOME+"/.claude/settings.json";`,
+    'let s={};try{s=JSON.parse(fs.readFileSync(p,"utf8"))}catch(e){};',
+    's.env=Object.assign({},s.env);',
+    // Only one of the two is ever set: leaving a stale key beside a new token is how a pod
+    // goes on using the credential somebody thought they had just replaced.
+    'delete s.env.ANTHROPIC_API_KEY;delete s.env.CLAUDE_CODE_OAUTH_TOKEN;',
+    's.env[process.argv[1]]=process.argv[2];',
+    'fs.mkdirSync(require("path").dirname(p),{recursive:true});',
+    `fs.writeFileSync(p,JSON.stringify(s,null,2)+"\\n",{mode:0o600})' ${ shellQuote(variable) } ${ shellQuote(value) }`,
+    '&& echo BARN-TOKEN-SET',
+  ].join(' ');
+
+  const out = await inPackage(name, script);
+
+  if (!out.includes('BARN-TOKEN-SET')) {
+    throw new Error(`the token did not reach ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
+  }
+
+  // The running session has the old credential in memory - or none - and will keep answering
+  // 401 with a valid one on disk beside it. See restartAssistantSession.
+  await restartAssistantSession(name);
+
+  return kind;
+}
+
 export async function assistantLogin(name: string): Promise<AssistantLogin> {
   const out = await inPackage(name, [
     `echo ${ LOGIN_MARKER }`,
-    'test -f "$HOME/.claude/.credentials.json" && echo credentials',
+    // Not `test -f`. A credentials file exists in every pod that has ever signed in, including
+    // one whose tokens claude has since emptied - which is what it does when the server says
+    // the token was revoked: the file stays, with `accessToken: ""` and `expiresAt: 0` in it.
+    // Read that way, "signed in" was true of a pod that could not answer a single prompt.
+    `node -e 'const d=require(process.env.HOME+"/.claude/.credentials.json");const o=d.claudeAiOauth||{};if(o.accessToken&&(!o.expiresAt||o.expiresAt>Date.now()))process.stdout.write("credentials")' 2>/dev/null`,
     '[ -n "$ANTHROPIC_API_KEY$CLAUDE_CODE_OAUTH_TOKEN" ] && echo apikey',
+    // A token pasted into the sign-in dialog lands in claude's settings rather than in this
+    // exec's environment, so the check above cannot see it. Without this the strip went on
+    // saying "not signed in" immediately after somebody had signed in, which reads as the
+    // dialog having done nothing.
+    `grep -q '"\\(ANTHROPIC_API_KEY\\|CLAUDE_CODE_OAUTH_TOKEN\\)"' "$HOME/.claude/settings.json" 2>/dev/null && echo apikey`,
     `grep -o '"emailAddress":"[^"]*"' "$HOME/.claude.json" 2>/dev/null | head -1`,
   ].join(' ; ')).catch(() => '');
 
@@ -3648,6 +4391,467 @@ export async function commentOnPullRequest(
 }
 
 /**
+ * Give the pod what it needs to photograph itself, and refresh it while the workspace is open.
+ *
+ * Two things: a short-lived Rancher session for the shared browser, and the route to point it
+ * at. The hooks that take the pictures run inside the pod with no way to mint either - the pod
+ * is deliberately not told a password, and the route lives in the extension's own routing table
+ * which this side has already parsed.
+ *
+ * The token expires by itself. That is the point of writing it rather than a password: a pod
+ * left running overnight holds nothing that still works, and the only consequence is that the
+ * next turn's pictures are not taken.
+ *
+ * Best effort throughout. Evidence is not a step of anybody's turn, and a workspace that
+ * refused to open because a screenshot credential could not be minted would be a bad trade.
+ */
+export async function pushCaptureSetup(name: string, route: string): Promise<void> {
+  const token = await captureToken().catch(() => '');
+
+  if (!token) {
+    return;
+  }
+
+  const where = shellQuote(route || '/');
+
+  await inPackage(name, [
+    `printf %s ${ shellQuote(token) } > "$HOME/.capture-token"`,
+    'chmod 600 "$HOME/.capture-token"',
+    // The route reaches the hooks as an environment variable, and a hook inherits the session's
+    // environment rather than this exec's - so it is written where claude's own settings put
+    // it, which is the one environment every hook in this pod does get.
+    `node -e 'const fs=require("fs");const p=process.env.HOME+"/.claude/settings.json";let s={};try{s=JSON.parse(fs.readFileSync(p,"utf8"))}catch(e){};s.env=Object.assign({},s.env,{BARN_CAPTURE_ROUTE:process.argv[1]});fs.mkdirSync(require("path").dirname(p),{recursive:true});fs.writeFileSync(p,JSON.stringify(s,null,2)+"\\n",{mode:0o600})' ${ where }`,
+  ].join(' ; ')).catch(() => '');
+}
+
+/**
+ * What to outline in a change set's picture, read out of the change itself.
+ *
+ * A changed template line that carries `class="..."`, `data-testid="..."` or `id="..."` names
+ * something that is in the rendered document by that exact string, so an outline drawn on it is
+ * a match rather than a guess. This is the same reading the change screen's diff-to-page
+ * pointer uses; it is applied here to the commit rather than to a line somebody clicked.
+ *
+ * Added lines only. A removed line names something that is no longer on the page, and outlining
+ * it would draw a box around whatever happens to carry that class now.
+ *
+ * Empty when the change set touched nothing that names itself - a script-only change, a
+ * rename - and empty is the right answer there: a picture with no box on it says "this is what
+ * it looks like", which is true, where a box around the whole page would not be.
+ */
+export function selectorsInDiff(patch: string): string[] {
+  const found = new Set<string>();
+
+  for (const line of String(patch || '').split('\n')) {
+    if (!line.startsWith('+') || line.startsWith('+++')) {
+      continue;
+    }
+
+    // The leading whitespace is load bearing: without it `:class="x"` matches as the plain
+    // attribute `class`, and a Vue binding's expression becomes a class selector that is in no
+    // rendered document anywhere. Same fix as the pod-side copy of this in barn-provenance.
+    for (const m of line.matchAll(/\s([a-zA-Z][a-zA-Z0-9-]*)="([^"]+)"/g)) {
+      const [, attr, value] = m;
+
+      if (value.includes('{') || !SELECTABLE_ATTR.test(attr)) {
+        continue;
+      }
+
+      if (attr === 'class') {
+        // The first class only. A long class list is mostly layout, and the compound selector
+        // matches nothing the moment one of them is conditional.
+        const first = value.trim().split(/\s+/)[0];
+
+        if (first) {
+          found.add(`.${ first }`);
+        }
+      } else if (attr === 'id') {
+        found.add(`#${ value }`);
+      } else {
+        found.add(`[${ attr }="${ value }"]`);
+      }
+    }
+
+    // A changed style rule names its own subject: `.trend-source-note { ... }` is a CSS
+    // selector and a DOM selector at once, so a stylesheet-only change still points somewhere.
+    const rule = /^\+\s*([.#][\w-][\w-]*(?:[\s>+~][^{]*)?)\s*\{/.exec(line);
+
+    if (rule) {
+      const first = rule[1].trim().split(/[\s>+~,]/)[0];
+
+      if (first && first.length > 1) {
+        found.add(first);
+      }
+    }
+
+    if (found.size >= 6) {
+      break;
+    }
+  }
+
+  return [...found];
+}
+
+/**
+ * Attributes worth turning into a selector. An allowlist, because `style` and every Vue
+ * binding are attributes too and none of them find an element in a rendered document.
+ *
+ * The pod's copy is SELECTABLE in extension-skeleton/pod/barn-provenance.mjs; see the note
+ * there for why there are two and what stops them drifting.
+ */
+const SELECTABLE_ATTR = /^(class|id|data-[\w-]+|name|role|aria-label|href|src|alt|title|type|placeholder|for)$/;
+
+/**
+ * The selectors a change set's capture recorded, read back out of the pod.
+ *
+ * This is the answer, and everything that used to be guessed here has gone with it. The
+ * capture walks the document it is photographing and records, beside the picture, the element
+ * it outlined and that element's own path. Those selectors are not derived from a patch: they
+ * were resolved in a rendered page, so they name something that exists, and the live preview
+ * resolves them again in the same page.
+ *
+ * What they replaced was a chain of readings of the source - the member a changed line sits in,
+ * where that member is interpolated in a template, the nearest ancestor tag carrying a class -
+ * each of which had to be right for the answer to be. A `<script setup>` component resolved
+ * nothing at all; a helper the template never names resolved nothing; an unclassed element
+ * resolved to whatever ancestor happened to carry a class, which is a box round something much
+ * larger than what changed. None of that is recoverable from a patch, and none of it has to be:
+ * the pod already looked at the page.
+ */
+async function recordedSelectors(name: string, commit: string): Promise<string[]> {
+  const file = `/app/.shots/${ commit }-after.png.json`;
+  const out = await inPackage(
+    name,
+    `[ -f ${ file } ] && printf %s BARN-REGIONS: && base64 -w0 ${ file } && echo ; true`,
+  ).catch(() => '');
+  const at = out.indexOf('BARN-REGIONS:');
+
+  if (at === -1) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(atob(out.slice(at + 'BARN-REGIONS:'.length).split('\n')[0].trim()));
+    const regions: ShotRegion[] = Array.isArray(parsed?.regions) ? parsed.regions : [];
+
+    return [...new Set(regions
+      .map((r) => String(r.selector || ''))
+      // `changed-pixels` is a region of a picture and `text:` is a string, and neither is
+      // something a document can be asked for. Both are recorded by captures older than the
+      // snapshot comparison; the outline over the picture still uses them.
+      .filter((sel) => sel && sel !== 'changed-pixels' && !sel.startsWith('text:')))]
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The newest change set's commit, or '' when nothing has been recorded.
+ *
+ * A one-line read, so the preview can ask for the same pictures the Changes tab is looking at
+ * without pulling the whole turn list across.
+ */
+export async function latestChangeCommit(name: string): Promise<string> {
+  const out = await inPackage(name, 'git rev-parse --verify -q HEAD 2>/dev/null').catch(() => '');
+
+  return (/[0-9a-f]{40}/i.exec(out)?.[0] || '');
+}
+
+/**
+ * Where a change set landed, as selectors the framed page can be asked about.
+ *
+ * The capture's own record first, because it is the only one of these two that looked at a
+ * rendered page. `selectorsInDiff` stays as the fallback for a change set with no picture -
+ * a pod whose browser could not be reached, or one whose capture predates the snapshot - and
+ * it is honest in a narrower way: it only answers when the patch itself added a class, a test
+ * id or a style rule, which names something by the exact string that put it in the document.
+ */
+export async function latestChangeSelectors(name: string, commit = 'HEAD'): Promise<string[]> {
+  const at = /^[0-9a-f]{7,40}$/i.test(commit) ? commit : 'HEAD';
+
+  if (at !== 'HEAD') {
+    const recorded = await recordedSelectors(name, at).catch(() => []);
+
+    if (recorded.length) {
+      return recorded;
+    }
+  }
+
+  const patch = await inPackage(
+    name,
+    `git show --unified=0 --no-color ${ shellQuote(at) } 2>/dev/null`,
+  ).catch(() => '');
+
+  return selectorsInDiff(patch);
+}
+
+/**
+ * A short-lived Rancher token, for the browser that takes the pictures.
+ *
+ * The namespace's Chromium is shared and starts with an empty profile, so it has no session and
+ * the cluster proxy answers it with "not authorized" - which is what a change set's picture was,
+ * until this. This page is already authenticated, so it can mint a token rather than anybody
+ * handing a password around; the TTL is minutes, and it is described so a token list says what
+ * it was for rather than leaving somebody to guess.
+ *
+ * Returns empty rather than throwing when the token cannot be minted. A picture is evidence,
+ * not a feature anything depends on, and the screen says why there is none.
+ */
+async function captureToken(): Promise<string> {
+  const made = await rancherFetch('/v3/tokens', {
+    method: 'POST',
+    body:   JSON.stringify({
+      type:        'token',
+      description: 'barn: change-set screenshot',
+      ttl:         10 * 60 * 1000,
+    }),
+  }).catch(() => null);
+
+  return made?.token || '';
+}
+
+/**
+ * A before/after picture of one change set, taken in the pod that made it.
+ *
+ * The pod drives the namespace's Chromium itself (see the barn-screenshot skill it is given),
+ * so this is one exec that returns a data URL rather than a pipeline this side has to run. The
+ * picture is written into the pod first and read back base64, because the skill's output is a
+ * file and a screenshot is too big to come back on a command line.
+ *
+ * Before is the build installed in this Rancher and After is the pod's dev server, which is the
+ * same reading the change screen's Before/After panels already use: the installed build is the
+ * only unchanged rendering of this extension that exists anywhere. An extension nothing has
+ * published has no Before, and this says so rather than shooting the same page twice and
+ * captioning one of them "before".
+ *
+ * Cached by commit in the pod: a change set does not change once it is committed, so the second
+ * ask for the same one is a read rather than two page loads.
+ */
+/** One outlined thing in a picture, in that picture's own pixels. */
+export interface ShotRegion {
+  /** This element's own path in the document that was photographed. */
+  selector: string;
+  /**
+   * The pattern the capture was asked for, when it is not the same thing.
+   *
+   * A mark out of a patch can be a class that matches six elements, or a `text:` string that
+   * is not CSS at all. `selector` is what that resolved to; this is what was asked.
+   */
+  match?:   string;
+  label:    string;
+  x:        number;
+  y:        number;
+  width:    number;
+  height:   number;
+}
+
+export interface ChangeShot {
+  /** The page as it was when the prompt arrived. `data:image/png;base64,...`, or empty. */
+  before:  string;
+  /** The page after the turn committed, with what the commit named outlined on it. */
+  after:   string;
+  /**
+   * Where the outlines are in `after`, so they can be pointed at.
+   *
+   * The picture knows which of its pixels are the change and a PNG cannot say so; these are how
+   * it says so. Empty for a change set whose capture predates them, which is a picture that
+   * cannot be clicked rather than one that is wrong.
+   */
+  regions: ShotRegion[];
+  /**
+   * How those regions were measured. 0 for anything recorded before the capture stopped adding
+   * the header's height to every box, which is every change set photographed up to that point:
+   * their rectangles sit a header's height below what they name, and the pane re-measures from
+   * the two pictures rather than trusting them.
+   */
+  geometry: number;
+  /** The size `after` was captured at, which is what the regions are measured against. */
+  width:   number;
+  height:  number;
+  /** Why a picture is missing, when one is. Never a guess. */
+  why:     string;
+}
+
+/**
+ * A change set's two pictures, as two pictures.
+ *
+ * They are returned separately rather than composed into one image because they are shown one
+ * after the other in a column, and a joined image would be a fixed side-by-side layout baked
+ * into a PNG - unreadable at half the width, and impossible to lay out any other way later.
+ *
+ * Both come from the pod's hooks: the before was taken as the prompt arrived, which is the only
+ * moment the old rendering exists, and the after once the turn committed. Nothing here
+ * re-renders anything, which is what makes the before true.
+ *
+ * A change set from before the hooks existed has neither, and says so. A live shot is taken in
+ * that case so the tab is not empty, and it is offered as the after with the before left blank -
+ * never as a pair, because a copy of the after wearing a "before" label is worse than nothing.
+ */
+export async function changeSetShot(
+  name: string, commit: string, route: string, highlights: string[] = []
+): Promise<ChangeShot> {
+  const id = /^[0-9a-f]{7,40}$/i.test(commit) ? commit : '';
+
+  if (!id) {
+    return {
+      before: '', after: '', regions: [], geometry: 0, width: 0, height: 0,
+      why:    `${ commit || 'that change set' } is not a commit this can shoot`,
+    };
+  }
+
+  const before = `/app/.shots/${ id }-before.png`;
+  const after = `/app/.shots/${ id }-after.png`;
+
+  // Both, in one exec, each behind a marker so a missing one is silence rather than a
+  // truncated image. base64 because a screenshot does not survive a command line otherwise.
+  // printf rather than echo for the markers: echo ends the line, which puts the image on the
+  // next one and left the reader below taking the empty remainder of the marker's own line.
+  // Marker and data on one line, one line per image.
+  const recorded = await inPackage(name, [
+    `[ -f ${ before } ] && printf %s BARN-BEFORE: && base64 -w0 ${ before } && echo ;`,
+    `[ -f ${ after } ] && printf %s BARN-AFTER: && base64 -w0 ${ after } && echo ;`,
+    `[ -f ${ after }.json ] && printf %s BARN-REGIONS: && base64 -w0 ${ after }.json && echo ;`,
+    'true',
+  ].join(' ')).catch(() => '');
+
+  const read = (marker: string): string => {
+    const at = recorded.indexOf(marker);
+
+    if (at === -1) {
+      return '';
+    }
+
+    const data = recorded.slice(at + marker.length).split('\n')[0].trim();
+
+    return data ? `data:image/png;base64,${ data }` : '';
+  };
+
+  // The sidecar the capture wrote: where each outline landed, and the size it was measured
+  // against. Bad JSON is treated as no regions - a picture that cannot be clicked, rather than
+  // hotspots in the wrong places, which would be worse than none.
+  const readRegions = (blob: string): { regions: ShotRegion[]; width: number; height: number; geometry: number } => {
+    const at = blob.indexOf('BARN-REGIONS:');
+
+    if (at === -1) {
+      return {
+        regions: [], width: 0, height: 0, geometry: 0,
+      };
+    }
+
+    try {
+      const raw = blob.slice(at + 'BARN-REGIONS:'.length).split('\n')[0].trim();
+      const parsed = JSON.parse(atob(raw));
+
+      return {
+        regions:  Array.isArray(parsed?.regions) ? parsed.regions : [],
+        width:    Number(parsed?.width) || 0,
+        height:   Number(parsed?.height) || 0,
+        // Absent on everything written before the capture learned to measure with the header's
+        // space in place. See GEOMETRY_VERSION in the barn-screenshot skill.
+        geometry: Number(parsed?.v) || 0,
+      };
+    } catch {
+      return {
+        regions: [], width: 0, height: 0, geometry: 0,
+      };
+    }
+  };
+
+  const shotBefore = read('BARN-BEFORE:');
+  const shotAfter = read('BARN-AFTER:');
+  const marked = readRegions(recorded);
+
+  if (shotBefore && shotAfter) {
+    return {
+      before:  shotBefore,
+      after:   shotAfter,
+      regions:  marked.regions,
+      geometry: marked.geometry,
+      width:    marked.width,
+      height:   marked.height,
+      why:     '',
+    };
+  }
+
+  // Nothing recorded. Take one now so the tab shows something, and be explicit that it is the
+  // page as it stands rather than half of a pair.
+  const slug = (route || '/').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') || 'root';
+  const out = `/app/.shots/${ id }-${ slug }.png`;
+  const session = await captureToken().catch(() => '');
+  const patch = highlights.length
+    ? ''
+    : await inPackage(name, `git show --unified=0 --no-color ${ id } 2>/dev/null`).catch(() => '');
+  const marks = highlights.length ? highlights : selectorsInDiff(patch);
+  const notes = marks.map((sel) => `--note ${ shellQuote(`${ sel }=changed here`) }`).join(' ');
+
+  // The skill is refreshed out of /seed first, and its stderr is kept.
+  //
+  // Both because a picture that does not arrive used to be indistinguishable from a browser
+  // that could not be reached. The copy under $HOME is made when a terminal tab opens, so a
+  // pod whose assistant session has been up for days runs whatever the skill was then - a
+  // corrected capture would sit in /seed unused, which is how a fixed script went on producing
+  // nothing. And `2>&1` into a file rather than /dev/null means the reason the script gave is
+  // the reason this reports, instead of a sentence guessing at two possible causes.
+  const log = `${ out }.err`;
+  const seeded = '/seed/skills__barn-screenshot__screenshot.mjs';
+
+  const answer = await inPackage(name, [
+    `if [ ! -f ${ out } ] ; then`,
+    `mkdir -p "$HOME/.claude/skills/barn-screenshot" ;`,
+    `[ -f ${ seeded } ] && cp ${ seeded } "$HOME/.claude/skills/barn-screenshot/screenshot.mjs" ;`,
+    `node "$HOME/.claude/skills/barn-screenshot/screenshot.mjs"`,
+    `--path ${ shellQuote(route || '/') } ${ notes }`,
+    // The shared browser has a profile of its own and no Rancher session in it, so without this
+    // every picture is the proxy's "not authorized" page. The token expires by itself; the pod
+    // is never told a password.
+    session ? `--token ${ shellQuote(session) }` : '',
+    `--output ${ out } >${ log } 2>&1 || true ; fi ;`,
+    `[ -f ${ out } ] && echo BARN-SHOT: && base64 -w0 ${ out } && echo ;`,
+    `[ ! -f ${ out } ] && [ -f ${ log } ] && printf %s BARN-SHOT-ERR: && tail -c 600 ${ log } ;`,
+    'true',
+  ].filter(Boolean).join(' ')).catch((e) => `ERR:${ e?.message || e }`);
+
+  if (answer.startsWith('ERR:')) {
+    return {
+      before: '', after: '', regions: [], geometry: 0, width: 0, height: 0, why: answer.slice(4).trim(),
+    };
+  }
+
+  const at = answer.indexOf('BARN-SHOT:');
+  const live = at === -1 ? '' : answer.slice(at + 'BARN-SHOT:'.length).split('\n')[0].trim();
+
+  if (!live) {
+    const failedAt = answer.indexOf('BARN-SHOT-ERR:');
+    const said = failedAt === -1 ? '' : answer.slice(failedAt + 'BARN-SHOT-ERR:'.length).trim();
+
+    return {
+      before:   '',
+      after:    '',
+      regions:  [],
+      geometry: 0,
+      width:    0,
+      height:   0,
+      why:      said
+        ? `The pod could not take this picture. It said: ${ said }`
+        : 'The pod took no picture and said nothing about why, which usually means its browser could not be reached at all.',
+    };
+  }
+
+  return {
+    before:   '',
+    after:    `data:image/png;base64,${ live }`,
+    regions:  [],
+    geometry: 0,
+    width:    0,
+    height:   0,
+    why:      shotAfter || shotBefore
+      ? 'only one of the pair was recorded for this change set'
+      : 'this change set was committed before the pod started taking pictures, so there is no Before for it - this is the page as it stands now',
+  };
+}
+
+/**
  * Write a binary file into an extension's pod.
  *
  * For images pasted into the terminal. Base64 all the way in, because the payload is binary and
@@ -3660,7 +4864,20 @@ export async function commentOnPullRequest(
  * exist are in whatever proxies the request, so this appends in pieces small enough that none
  * of them is anywhere near a limit rather than finding out where the limit is in production.
  */
-const IMAGE_CHUNK = 48 * 1024;
+// How much base64 goes into one exec.
+//
+// It was 48KB, and that could not work: `execUrl` puts every argument in the URL's *query
+// string*, so a chunk that size makes a request line tens of kilobytes long. Servers cap that
+// and drop it, silently - the exec came back fine, the append wrote nothing, and the file ended
+// up 0 bytes with "the image did not land" as the only clue. Attaching an image has therefore
+// never worked, by paste, paperclip or otherwise; it was just never exercised with a payload
+// big enough to notice.
+//
+// 4KB keeps the whole request line comfortably under the usual 8KB limit with the setpriv
+// wrapper and the path still to fit. The cost is round trips - one per 4KB - which is why a
+// large attachment is slow, and why MAX_ATTACHMENT being 8MB is a promise this transport cannot
+// really keep.
+const IMAGE_CHUNK = 4 * 1024;
 
 export async function writePodImage(name: string, path: string, data: ArrayBuffer): Promise<void> {
   const pod = await extensionPod(name);
@@ -4082,6 +5299,30 @@ export async function publishExtension(name: string, onProgress?: PublishProgres
     throw new PublishError(`${ name } has no running pod to build in`, PUBLISH_STAGES[0], '');
   }
 
+  // Before anything is built.
+  //
+  // Publishing is the one action here that leaves the pod, so it is the one that has to be
+  // reviewed first. Checked in this function rather than only on the button, because the
+  // button is not the only caller: the publish dialog, the GitHub flow and anything added
+  // later all come through here, and a gate that lives in a component is a gate with a way
+  // around it.
+  // Fails closed: a gate that cannot read the queue does not open it.
+  const approval = await approvalState(name).catch(() => ({
+    sha: '', pending: [], clear: false, read: false,
+  }));
+
+  if (!approval.clear) {
+    const n = approval.pending.length;
+
+    throw new PublishError(
+      approval.read
+        ? `${ n } change set${ n === 1 ? '' : 's' } ${ n === 1 ? 'has' : 'have' } not been reviewed yet. Approve ${ n === 1 ? 'it' : 'them' } on the Changes tab, or reject ${ n === 1 ? 'it' : 'them' }, and publish again.`
+        : 'This could not read what has been reviewed, so it will not publish. Open the Changes tab and see whether it can.',
+      PUBLISH_STAGES[0],
+      '',
+    );
+  }
+
   report(1);
 
   const { name: plugin, version, annotations } = await packageIdentity(name);
@@ -4231,6 +5472,23 @@ export async function publishExtensionToGithub(
 
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
     throw new PublishError(`"${ repo }" is not owner/name`, GITHUB_PUBLISH_STAGES[0], '');
+  }
+
+  // The same gate as the local publish, for the same reason and more so: this one leaves the
+  // machine, not just the pod.
+  // Fails closed: a gate that cannot read the queue does not open it.
+  const approval = await approvalState(name).catch(() => ({
+    sha: '', pending: [], clear: false, read: false,
+  }));
+
+  if (!approval.clear) {
+    const n = approval.pending.length;
+
+    throw new PublishError(
+      `${ n } change set${ n === 1 ? '' : 's' } ${ n === 1 ? 'has' : 'have' } not been reviewed yet. Approve ${ n === 1 ? 'it' : 'them' } on the Changes tab before handing this over.`,
+      GITHUB_PUBLISH_STAGES[0],
+      '',
+    );
   }
 
   if (!branch) {

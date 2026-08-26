@@ -89,32 +89,17 @@ const TARGETS = [
     id:        'local',
     label:     'Load into this Rancher',
     tag:       '',
-    requires:  'No sign-off',
+    requires:  '',
     requiresIcon: '',
     available: true,
     note:      'Builds the package in the pod and points this Rancher at the result. Everybody signed in here gets it on their next page load.',
     undo:      'Reversible: "Remove local install" takes it back off.',
   },
   {
-    id:        'oci',
-    label:     'Push to an OCI repository',
-    tag:       'The gate',
-    gated:     true,
-    note:      'The one hard gate in the design: the point an extension becomes installable by people who did not build it, and the only step that asks anybody for permission.',
-  },
-  {
-    id:        'repository',
-    label:     'Put the reviewed packet on the repository',
-    tag:       'The gate',
-    gated:     true,
-    note:      'The same boundary by the route this Studio can take: the signed packet\'s own commit goes onto the connected repository\'s default branch, which is what a release is built from.',
-    undo:      'Not reversible from here. What leaves is the commit that was signed off, not whatever the tip has become since.',
-  },
-  {
     id:        'github',
     label:     'Push the source to GitHub',
     tag:       '',
-    requires:  'No sign-off',
+    requires:  '',
     requiresIcon: '',
     available: true,
     note:      'Hands the change over for review: it assembles a packet, puts it in the review queue for somebody to sign, and pushes it as a branch with a pull request when there is a GitHub connection to push it with. The next dialog asks which repository.',
@@ -124,17 +109,21 @@ const TARGETS = [
     // is no longer a path from this row to the default branch.
     undo:      'Nothing is merged: it lands on the branch barn/<extension>/<n> and opens a pull request against the default branch. Closing that pull request is the way back.',
   },
-  {
-    id:        'catalog',
-    label:     'List in the SUSE catalog',
-    tag:       'Requires approval',
-    requires:  'Both + extensions team',
-    requiresIcon: 'lock',
-    available: false,
-    note:      'The public listing: a signed release, both sign-offs, and the extensions team on top of them.',
-    why:       'There is no SUSE catalog reachable from this environment and no submission for this Studio to make, so there is nothing behind this box. It is listed because it is the destination that costs the most approval, not because it can be ticked.',
-  },
 ];
+
+// The three destinations that used to sit between these two are gone: the OCI push, the
+// reviewed-packet push and the SUSE catalog listing.
+//
+// None of them could be taken from here. Two were the design's distribution gate, drawn with a
+// lock, a "Needs a brief" chip and a paragraph explaining which of eight refusal states they
+// were in; the third had nothing behind it at all and said so in its own caption. Together they
+// were most of the height of this dialog and all of its unactionable half - three rows a person
+// reads once, cannot use, and has to scroll past every time they publish afterwards.
+//
+// What they described is not lost: `distributionGate()` and the sign-off record still exist and
+// still refuse, and the review flow that feeds them is the GitHub row above. When there is a
+// registry to push to, a row for it belongs here again - with the gate it really has, rather
+// than as an explanation of one.
 
 /**
  * The requirement chip on a gated row, per gate state.
@@ -470,48 +459,17 @@ export default {
       const policy = this.studioPolicy;
 
       return TARGETS.map((target) => {
-        if (!target.gated) {
-          // The policy never decides `available` here. What a destination costs is a setting;
-          // what the design fixes is not, and the two ungated rows stay ungated whatever the
-          // matrix holds. `policyNote` is where a value that is not being obeyed is admitted.
-          const override = policyChip(target.id, policy);
-
-          return {
-            ...target,
-            ...(target.id === 'github' ? this.githubReach : {}),
-            requires:     override?.label || target.requires,
-            requiresIcon: override?.icon || target.requiresIcon,
-            requiresTone: override?.tone || (target.requires === 'No sign-off' ? 'subtle' : 'warning'),
-            gateReason:   '',
-            policyNote:   policyNote(target.id, policy),
-          };
-        }
-
-        const destination = this.destinations.find((each) => each.id === target.id) || null;
-        const chip = this.gateChip;
-
-        let why = '';
-
-        if (this.destinationsError) {
-          why = `This Studio could not read where it can distribute to, so nothing here can be ticked: ${ this.destinationsError }`;
-        } else if (!destination) {
-          why = 'Reading what this Studio can distribute to.';
-        } else if (!destination.available) {
-          why = destination.reason;
-        }
+        // No gated rows any more - the destinations that had a gate in front of them are gone,
+        // so what is left is answered from the row and the policy alone. The gate itself still
+        // exists and still refuses; it simply has nothing in this dialog to refuse.
+        const override = policyChip(target.id, policy);
 
         return {
           ...target,
-          // Still the gate and the destination, and deliberately not the policy: the strongest
-          // thing the matrix can say about this row is what the gate already enforces, so a
-          // policy that could change this would be a second gate disagreeing with the first.
-          available:    !!destination?.available && !!this.distGate?.open,
-          why,
-          gateReason:   this.gateSentence,
-          requires:     chip.label,
-          requiresIcon: chip.icon,
-          requiresTone: chip.tone,
-          policyNote:   policyNote(target.id, policy),
+          ...(target.id === 'github' ? this.githubReach : {}),
+          requires:     override?.label || target.requires,
+          requiresIcon: override?.icon || target.requiresIcon,
+          requiresTone: override?.tone || 'subtle',
         };
       });
     },
@@ -552,36 +510,8 @@ export default {
       return this.policy || DEFAULT_POLICY;
     },
 
-    /** Three words for the chip. */
-    gateChip() {
-      if (this.distGateError) {
-        return GATE_UNREAD;
-      }
 
-      return this.distGate ? (GATE_CHIPS[this.distGate.state] || GATE_READING) : GATE_READING;
-    },
 
-    /** The sentence the gate refuses with, or the one it opens with. */
-    gateSentence() {
-      if (this.distGateError) {
-        return `The sign-offs could not be read, so this Studio cannot say whether the gate is open: ${ this.distGateError }`;
-      }
-
-      return this.distGate ? this.distGate.reason : 'Reading the packet and the sign-offs out of the pod.';
-    },
-
-    /**
-     * The pull request the packet the gate is talking about was handed over on.
-     *
-     * The gate's sentence names a packet number; this is the link to it. It is the review
-     * record's own `packets[n].pr`, which nothing else on any screen reads.
-     */
-    gatePacketPr() {
-      const n = this.distGate?.packet;
-      const packet = n ? (this.review.packets || {})[String(n)] : null;
-
-      return packet?.pr?.url ? packet.pr : null;
-    },
 
     added() {
       return this.files.reduce((n, f) => n + f.added, 0);
@@ -608,38 +538,6 @@ export default {
       return `${ n } file${ n === 1 ? '' : 's' } · +${ this.added } −${ this.removed }`;
     },
 
-    /**
-     * The design's "reviewed by you 2 minutes ago", which now has a source.
-     *
-     * The code sign-off in the review record carries a principal, a name and a time, so when
-     * somebody has reviewed this it can say who and when. When nobody has, it says that instead
-     * of leaving the sentence half-finished.
-     */
-    reviewNote() {
-      const gate = this.gate;
-      const signoff = gate.code;
-
-      if (!signoff) {
-        return 'Nobody has reviewed this yet, so what is below is the working tree as it stands.';
-      }
-
-      const who = signoff.name || signoff.principal;
-
-      if (signoff.verdict === 'changes-requested') {
-        return `${ who } asked for changes ${ ago(signoff.at) }.`;
-      }
-
-      if (gate.codeStale) {
-        // `gateFrom` reports a sign-off that names no commit as stale too, and that is a
-        // different fact from a branch that moved: nothing was recorded about what was
-        // reviewed, so there is nothing that could cover this commit or any other.
-        return signoff.sha
-          ? `Reviewed by ${ who } ${ ago(signoff.at) }, against an earlier commit than this one.`
-          : `Reviewed by ${ who } ${ ago(signoff.at) }, but the review records no commit, so nothing says it was this change.`;
-      }
-
-      return `Reviewed by ${ who } ${ ago(signoff.at) }.`;
-    },
 
     editedNote() {
       const when = ago(this.provenance.edited);
@@ -651,62 +549,7 @@ export default {
       return gateFrom(this.review, this.provenance.commit.sha);
     },
 
-    /** The two sign-off rows, in the order the design puts them (42:1209, 42:1219). */
-    signoffs() {
-      const say = (signoff, stale) => {
-        if (!signoff) {
-          return { tone: 'waiting', icon: 'clock', text: 'Not signed off yet.' };
-        }
 
-        const who = signoff.name || signoff.principal || 'somebody Rancher would not name';
-        const when = ago(signoff.at);
-
-        if (signoff.verdict === 'changes-requested') {
-          return { tone: 'refused', icon: 'alert', text: `${ who } asked for changes ${ when }.` };
-        }
-
-        if (stale && !signoff.sha) {
-          // Stale for the other reason: the record names no commit at all. Written before
-          // `signCodeReview`/`signOutcome` began refusing a sha that is not an object id, and
-          // read honestly rather than as an approval of whatever is on the branch today.
-          return {
-            tone: 'stale',
-            icon: 'alert',
-            text: `${ who } approved ${ when }, without recording which commit. It cannot be said to cover this one.`,
-          };
-        }
-
-        if (stale) {
-          return {
-            tone: 'stale',
-            icon: 'alert',
-            text: `${ who } approved ${ when }, at ${ signoff.sha.slice(0, 12) }. The branch has moved past it.`,
-          };
-        }
-
-        return { tone: 'done', icon: 'check', text: `${ who } · approved ${ when }` };
-      };
-
-      return [
-        {
-          id: 'code', label: 'Code review', question: 'Is it safe?', ...say(this.gate.code, this.gate.codeStale),
-        },
-        {
-          id: 'outcome', label: 'Outcome sign-off', question: 'Does it do the job?', ...say(this.gate.outcome, this.gate.outcomeStale),
-        },
-      ];
-    },
-
-    /**
-     * Why the sign-offs are here at all (42:1229).
-     *
-     * The note in the frame ties them to the destination rather than to publishing: loading into
-     * a Rancher to try it needs nobody. That is INTENT rule 2, and it is what keeps the two
-     * ungated destinations ungated while the two gated ones are refused above.
-     */
-    signoffNote() {
-      return 'Two people answer two questions, and only leaving the gate - putting the packet where people who did not build it can install it - asks for them. Loading this into a Rancher to try it, or handing it over on GitHub to ask for a review, needs nobody.';
-    },
 
     /** The three pre-flight rows (16:844, 16:850, 16:862). */
     checks() {
@@ -986,12 +829,6 @@ export default {
       this.$router.push(to);
     },
 
-    viewSignoff(id) {
-      // The two sign-offs are two screens: 12 reviews the code, 13 walks the criteria.
-      this.open(id === 'code'
-        ? { name: REVIEW_CHANGE_ROUTE, params: { extension: this.extension, change: 'working' } }
-        : { name: VERIFICATION_ROUTE, params: { extension: this.extension } });
-    },
 
     /** The section of CHANGELOG.md for one version, or '' when there is none. */
     changelogEntry(version) {
@@ -1143,7 +980,7 @@ export default {
           data-testid="barn-publish-changeset"
         >{{ summaryLine }}</span>
         <span class="publish-modal__changeset-note">
-          {{ reviewNote }} {{ editedNote }}
+          {{ editedNote }}
         </span>
         <span v-if="files.length" class="publish-modal__files">
           {{ files.map((f) => f.path).join(', ') }}
@@ -1236,36 +1073,6 @@ export default {
             :data-testid="`barn-publish-unavailable-${ target.id }`"
           >{{ target.why }}</span>
 
-          <!--
-            The gate's own sentence, beside the destination it blocks. Both gated rows carry it,
-            including the one that could not be performed anyway: which of the two reasons
-            applies to you is exactly the thing you cannot work out from a padlock.
-          -->
-          <span
-            v-if="target.gateReason"
-            class="publish-modal__target-gate"
-            :data-testid="`barn-publish-gate-${ target.id }`"
-          >
-            {{ target.gateReason }}
-            <a
-              v-if="gatePacketPr"
-              :href="gatePacketPr.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              :data-testid="`barn-publish-gate-pr-${ target.id }`"
-            >pull request #{{ gatePacketPr.number }}</a>
-          </span>
-
-          <!--
-            What this Rancher's sign-off policy asks for at this destination, and where the
-            design overrules it. Never a control: the matrix is read here, and the only thing
-            that compares it with the review record is the gate itself.
-          -->
-          <span
-            v-if="target.policyNote"
-            class="publish-modal__target-policy"
-            :data-testid="`barn-publish-policy-${ target.id }`"
-          >{{ target.policyNote }}</span>
         </span>
 
         <!--
@@ -1284,43 +1091,6 @@ export default {
           :data-testid="`barn-publish-requirement-${ target.id }`"
         />
       </component>
-    </div>
-
-    <!-- the sign-offs (42:1209, 42:1219) -->
-    <SLabel text="Sign-offs" />
-
-    <div class="publish-modal__signoffs">
-      <div
-        v-for="signoff in signoffs"
-        :key="signoff.id"
-        class="publish-modal__signoff"
-        :class="`publish-modal__signoff--${ signoff.tone }`"
-        :data-testid="`barn-publish-signoff-${ signoff.id }`"
-      >
-        <SIcon :name="signoff.icon" :size="14" />
-        <span class="publish-modal__signoff-text">
-          <span class="publish-modal__signoff-label">
-            {{ signoff.label }}
-            <span class="publish-modal__signoff-question">{{ signoff.question }}</span>
-          </span>
-          <span class="publish-modal__signoff-note">{{ signoff.text }}</span>
-        </span>
-        <SButton
-          variant="ghost"
-          size="sm"
-          :data-testid="`barn-publish-signoff-${ signoff.id }-view`"
-          @click="viewSignoff(signoff.id)"
-        >
-          View
-        </SButton>
-      </div>
-
-      <p
-        class="publish-modal__signoff-why"
-        data-testid="barn-publish-signoff-note"
-      >
-        {{ signoffNote }}
-      </p>
     </div>
 
     <!-- the pre-flight checks (16:844, 16:850, 16:862) -->
@@ -1542,15 +1312,6 @@ export default {
     flex:       0 0 auto;
     margin-top: 2px;
   }
-
-  &__signoffs {
-    display:        flex;
-    flex-direction: column;
-    gap:            var(--studio-space-8);
-    margin:         var(--studio-space-8) 0 var(--studio-space-16);
-  }
-
-  &__signoff,
   &__check {
     display:       flex;
     align-items:   flex-start;
@@ -1560,15 +1321,10 @@ export default {
     border-radius: var(--studio-radius);
     background:    var(--studio-surface-subtle);
   }
-
-  &__signoff--done,
   &__check--pass {
     color:      var(--studio-success);
     background: var(--studio-success-bg);
   }
-
-  &__signoff--stale,
-  &__signoff--refused,
   &__check--warn {
     color:      var(--studio-warning);
     background: var(--studio-warning-bg);
@@ -1578,8 +1334,6 @@ export default {
     color:      var(--studio-error);
     background: var(--studio-error-bg);
   }
-
-  &__signoff-text,
   &__check-text {
     display:        flex;
     flex-direction: column;
@@ -1587,8 +1341,6 @@ export default {
     min-width:      0;
     flex:           1 1 auto;
   }
-
-  &__signoff-label,
   &__check-label {
     display:     flex;
     align-items: baseline;
@@ -1596,23 +1348,11 @@ export default {
     font:        var(--studio-heading-14);
     color:       var(--studio-text);
   }
-
-  &__signoff-question {
-    font:  var(--studio-caption-12);
-    color: var(--studio-text-tertiary);
-  }
-
-  &__signoff-note,
   &__check-note {
     font:  var(--studio-caption-12);
     color: var(--studio-text-secondary);
   }
 
-  &__signoff-why {
-    margin: 0;
-    font:   var(--studio-caption-12);
-    color:  var(--studio-text-tertiary);
-  }
 
   &__checks {
     display:        flex;

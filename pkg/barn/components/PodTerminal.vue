@@ -64,6 +64,16 @@ export default {
       type:    String,
       default: DEFAULT_EXTENSION,
     },
+
+    // What the pane runs: the assistant's claude session, or a plain login
+    // shell. The Terminal tab asks for a shell - it is a terminal, and a tab
+    // that dropped you into the assistant's TUI meant a line typed here became
+    // a turn there.
+    mode: {
+      type:      String,
+      default:   'claude',
+      validator: (value) => ['claude', 'shell'].includes(value),
+    },
   },
 
   // The connection's state, for whatever is drawing a dot for it - the Studio's session row.
@@ -223,7 +233,7 @@ export default {
     },
 
     connect(pod) {
-      const socket = new Socket(extensionShellUrl(pod, this.session), false, 0, 'base64.channel.k8s.io');
+      const socket = new Socket(extensionShellUrl(pod, this.session, this.mode), false, 0, 'base64.channel.k8s.io');
 
       socket.addEventListener(EVENT_CONNECTING, () => {
         this.state = 'connecting';

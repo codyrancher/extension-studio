@@ -83,7 +83,82 @@ function tsConstant(file, name) {
   return match[1];
 }
 
-const SUBSTITUTIONS = { __PATH_SEPARATOR__: tsConstant(OWNER, 'PATH_SEPARATOR') };
+const SEPARATOR = tsConstant(OWNER, 'PATH_SEPARATOR');
+const SUBSTITUTIONS = { __PATH_SEPARATOR__: SEPARATOR };
+
+/**
+ * The rules the pod and the browser both apply, kept in step by being checked here.
+ *
+ * A pod is seeded with text and run by node against nothing else on disk: it cannot import
+ * pkg/barn, and pkg/barn cannot import it either - `barn-provenance.mjs` opens with node:fs
+ * and node:child_process, which no browser bundle can hold. So two pieces of this product are
+ * written twice on purpose, and the honest thing is to say which and to make drift fail:
+ *
+ *   - which attributes of a changed line are worth turning into a selector, in the pod's
+ *     `marksFor` and in the browser's `selectorsInDiff`;
+ *   - how much of a viewport a highlight is allowed to cover, and how many highlights there
+ *     may be, in the pod's capture and in the browser's `tightest`.
+ *
+ * Both halves outline the same change set, so a number that differs between them is two panes
+ * disagreeing about where a change landed - which is the bug this check exists to stop coming
+ * back. Compared as source text rather than by evaluating either side, because this script
+ * cannot run a .ts file and a regex is only equal to another one if it is spelled the same.
+ */
+function sourceOf(file, pattern, what) {
+  const match = fs.readFileSync(file, 'utf8').match(pattern);
+
+  if (!match) {
+    throw new Error(`could not find ${ what } in ${ path.basename(file) }`);
+  }
+
+  return match[1].trim();
+}
+
+function checkInStep() {
+  const barn = path.join(here, '..', 'pkg', 'barn');
+  const pod = path.join(barn, 'extension-skeleton', 'pod');
+  const capture = path.join(pod, 'skills', 'barn-screenshot', 'screenshot.mjs');
+  const regions = path.join(barn, 'change-regions.ts');
+  const pairs = [
+    [
+      'the attributes a changed line can be found by',
+      [path.join(pod, 'barn-provenance.mjs'), /^const SELECTABLE = (.+);$/m],
+      [OWNER, /^const SELECTABLE_ATTR = (.+);$/m],
+    ],
+    [
+      'the share of a viewport a highlight may cover',
+      [capture, /^const MAX_REGION_SHARE = (.+);$/m],
+      [regions, /^export const MAX_REGION_SHARE = (.+);$/m],
+    ],
+    [
+      'how many highlights one page may carry',
+      [capture, /^const MAX_REGIONS = (.+);$/m],
+      [regions, /^const MAX_KEPT = (.+);$/m],
+    ],
+    [
+      // The capture stamps this beside every set of rectangles it records; the evidence pane
+      // compares what it reads against its own copy and re-measures anything older. If the two
+      // drift apart, either every change set is re-measured for no reason or none of the stale
+      // ones ever is - and both failures are silent, which is what this exists to prevent.
+      'the geometry that rectangles beside a picture are measured in',
+      [capture, /^const GEOMETRY_VERSION = (.+);$/m],
+      [path.join(barn, 'components', 'studio', 'ChangeEvidence.vue'), /^const GEOMETRY_VERSION = (.+);$/m],
+    ],
+  ];
+
+  for (const [what, [aFile, aPattern], [bFile, bPattern]] of pairs) {
+    const a = sourceOf(aFile, aPattern, what);
+    const b = sourceOf(bFile, bPattern, what);
+
+    if (a !== b) {
+      throw new Error(
+        `${ what } has drifted: ${ path.basename(aFile) } says ${ a }, ${ path.basename(bFile) } says ${ b }`,
+      );
+    }
+  }
+}
+
+checkInStep();
 
 // The skeleton and the pod scripts, which every seed shares. Taken from the dev extension's
 // directory because there is only one of each and it has to live somewhere.
@@ -97,8 +172,13 @@ for (const f of ROOT_FILES) {
 // read straight out of /seed, vue.config.js is seeded to /app alongside package.json.
 const POD = path.join(here, '..', 'pkg', 'barn', 'extension-skeleton', POD_DIR);
 
-for (const name of fs.readdirSync(POD)) {
-  let contents = fs.readFileSync(path.join(POD, name), 'utf8');
+// Recursive, because the pod directory is no longer flat: pod/skills/<name>/ holds
+// the skills the pod's assistant is given. A ConfigMap key cannot contain a slash,
+// so a nested path is flattened with the same separator the tree uses and boot.sh
+// un-flattens it back under /seed - see the skills loop there.
+for (const rel of walk(POD, '.')) {
+  const clean = rel.replace(/^\.\//, '');
+  let contents = fs.readFileSync(path.join(POD, clean), 'utf8');
 
   for (const [token, value] of Object.entries(SUBSTITUTIONS)) {
     contents = contents.split(token).join(value);
@@ -107,10 +187,10 @@ for (const name of fs.readdirSync(POD)) {
   const leftover = contents.match(/__[A-Z_]+__/);
 
   if (leftover) {
-    throw new Error(`${ name } still has an unsubstituted token: ${ leftover[0] }`);
+    throw new Error(`${ clean } still has an unsubstituted token: ${ leftover[0] }`);
   }
 
-  shared[name] = contents;
+  shared[clean.split('/').join(SEPARATOR)] = contents;
 }
 
 // One file set per package: the shared skeleton plus that package's own source.

@@ -7,6 +7,7 @@
  * divs, and anything here that only one screen ever uses is a sign it belongs in that screen.
  */
 export { default as ActivityTurn } from './ActivityTurn.vue';
+export { default as ImagePreview } from './ImagePreview.vue';
 export { default as AssistantPanel } from './AssistantPanel.vue';
 export { default as PreviewPanel } from './PreviewPanel.vue';
 export { default as WorkingChanges } from './WorkingChanges.vue';

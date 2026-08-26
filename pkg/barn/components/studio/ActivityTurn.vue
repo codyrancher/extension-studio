@@ -26,7 +26,7 @@
 //   `pending` is a turn with no end recorded. It must not be drawn as a finished one, and it
 //   must not be given a duration: the pod's claude can be signed out, in which case a prompt
 //   is recorded and no Stop hook ever fires for it.
-import { SIcon, SCard } from '../ui';
+import { SIcon, SCard, SChip } from '../ui';
 
 /** How many files a turn lists before the rest go behind "N more". */
 const FILE_PREVIEW = 5;
@@ -34,7 +34,7 @@ const FILE_PREVIEW = 5;
 export default {
   name: 'ActivityTurn',
 
-  components: { SIcon, SCard },
+  components: { SIcon, SCard, SChip },
 
   props: {
     /** user | assistant */
@@ -52,6 +52,31 @@ export default {
 
     /** The bubble (user) or the lead sentence (assistant). */
     text: {
+      type:    String,
+      default: '',
+    },
+
+    /**
+     * The context the composer attached, as `{ label, title }`.
+     *
+     * Above the message rather than inside it. It was inside: the pod records the prefix as
+     * part of the prompt, so a turn read back "Context: the preview is on /...; pages/Home.vue
+     * (the p.base-home__stamp element). Make the heading bigger" - the plumbing quoted to
+     * somebody as though they had typed it, with the sentence they did type buried at the end.
+     */
+    context: {
+      type:    Array,
+      default: () => [],
+    },
+
+    /**
+     * How long the turn in flight has been going, already worded ("12s", "2m").
+     *
+     * Passed in rather than counted here: the panel above is the thing that knows when the
+     * turn started and already re-reads the clock on a timer, and two components counting the
+     * same seconds separately is how they come to disagree by one.
+     */
+    elapsed: {
       type:    String,
       default: '',
     },
@@ -109,7 +134,7 @@ export default {
     },
   },
 
-  emits: ['raw', 'step'],
+  emits: ['context', 'raw', 'step'],
 
   data() {
     return { allFiles: false };
@@ -139,6 +164,38 @@ export default {
   },
 
   methods: {
+    /** The icon says what a chip will do: go somewhere, point at something, or open a picture. */
+    /**
+     * The same glyph the composer gives the same thing.
+     *
+     * `compare` for a page, because that is what the composer's `page:` chip carries; `upload`
+     * for an attachment, because that is what `addContext` gives a file put into the pod; and
+     * `target` for a picked element, from the crosshair that picked it. A chip that means the
+     * same thing in two places has to look the same in both, or they read as two features.
+     */
+    chipIcon(chip) {
+      if (chip.kind === 'page') {
+        return 'compare';
+      }
+
+      if (chip.kind === 'element') {
+        return 'target';
+      }
+
+      return chip.kind === 'image' ? 'upload' : 'file';
+    },
+
+    /** What it was made from, and what pressing it does. */
+    chipTitle(chip) {
+      const does = {
+        page:    'Click to point the preview at this page',
+        element: 'Click to outline this in the preview',
+        image:   'Click to open this picture',
+      }[chip.kind];
+
+      return does ? `${ chip.title }\n${ does }` : chip.title;
+    },
+
     stepIcon(state) {
       return {
         done: 'check', failed: 'close', running: 'spinner', pending: 'clock',
@@ -160,11 +217,38 @@ export default {
         and would cost the meta line the thing that says whose turn it is, which is the half of
         it the design is built on; unfinished is said in the sentence and in its colour instead.
       -->
-      <SIcon :name="icon" :size="13" />
+      <SIcon :name="icon" :size="13" :class="{ 'turn__spin': pending }" />
       <span class="turn__who">{{ metaLine }}</span>
     </div>
 
+    <!--
+      A turn that has not ended, saying so with motion.
+      
+      It used to say it in prose - "No end was recorded for this turn, so there is nothing yet
+      to show for it" - which is accurate and reads as a failure. Nothing about a turn in flight
+      is wrong, and the one thing somebody wants from it is the knowledge that it is still
+      going. Claude's own pane answers that with a spinner and a clock, so this does.
+    -->
+    <div v-if="pending" class="turn__working" data-testid="barn-turn-working">
+      <span class="turn__pulse" />
+      <span class="turn__working-text">Working</span>
+      <span v-if="elapsed" class="turn__working-for">· {{ elapsed }}</span>
+    </div>
+
     <!-- user: bubble (11:240) -->
+    <div v-if="context.length" class="turn__context">
+      <SChip
+        v-for="chip in context"
+        :key="chip.title"
+        :label="chip.label"
+        :title="chipTitle(chip)"
+        :icon="chipIcon(chip)"
+        :clickable="chip.kind !== 'plain'"
+        tone="subtle"
+        @click="$emit('context', chip)"
+      />
+    </div>
+
     <div v-if="role === 'user'" class="turn__bubble">
       <slot>{{ text }}</slot>
     </div>
@@ -277,13 +361,77 @@ export default {
     font: var(--studio-caption-12-semi);
   }
 
-  &__bubble {
+  &__context {
+    display:   flex;
+    flex-wrap: wrap;
+    gap:       6px;
+
+    // Legible against whatever they sit on.
+    //
+    // They were quieted to stop them shouting over the message, and then the card underneath
+    // them became a raised surface - against which a transparent chip with a blended border is
+    // very nearly nothing at all. So they take a fill of their own: set into the card the way
+    // the assistant's turn is set into the panel, which reads as a distinct thing on the card
+    // without being louder than the words beside it.
+    :deep(.s-chip) {
+      max-width:    15rem;
+      min-width:    0;
+      border-color: var(--studio-border);
+      background:   var(--studio-surface-inset);
+      color:        var(--studio-text-secondary);
+    }
+
+    :deep(.s-chip:hover) {
+      border-color: var(--studio-border-strong, var(--studio-border));
+      color:        var(--studio-text);
+    }
+
+    :deep(.s-chip__label) {
+      overflow:      hidden;
+      text-overflow: ellipsis;
+      white-space:   nowrap;
+      min-width:     0;
+    }
+  }
+
+
+
+
+  // Your whole turn, sitting on the panel.
+  //
+  // The exact mirror of the assistant's recess: the card holds who spoke, the context chips and
+  // what was said, and it is the card that is raised - a lighter fill, a shadow falling below
+  // it, a hairline of light along its top edge. Raising only the bubble left the name and the
+  // chips flat on the panel above a floating box, which reads as three things rather than one
+  // turn, and made the pairing with the recess opposite it impossible to see.
+  &--user {
     padding:       10px var(--studio-space-12);
-    background:    var(--studio-surface-subtle);
-    border:        1px solid var(--studio-border-subtle);
     border-radius: var(--studio-radius);
-    font:          var(--studio-body-14);
-    color:         var(--studio-text);
+    background:    var(--studio-surface-raised);
+    box-shadow:    var(--studio-raised-shadow);
+  }
+
+  // Inside the raised card the bubble is just the text: a second surface on top of the first
+  // would be a box in a box.
+  &__bubble {
+    padding: 0;
+    border:  0;
+    font:    var(--studio-body-14);
+    color:   var(--studio-text);
+  }
+
+  // The assistant's whole turn, cut into the panel.
+  //
+  // The recess holds the turn rather than just its words: who spoke, what they said, and the
+  // files it touched are one thing that happened, and boxing only the middle of it left the
+  // name above and the files below floating on the panel as though they belonged to something
+  // else. The user's half stays raised - one side up, one side set back, and whose turn is
+  // whose is legible without reading a word.
+  &--assistant {
+    padding:       10px var(--studio-space-12);
+    border-radius: var(--studio-radius);
+    background:    var(--studio-surface-inset);
+    box-shadow:    var(--studio-inset-shadow);
   }
 
   &__text {
@@ -294,6 +442,44 @@ export default {
   // A turn with no end recorded reads as unfinished rather than as a result.
   &--pending &__text {
     color: var(--studio-text-secondary);
+  }
+
+  &__working {
+    display:     flex;
+    align-items: center;
+    gap:         6px;
+    font:        var(--studio-caption-12);
+    color:       var(--studio-text-secondary);
+  }
+
+  &__working-for { color: var(--studio-text-tertiary); }
+
+  // A dot that breathes, rather than a spinner that races. The turn takes seconds to minutes,
+  // and something spinning fast against that is a lie about how much is happening.
+  &__pulse {
+    width:         8px;
+    height:        8px;
+    border-radius: 50%;
+    background:    var(--studio-accent, var(--primary));
+    animation:     turn-pulse 1.4s ease-in-out infinite;
+  }
+
+  // The glyph on the meta line turns with it, so the row reads as live from either end.
+  &__spin { animation: turn-spin 1.6s linear infinite; }
+
+  @keyframes turn-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .35; transform: scale(.7); }
+  }
+
+  @keyframes turn-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  // Anybody who has asked not to be moved at is not moved at.
+  @media (prefers-reduced-motion: reduce) {
+    &__pulse, &__spin { animation: none; }
+    &__pulse { opacity: .6; }
   }
 
   &__note {

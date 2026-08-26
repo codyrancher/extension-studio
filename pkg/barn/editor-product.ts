@@ -111,6 +111,20 @@ export function init($plugin: IPlugin, store: any) {
     // the highlighted one.
     icon:                'extension',
     inStore:             'management',
+    /**
+     * Registered, but not in the top-level menu.
+     *
+     * The product has to exist: every Studio route names it in `meta.product`, and a route
+     * whose product Rancher does not know about is a fail-whale rather than an unhighlighted
+     * rail. What it no longer needs is its own entry in the rail beside Cluster Management -
+     * the way in is the button on Rancher's own Extensions page, next to the extensions the
+     * Studio is for.
+     *
+     * `public: false` is type-map's own word for this (see `activeProducts`): the product is
+     * filtered out of the menu unless the viewer has the "View in API" developer preference
+     * on, which is a reasonable escape hatch and not a way anybody arrives by accident.
+     */
+    public:              false,
     // Nothing to switch between - the page is the whole product.
     showClusterSwitcher: false,
     removable:           false,

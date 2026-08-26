@@ -1,8 +1,9 @@
 #!/bin/sh
 # Entrypoint for a terminal tab. The extension's terminal component runs this
 # over the Kubernetes exec subresource, with the tab's session id as $1 and,
-# optionally, the directory the pane should start in as $2 and the home
-# directory claude should keep its state in as $3.
+# optionally, the directory the pane should start in as $2, the home directory
+# claude should keep its state in as $3, and what the pane should run as $4
+# (claude, shell, or start - see MODE below).
 #
 # Everything the tab runs comes out of /seed rather than the tree, so a tab
 # always starts the scripts the extension last wrote, without a pod restart.
@@ -73,6 +74,31 @@ MC_QUEUE="$QUEUE_DIR/$SESSION"
 
 export MC_QUEUE
 
+# The skills this pod's assistant can use, where claude looks for them.
+#
+# Copied rather than linked, and refreshed on every tab, so an extension picks up
+# a corrected skill without a pod restart - the same reasoning as everything else
+# coming out of /seed rather than the tree. A skill the assistant cannot find is
+# a skill nobody wrote.
+SKILL_SEP=__PATH_SEPARATOR__
+
+for f in /seed/skills"$SKILL_SEP"*; do
+  [ -f "$f" ] || continue
+
+  # /seed is a read-only ConfigMap mount and a ConfigMap key cannot hold a slash,
+  # so a skill arrives as one flat file per path and is un-flattened here, into
+  # the one place claude looks and this script can write.
+  rel=$(basename "$f" | sed "s|$SKILL_SEP|/|g")
+  dest="$HOME_DIR/.claude/$rel"
+
+  mkdir -p "$(dirname "$dest")"
+  cp "$f" "$dest"
+done
+
+if [ "$(id -u)" = 0 ] && [ -d "$HOME_DIR/.claude" ]; then
+  chown -R node:node "$HOME_DIR/.claude" 2>/dev/null || true
+fi
+
 HOME_DIR="$HOME_DIR" TRUST_DIRS="$WORKDIR" /bin/sh /seed/terminal-tools.sh
 
 # A session directory has to exist before tmux is told to start in it, and it has
@@ -112,8 +138,39 @@ fi
 
 # tmux does not pass this script's environment into a session it is attaching to, only into one
 # it creates, so the queue file is given on the command line of the pane's own script instead.
-set -- tmux -f /seed/tmux.conf new-session -A -s "mc-$SESSION" -c "$WORKDIR" \
-  "/bin/bash /seed/claude-session.sh '$MC_QUEUE'"
+# What the pane runs, and whether this call attaches to it at all.
+#
+#   claude  (default) - the assistant's pane, attached. What the Studio's
+#                       assistant talks to.
+#   shell             - a plain login shell, attached. The Terminal tab is a
+#                       terminal: somebody opening it wants a prompt in the
+#                       extension's tree, not a second view of the assistant's
+#                       conversation, and typing into claude's TUI by accident
+#                       is how a stray line becomes a turn.
+#   start             - create the assistant's session detached and exit. The
+#                       Terminal tab used to be the only thing that ever started
+#                       it, so once the tab stopped running claude nothing did,
+#                       and every prompt queued against a session that would
+#                       never exist.
+MODE=${4:-claude}
+
+if [ "$MODE" = shell ]; then
+  PANE="/bin/bash -l"
+else
+  PANE="/bin/bash /seed/claude-session.sh '$MC_QUEUE'"
+fi
+
+if [ "$MODE" = start ]; then
+  # -d, not -A: there is no terminal on this call to attach to. Idempotent all
+  # the same, because a session that already exists makes this a no-op.
+  if tmux has-session -t "mc-$SESSION" 2>/dev/null; then
+    exit 0
+  fi
+
+  set -- tmux -f /seed/tmux.conf new-session -d -s "mc-$SESSION" -c "$WORKDIR" "$PANE"
+else
+  set -- tmux -f /seed/tmux.conf new-session -A -s "mc-$SESSION" -c "$WORKDIR" "$PANE"
+fi
 
 # The exec subresource runs as the container's user, which is root, whatever the
 # dev server dropped itself to. Everything in the pane has to be the node user

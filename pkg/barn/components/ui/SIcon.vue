@@ -22,6 +22,7 @@ const FONT = {
   chevronLeft:  'icon-chevron-left',
   chevronUp:    'icon-chevron-up',
   plus:         'icon-plus',
+  minus:        'icon-minus',
   search:       'icon-search',
   refresh:      'icon-refresh',
   external:     'icon-external-link',
@@ -34,7 +35,6 @@ const FONT = {
   check:        'icon-checkmark',
   alert:        'icon-alert',
   close:        'icon-close',
-  arrowRight:   'icon-right-arrow-alt',
   play:         'icon-play',
   eye:          'icon-show',
   clock:        'icon-history',
@@ -55,7 +55,7 @@ const FONT = {
   info:         'icon-info',
 };
 
-// The seven with no glyph. Paths are stroked, not filled, so they inherit `color` the same
+// The ones with no glyph. Paths are stroked, not filled, so they inherit `color` the same
 // way the font icons do and sit at the same visual weight beside them.
 const SVG = {
   save:    'M3 3.667h7.333L13 6.333V13H3V3.667Z M5.667 3.667v3h4.666v-3 M5.667 13v-3.333h4.666V13',
@@ -64,7 +64,15 @@ const SVG = {
   monitor: 'M2 3.333h12v7.334H2V3.333Z M6 13.333h4 M8 10.667v2.666',
   undo:    'M3 7.333h7a3 3 0 0 1 0 6H6 M3 7.333 6 4.333 M3 7.333l3 3',
   stop:    'M4 4h8v8H4V4Z',
+  // `icon-right-arrow-alt` is not in the font this loads, so the class rendered an empty
+  // element that still took its width - which is what pushed "Send" off-centre in the
+  // composer, an icon nobody could see holding a space open beside the label.
+  arrowRight: 'M3.333 8h9.334 M9.333 4.667 12.667 8l-3.334 3.333',
   server:  'M2.667 3.333h10.666v3.334H2.667V3.333Z M2.667 9.333h10.666v3.334H2.667V9.333Z M5 5h.007 M5 11h.007',
+  // The element picker's crosshair. Not in the Figma set and not in Rancher's font: this is
+  // the shape every browser's inspect tool uses, and the point of it is that it is already
+  // familiar rather than that it is ours.
+  target:  'M8 12.667a4.667 4.667 0 1 0 0-9.334 4.667 4.667 0 0 0 0 9.334Z M8 9.333A1.333 1.333 0 1 0 8 6.667a1.333 1.333 0 0 0 0 2.666Z M8 1.333V3.333 M8 12.667v2 M14.667 8h-2 M3.333 8h-2',
 };
 
 export default {

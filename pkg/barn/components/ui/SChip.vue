@@ -55,7 +55,7 @@ export default {
     @click="clickable && $emit('click', $event)"
   >
     <SIcon v-if="icon" :name="icon" :size="13" />
-    <slot>{{ label }}</slot>
+    <span class="s-chip__label"><slot>{{ label }}</slot></span>
     <SIcon
       v-if="removable"
       name="close"
@@ -70,6 +70,7 @@ export default {
 .s-chip {
   display:       inline-flex;
   align-items:   center;
+  box-sizing:    border-box;
   gap:           6px;
   padding:       var(--studio-space-4) var(--studio-space-8);
   border:        1px solid var(--studio-border);
@@ -78,6 +79,17 @@ export default {
   color:         var(--studio-text-secondary);
   font:          var(--studio-caption-12);
   white-space:   nowrap;
+
+  // A clickable chip is a <button>, and the shell floors every button in the dashboard:
+  //
+  //   .btn, button, [class^='btn-'] { line-height: 40px; min-height: 40px; }
+  //
+  // (global/_button.scss, on a bare element selector). So the one chip in a row that happened
+  // to be clickable came out 40px tall beside four 24px spans - the same failure the action
+  // bar had. Both properties are restated here so a chip is the same size whichever element
+  // it renders as. `line-height` after the `font` shorthand, which carries its own.
+  min-height:    0;
+  line-height:   1.3333;
 
   &--subtle  { background: var(--studio-surface-subtle); }
   &--info    { background: var(--studio-info-bg); border-color: transparent; color: var(--studio-blue-600); }

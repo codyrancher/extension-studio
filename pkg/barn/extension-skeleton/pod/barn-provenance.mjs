@@ -40,7 +40,7 @@
 // The three hook forms read claude's payload on stdin and print nothing.
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 // Outside the repository on purpose. It must never appear in `git status`, or the record of a
 // change would be part of the change.
@@ -54,6 +54,21 @@ const BASELINE_REFS = ['refs/barn/published/oci', 'refs/barn/published/local'];
 
 /** How much of a prompt is kept. Enough to recognise it; not so much that a paste fills the log. */
 const PROMPT_LIMIT = 4000;
+
+/**
+ * Attributes worth turning into a selector.
+ *
+ * An allowlist rather than "anything with a value": `style`, `:class` and every Vue binding
+ * are attributes too, and none of them find an element in the rendered document.
+ *
+ * The same list as SELECTABLE_ATTR in pkg/barn/extensions.ts, and the two `marksFor` /
+ * `selectorsInDiff` readings around them are the same reading. Written twice because this file
+ * runs in a pod with nothing but node and its own text, and because it opens with node:fs and
+ * node:child_process, which no browser bundle can hold - neither side can import the other.
+ * scripts/gen-extension-seed.mjs compares the two and refuses to build a seed once they differ,
+ * so the duplication is checked rather than remembered.
+ */
+const SELECTABLE = /^(class|id|data-[\w-]+|name|role|aria-label|href|src|alt|title|type|placeholder|for)$/;
 
 /**
  * The tree these hooks are about.
@@ -176,6 +191,223 @@ function takeOrigin() {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Before and after
+// ---------------------------------------------------------------------------
+
+/** Where a turn's pictures go. Beside the pod's other durable state, on the hostPath. */
+const SHOTS = '/app/.shots';
+
+/**
+ * How a skill's path is flattened into a ConfigMap key.
+ *
+ * A ConfigMap key cannot hold a slash, so `skills/barn-screenshot/screenshot.mjs` arrives
+ * under /seed with this between its segments. The same constant shell.sh un-flattens with.
+ */
+const SKILL_SEP = '__PATH_SEPARATOR__';
+
+/**
+ * A Rancher session for the shared browser, written into the pod by the workspace.
+ *
+ * The browser that takes these pictures starts with an empty profile, so the cluster proxy
+ * answers it "not authorized" without one. The pod is never told a password; this is a
+ * short-lived token the page mints and refreshes while somebody has the workspace open, and an
+ * expired one simply means the next picture is not taken.
+ */
+function captureToken() {
+  try {
+    return fs.readFileSync('/app/.home/.capture-token', 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Photograph the extension's own page, in the background.
+ *
+ * Detached and never waited for, because this runs inside a hook: a turn must not sit for the
+ * twenty seconds a page load takes, and a picture that fails is a picture nobody gets rather
+ * than a turn that broke. Everything it needs is already on this pod - the skill, the browser's
+ * Service name, and the route - so the hook's only job is to say when.
+ *
+ * "When" is the whole point. A Before cannot be reconstructed after the edit: the dev server
+ * serves the working tree and there is no second copy of the old rendering anywhere. So the
+ * before shot is taken as the prompt arrives, while the page is still the old one.
+ */
+function shoot(label, marks = [], against = '') {
+  const token = captureToken();
+  const route = process.env.BARN_CAPTURE_ROUTE || '/';
+
+  if (!token || !process.env.BARN_BROWSER_SERVICE) {
+    return;
+  }
+
+  const skill = '/app/.home/.claude/skills/barn-screenshot/screenshot.mjs';
+
+  // Refresh it from the mount first.
+  //
+  // `shell.sh` copies the skills out of /seed when a tab opens, which is the right moment for
+  // a person's terminal and the wrong one for this: the assistant's tmux session outlives any
+  // number of extension reloads, so a corrected capture script sat in /seed while every shot
+  // went on being taken by the copy made when the session started - days old, in a pod nobody
+  // had restarted. Copying here costs a stat and makes the picture always the current script's.
+  const seeded = `/seed/skills${ SKILL_SEP }barn-screenshot${ SKILL_SEP }screenshot.mjs`;
+
+  try {
+    if (fs.existsSync(seeded)) {
+      fs.mkdirSync(path.dirname(skill), { recursive: true });
+      fs.copyFileSync(seeded, skill);
+    }
+  } catch { /* the copy in place is still worth running */ }
+
+  if (!fs.existsSync(skill)) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(SHOTS, { recursive: true });
+
+    const args = [skill, '--path', route, '--token', token, '--output', `${ SHOTS }/${ label }.png`];
+
+    for (const mark of marks) {
+      args.push('--note', `${ mark }=changed here`);
+    }
+
+    // The other half of "outline what changed". The selectors above only exist when the patch
+    // named something; when it did not - a computed property, a stylesheet, a deleted line -
+    // the capture compares the elements of this rendering against the ones recorded beside
+    // the picture taken before the prompt, and outlines the ones that differ. Passed always:
+    // it costs nothing when the marks above already matched, because the capture only falls
+    // back when they found nothing.
+    if (against && fs.existsSync(against)) {
+      args.push('--diff-against', against);
+    }
+
+    const child = spawn('node', args, { detached: true, stdio: 'ignore' });
+
+    child.unref();
+  } catch { /* a picture is evidence, not a step of the turn */ }
+}
+
+
+/**
+ * What this commit named, for the after shot to outline.
+ *
+ * A changed template line carrying `class="..."`, `data-testid="..."` or `id="..."` names
+ * something that is in the rendered document by that exact string, so an outline on it is a
+ * match rather than a guess.
+ *
+ * Added lines only, and only the after shot gets them: the thing they name does not exist in
+ * the before rendering, which is the entire point of there being two pictures.
+ */
+function marksFor(sha) {
+  const patch = tryGit(['show', '--unified=0', '--no-color', sha]);
+  const found = new Set();
+
+  for (const line of patch.split('\n')) {
+    if (!line.startsWith('+') || line.startsWith('+++')) {
+      continue;
+    }
+
+    // Any attribute that is also a way to find the element in the rendered document. It was
+    // three of them; a change that adds `role="alert"` or `aria-label="Close"` names its
+    // element just as exactly as one that adds a class.
+    // The leading whitespace is load bearing: without it `:class="x"` matches as the plain
+    // attribute `class`, and a Vue binding's expression became a class selector - `.x` - that
+    // is in no rendered document anywhere.
+    for (const m of line.matchAll(/\s([a-zA-Z][a-zA-Z0-9-]*)="([^"]+)"/g)) {
+      const [, attr, value] = m;
+
+      if (value.includes('{') || !SELECTABLE.test(attr)) {
+        continue;
+      }
+
+      if (attr === 'class') {
+        const first = value.trim().split(/\s+/)[0];
+
+        if (first) {
+          found.add(`.${ first }`);
+        }
+      } else if (attr === 'id') {
+        found.add(`#${ value }`);
+      } else {
+        found.add(`[${ attr }="${ value }"]`);
+      }
+    }
+
+    // A changed style rule names its own subject. `.trend-source-note { color: red }` is a
+    // CSS selector and a DOM selector at once, so a stylesheet-only change - which has no
+    // template diff at all - can still say what it was about.
+    const rule = /^\+\s*([.#][\w-][\w-]*(?:[\s>+~][^{]*)?)\s*\{/.exec(line);
+
+    if (rule) {
+      const first = rule[1].trim().split(/[\s>+~,]/)[0];
+
+      if (first && first.length > 1) {
+        found.add(first);
+      }
+    }
+  }
+
+  // Nothing named, but something still changed.
+  //
+  // The attributes above only exist on a line that introduced or renamed an element. A change
+  // that edits what an element *says* - the commonest kind, and the one somebody is most
+  // likely to want circled - touches no attribute at all, so the after shot came back with no
+  // outline on it and the pane had nothing to make clickable. Retitling the page from "Node
+  // condition trends" to "Trends" produced exactly that: two pictures, an obvious difference
+  // between them, and no mark on either.
+  //
+  // So: fall back to the text the change added. It is located in the rendered document by
+  // matching the string itself (see the `text:` branch in the capture's annotation script),
+  // which is exact rather than a guess - that string is in the page because this change put
+  // it there.
+  if (!found.size) {
+    for (const text of textMarks(patch)) {
+      found.add(`text:${ text }`);
+    }
+  }
+
+  return [...found].slice(0, 6);
+}
+
+/**
+ * The visible strings an added template line introduced.
+ *
+ * Deliberately narrow, because a false match outlines the wrong part of the page and that is
+ * worse than outlining nothing:
+ *
+ *   - Only `>text<` on an added line, so it is template content rather than script or style.
+ *   - Nothing holding `{{ }}` or `${`, which renders as something other than what is written.
+ *   - Nothing shorter than 3 characters, which matches half the page by accident.
+ *   - Nothing longer than 120, which is a paragraph the capture would circle whole.
+ */
+function textMarks(patch) {
+  const out = new Set();
+
+  for (const line of patch.split('\n')) {
+    if (!line.startsWith('+') || line.startsWith('+++')) {
+      continue;
+    }
+
+    for (const m of line.matchAll(/>([^<>{}]+)</g)) {
+      const text = m[1].trim();
+
+      if (text.length >= 3 && text.length <= 120 && !text.includes('$')) {
+        out.add(text);
+      }
+    }
+  }
+
+  return [...out].slice(0, 3);
+}
+
+/** The before shot's name while the turn is running, before there is a commit to file it under. */
+function pendingShot(turn) {
+  return `${ SHOTS }/pending-${ turn }.png`;
+}
+
 // ---------------------------------------------------------------------------
 // The three hooks
 // ---------------------------------------------------------------------------
@@ -190,6 +422,10 @@ function hookPrompt() {
     fs.mkdirSync(TURNS, { recursive: true });
     fs.writeFileSync(turnFile(session), turn);
   } catch { /* the record below is still worth having without it */ }
+
+  // Before the assistant has touched anything. This is the only moment the old rendering
+  // exists, so it is the only moment it can be photographed.
+  shoot(`pending-${ turn }`);
 
   append({
     kind:      'prompt',
@@ -295,6 +531,39 @@ function hookStop() {
   }
 
   const files = sha ? tryGit(['show', '--name-only', '--format=', sha]).split('\n').filter(Boolean) : [];
+
+  // The pair, filed under the commit they belong to.
+  //
+  // The before shot was taken as the prompt arrived and named after the turn, because there was
+  // no commit yet to name it after; now there is. Renamed rather than re-taken - the rendering
+  // it holds no longer exists anywhere - and the after shot is taken now, against the tree this
+  // commit just captured.
+  //
+  // Its sidecars move with it. The snapshot beside a picture is the record of what the page
+  // *was* - every element, where it sat and what it said - and it is what the after shot
+  // compares itself against to find the elements that changed. Left behind under the turn's
+  // name it would be a file nothing ever looks at, and the comparison would have nothing to
+  // compare.
+  //
+  // Only when there is a commit. A turn that answered a question changed nothing, so the two
+  // pictures would be the same picture, and a Before that equals its After is worse than none.
+  if (sha) {
+    for (const suffix of ['', '.json', '.snapshot.json']) {
+      try {
+        if (fs.existsSync(pendingShot(turn) + suffix)) {
+          fs.renameSync(pendingShot(turn) + suffix, `${ SHOTS }/${ sha }-before.png${ suffix }`);
+        }
+      } catch { /* the after shot is still worth taking */ }
+    }
+
+    shoot(`${ sha }-after`, marksFor(sha), `${ SHOTS }/${ sha }-before.png`);
+  } else {
+    for (const suffix of ['', '.json', '.snapshot.json']) {
+      try {
+        fs.rmSync(pendingShot(turn) + suffix, { force: true });
+      } catch { /* nothing to clear */ }
+    }
+  }
 
   append({
     kind: 'turn', turn, session, at: new Date().toISOString(), commit: sha, files,

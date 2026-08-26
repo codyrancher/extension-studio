@@ -38,9 +38,14 @@
 //   against the baseline, and the marker says so rather than letting the design's "in this
 //   session" stand for something nobody recorded.
 import {
-  SIcon, SChip, SButton, SMenu
+  SIcon, SButton
 } from '../ui';
-import { extensionProxyPath, publishedVersion, changedFiles, baselineRef } from '../../extensions';
+import {
+  extensionProxyPath, publishedVersion, changedFiles, baselineRef, readExtensionFile,
+  latestChangeSelectors, latestChangeCommit
+} from '../../extensions';
+import { tightest } from '../../change-regions';
+import { routesFromSource } from '../../extension-routes';
 import { readFailure, failureStage, FAILURE_EVENT } from '../../publish-failure';
 import { readProposedFix, applyProposedFix, FIX_EVENT } from '../../publish-fix';
 import { toastSuccess, toastError } from '../../toast';
@@ -69,11 +74,9 @@ const HOT_UPDATE = /\.hot-update\.(json|js)(\?|$)/;
  * elements are. An attribute plus one rule, so the outline can be lifted again by removing the
  * attribute: nothing about the framed page's own styling is touched.
  */
-const MARK = 'data-barn-changed';
-const MARK_STYLE = 'barn-changed-style';
-
-/** How often the outline is re-hung, in ticks of the one-second poll. */
-const REPAINT_EVERY = 3;
+/** The picker's own attribute and stylesheet, kept apart from the changed-outline's. */
+const PICK_MARK = 'data-barn-picking';
+const PICK_STYLE = 'barn-picking-style';
 
 /** Don't ask the pod what changed more than this often, however busy the dev server is. */
 const CHANGED_MIN_MS = 8000;
@@ -102,7 +105,7 @@ export default {
   name: 'PreviewPanel',
 
   components: {
-    SIcon, SChip, SButton, SMenu
+    SIcon, SButton
   },
 
   props: {
@@ -116,11 +119,25 @@ export default {
       type:     String,
       required: true,
     },
+
+    /**
+     * The change set the Changes tab has selected, or null.
+     *
+     * The outline is about a particular change, so it has to be about the same particular
+     * change the other pane is showing. Reading HEAD instead meant the preview could be
+     * outlining one change set while the Changes tab displayed another - and after an approve
+     * or a reject, HEAD is not a change set at all. The tab selects the newest by default, so
+     * the ordinary case is still "the latest change".
+     */
+    change: {
+      type:    Object,
+      default: null,
+    },
   },
 
   // The path inside the frame, for anything outside that needs to say where the preview is
   // pointed - the verification screen records it against each verdict.
-  emits: ['route'],
+  emits: ['route', 'pick'],
 
   data() {
     return {
@@ -141,6 +158,9 @@ export default {
       now:            Date.now(),
       nowTimer:       null,
       viewport:       'desktop',
+      // The element picker: on while somebody is choosing something in the framed page.
+      picking:        false,
+
 
       // The recorded publish failure for this extension, when there is one. Read from the same
       // record the failure panel reads (publish-failure.ts), because the design draws the
@@ -166,8 +186,11 @@ export default {
       changedRead: false,
       changedAt:   0,
       baseline:    '',
-      // How many blocks in the framed page the outline is currently hung on.
-      outlined:    0,
+      // How many blocks in the framed page the outline is currently hung on. Zero whenever
+      // the outline is off, which is most of the time.
+      // The extension's own routing table, so "nothing here comes from what changed" can say
+      // where something does. Read once per extension; empty until it comes back.
+      routes:      [],
       tick:        0,
     };
   },
@@ -358,52 +381,17 @@ export default {
       return 'No version of this extension is installed in this Rancher, so there is no working build to show. The last build that installed is the only one this product can render, because a build lives in the Rancher it was installed into and nowhere else.';
     },
 
+    /** The commit the outline is about: the selected change set, or nothing. */
+    outlineCommit() {
+      return this.change?.commit || '';
+    },
+
     /** The changed files that could put something on a page: components, and nothing else. */
     changedComponents() {
       return this.changed.filter((f) => f.path.endsWith('.vue'));
     },
 
-    /**
-     * The marker over the preview body (10:213), and the accent outline it explains (10:219).
-     *
-     * The design's words are "Highlighted areas were added or changed in this session". What
-     * can actually be known is narrower and this says which: the framed page is same-origin and
-     * a dev build tags every component instance with the file it came from (`__file`), so the
-     * blocks a changed component renders can be found exactly. "Changed" is measured from the
-     * baseline the rest of the product measures from - the last published version, or the last
-     * commit when nothing has been published - not from when this tab was opened, and the note
-     * says so rather than letting "this session" stand for it.
-     */
-    marker() {
-      if (this.showing !== 'live' || !this.changedRead || !this.changed.length) {
-        return null;
-      }
 
-      const named = this.changedComponents.length ? this.changedComponents : this.changed;
-      const paths = named.slice(0, 3).map((f) => f.path);
-      const more = named.length - paths.length;
-      const list = `${ paths.join(', ') }${ more > 0 ? ` and ${ more } more` : '' }`;
-      const since = this.baseline || 'the baseline';
-
-      if (!this.changedComponents.length) {
-        return {
-          title: 'Nothing on this page is drawn by what has changed',
-          note:  `${ list } ${ named.length === 1 ? 'differs' : 'differ' } from ${ since }, and no component is among them, so there is nothing in the rendered page to outline.`,
-        };
-      }
-
-      if (!this.outlined) {
-        return {
-          title: 'Nothing on this page comes from the changed components',
-          note:  `${ list } ${ named.length === 1 ? 'differs' : 'differ' } from ${ since }. Point the preview at a page one of them renders and it is outlined here.`,
-        };
-      }
-
-      return {
-        title: `Outlined below: what ${ this.outlined === 1 ? 'the changed component draws' : 'the changed components draw' }`,
-        note:  `${ this.outlined } block${ this.outlined === 1 ? '' : 's' } on this page ${ this.outlined === 1 ? 'is' : 'are' } rendered by ${ list }, which ${ named.length === 1 ? 'differs' : 'differ' } from ${ since }. Read from the framed page's own components, so it follows whatever the dev server has compiled.`,
-      };
-    },
   },
 
   watch: {
@@ -412,9 +400,13 @@ export default {
     path: {
       handler(to) {
         this.$emit('route', to);
+        // The regions are resolved against whatever page is framed, so a different page needs
+        // them looked up again.
       },
       immediate: true,
     },
+
+    // A different change set is a different set of pictures and a different diff.
 
     extension() {
       // A different extension: everything read about the last one is about the last one.
@@ -426,7 +418,7 @@ export default {
       this.changedRead = false;
       this.changedAt = 0;
       this.baseline = '';
-      this.outlined = 0;
+      this.loadRoutes();
       this.readRecords();
       this.readInstalled();
       this.readChanged();
@@ -437,6 +429,7 @@ export default {
     this.readRecords();
     this.readInstalled();
     this.readChanged();
+    this.loadRoutes();
     // The failure and the fix are recorded by other parts of the product while this panel is
     // already on screen - which is the design's whole case, the workspace watching its own
     // build break - so both records announce themselves rather than being polled for.
@@ -447,10 +440,6 @@ export default {
       this.readAddress();
       this.readHotReload();
       this.tick += 1;
-
-      if (this.tick % REPAINT_EVERY === 0) {
-        this.paintOutline();
-      }
     }, 1000);
     this.nowTimer = setInterval(() => {
       this.now = Date.now();
@@ -458,13 +447,11 @@ export default {
   },
 
   beforeUnmount() {
+    this.stopPick();
     clearInterval(this.addressTimer);
     clearInterval(this.nowTimer);
     window.removeEventListener(FAILURE_EVENT, this.readRecords);
     window.removeEventListener(FIX_EVENT, this.readRecords);
-    // The outline is drawn in somebody else's document. Leaving it hanging there after this
-    // panel is gone would be marks on a page with nothing left to explain them.
-    this.clearOutline();
   },
 
   methods: {
@@ -474,11 +461,7 @@ export default {
       // one's and its timing entries are gone with it.
       this.hotAt = null;
       this.lastHotStart = 0;
-      this.outlined = 0;
       this.readAddress();
-      // A new document has none of the previous one's marks on it, so the outline is hung
-      // again as soon as there is something to hang it on.
-      this.$nextTick(() => this.paintOutline());
     },
 
     /**
@@ -516,7 +499,6 @@ export default {
           // A hot update is the dev server saying a file changed, which is the one moment
           // worth asking the pod what differs from the baseline. Nothing else polls it.
           this.readChanged();
-          this.paintOutline();
         }
 
         // The buffer is 250 entries by default and stops recording silently when it is full,
@@ -587,6 +569,172 @@ export default {
       this.$refs.address?.blur();
     },
 
+    // -----------------------------------------------------------------------
+    // The element picker (devtools' inspect, inside the framed page)
+    // -----------------------------------------------------------------------
+
+    togglePick() {
+      if (this.picking) {
+        this.stopPick();
+      } else {
+        this.startPick();
+      }
+    },
+
+    /**
+     * Listen in the framed document.
+     *
+     * Everything here is on the frame's own document, not this one, because that is where the
+     * pointer is. Capture phase on the click, and `preventDefault` with it: the page under the
+     * cursor is a working dashboard, and picking a nav item must not also navigate it.
+     */
+    startPick() {
+      const doc = this.$refs.frame?.contentDocument;
+
+      if (!doc?.body) {
+        return;
+      }
+
+      this.picking = true;
+
+      if (!doc.getElementById(PICK_STYLE)) {
+        const style = doc.createElement('style');
+
+        style.id = PICK_STYLE;
+        // `!important` for the same reason the changed-outline needs it: this is one attribute
+        // selector against a whole dashboard's stylesheet.
+        style.textContent = `[${ PICK_MARK }]{outline:2px solid #3D98D3!important;outline-offset:2px!important;background:rgb(61 152 211 / 12%)!important;cursor:crosshair!important;}`;
+        doc.head?.appendChild(style);
+      }
+
+      doc.addEventListener('mouseover', this.onPickOver, true);
+      doc.addEventListener('click', this.onPickClick, true);
+      doc.addEventListener('keydown', this.onPickKey, true);
+      // Esc has to work whichever document has focus, and the frame may not.
+      document.addEventListener('keydown', this.onPickKey, true);
+    },
+
+    stopPick() {
+      this.picking = false;
+
+      try {
+        const doc = this.$refs.frame?.contentDocument;
+
+        doc?.querySelectorAll(`[${ PICK_MARK }]`).forEach((el) => el.removeAttribute(PICK_MARK));
+        doc?.getElementById(PICK_STYLE)?.remove();
+        doc?.removeEventListener('mouseover', this.onPickOver, true);
+        doc?.removeEventListener('click', this.onPickClick, true);
+        doc?.removeEventListener('keydown', this.onPickKey, true);
+      } catch { /* the frame navigated away mid-pick */ }
+
+      document.removeEventListener('keydown', this.onPickKey, true);
+    },
+
+    onPickOver(e) {
+      const doc = this.$refs.frame?.contentDocument;
+
+      doc?.querySelectorAll(`[${ PICK_MARK }]`).forEach((el) => el.removeAttribute(PICK_MARK));
+      e.target?.setAttribute?.(PICK_MARK, '');
+    },
+
+    onPickKey(e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.stopPick();
+      }
+    },
+
+    onPickClick(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const el = e.target;
+
+      if (!el?.getBoundingClientRect) {
+        this.stopPick();
+
+        return;
+      }
+
+      // The component that drew it, when this extension drew it at all. Walked up rather than
+      // read off the clicked node: the thing under the cursor is usually a leaf inside a
+      // component, and the file worth naming is the component's. See emitPick.
+      this.emitPick(el);
+      this.stopPick();
+    },
+
+    /** The nearest ancestor drawn by a component of this extension, as its file path. */
+    componentFor(el) {
+      for (let node = el; node; node = node.parentElement) {
+        const file = node.__vueParentComponent?.type?.__file;
+
+        if (file) {
+          return file;
+        }
+      }
+
+      return '';
+    },
+
+    /**
+     * A selector that finds this element again.
+     *
+     * Preferred in the order a person would choose: an id, then a test id, then a class, then
+     * position among its siblings. It only has to be good enough to find the element in the
+     * same page a moment later - this is not a durable address, and nothing stores it.
+     */
+    selectorFor(el) {
+      if (el.id) {
+        return `#${ el.id }`;
+      }
+
+      const testid = el.getAttribute?.('data-testid');
+
+      if (testid) {
+        return `[data-testid="${ testid }"]`;
+      }
+
+      const parts = [];
+
+      for (let node = el; node && node.nodeType === 1 && parts.length < 4; node = node.parentElement) {
+        const cls = (node.getAttribute('class') || '').trim().split(/\s+/).filter(Boolean)[0];
+
+        if (cls) {
+          parts.unshift(`${ node.tagName.toLowerCase() }.${ CSS.escape(cls) }`);
+          break;
+        }
+
+        const index = [...(node.parentElement?.children || [])].indexOf(node) + 1;
+
+        parts.unshift(`${ node.tagName.toLowerCase() }:nth-child(${ index })`);
+      }
+
+      return parts.join(' > ') || el.tagName.toLowerCase();
+    },
+
+
+
+    /**
+     * The extension's routing table, for `changedRoute`.
+     *
+     * Best effort and read once: a routing table this cannot parse means the banner falls back
+     * to its old wording, which is the behaviour before any of this existed.
+     */
+    async loadRoutes() {
+      this.routes = [];
+
+      const [routing, product] = await Promise.all([
+        readExtensionFile(this.extension, 'routing/index.ts').catch(() => ''),
+        readExtensionFile(this.extension, 'product.ts').catch(() => ''),
+      ]);
+
+      try {
+        this.routes = routesFromSource(routing, product) || [];
+      } catch {
+        this.routes = [];
+      }
+    },
+
     setViewport(id) {
       if (VIEWPORTS.some((v) => v.id === id)) {
         this.viewport = id;
@@ -636,7 +784,6 @@ export default {
         return;
       }
 
-      this.clearOutline();
       this.workingSrc = `${ HOST_BASE }${ this.path }`;
       this.showing = 'working';
       this.loadedAt = null;
@@ -708,82 +855,133 @@ export default {
         this.baseline = BASELINE_NOUNS[base.kind] || '';
       }
 
-      this.paintOutline();
+    },
+
+
+
+
+    /**
+     * Show an element, going to its page first if that is where it lives.
+     *
+     * A chip on an old message names something in the page that message was about, which is
+     * usually not the page the preview is showing now. Trying the current document and giving
+     * up was therefore wrong for every message older than the last navigation - the element
+     * was fine, it was simply somewhere else. So: if the chip knows its page and the preview
+     * is not on it, go there, wait for the element to exist, and then outline it.
+     *
+     * Polled rather than hooked to the frame's load, because this is a single-page app: it
+     * changes its URL with pushState and fires no load event, so the only honest signal that
+     * the page has arrived is the thing being looked for turning up in it.
+     */
+    async showElement(selector, page) {
+      if (!selector) {
+        return false;
+      }
+
+      if (this.highlightSelector(selector)) {
+        return true;
+      }
+
+      if (!page || page === this.path) {
+        return false;
+      }
+
+      this.goToPath(page);
+
+      for (let i = 0; i < 24; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 250));
+
+        if (this.highlightSelector(selector)) {
+          return true;
+        }
+      }
+
+      return false;
     },
 
     /**
-     * Hang the outline on every block the changed components render.
+     * Point the preview at a path, from a chip that already knows which one.
      *
-     * The framed page is same-origin and a dev build leaves `__file` on each component's
-     * options, so an element's `__vueParentComponent` says which file drew it. That is a read
-     * of the running page rather than a guess: no heuristic on class names, and nothing drawn
-     * for a file that is not on screen.
-     *
-     * Only the outermost element of each match is marked. Every element inside a component
-     * carries the same instance, so marking all of them would draw one outline per node and
-     * the page would look hatched rather than annotated.
+     * The chips on a message say where it was about. The pane that page is in is a few
+     * centimetres away, so saying it and going there are the same gesture.
      */
-    paintOutline() {
+    goToPath(to) {
+      this.address = to;
+      this.$nextTick(() => this.go());
+    },
+
+    /**
+     * Outline something in the framed page, from a chip that names it.
+     *
+     * Scrolled into view as well as outlined: a selector resolving to something below the fold
+     * would otherwise "highlight" a part of the page nobody can see. Answers whether it found
+     * anything, so a caller can say "not on this page" rather than appearing to do nothing -
+     * which matters here, because the element a message was about may belong to another page
+     * entirely.
+     */
+    highlightSelector(selector) {
       try {
         const doc = this.$refs.frame?.contentDocument;
+        const el = selector && doc?.querySelector(selector);
 
-        if (!doc?.body) {
-          return;
+        doc?.querySelectorAll(`[${ PICK_MARK }]`).forEach((node) => node.removeAttribute(PICK_MARK));
+
+        if (!el) {
+          return false;
         }
 
-        doc.querySelectorAll(`[${ MARK }]`).forEach((el) => el.removeAttribute(MARK));
-
-        const wanted = this.showing === 'live' ? this.changedComponents.map((f) => f.path) : [];
-
-        if (!wanted.length) {
-          this.outlined = 0;
-          doc.getElementById(MARK_STYLE)?.remove();
-
-          return;
-        }
-
-        if (!doc.getElementById(MARK_STYLE)) {
+        if (!doc.getElementById(PICK_STYLE)) {
           const style = doc.createElement('style');
-          const accent = getComputedStyle(document.body).getPropertyValue('--studio-accent').trim() || '#30BA78';
 
-          style.id = MARK_STYLE;
-          style.textContent = `[${ MARK }]{outline:2px solid ${ accent };outline-offset:3px;border-radius:4px;}`;
+          style.id = PICK_STYLE;
+          style.textContent = `[${ PICK_MARK }]{outline:2px solid #3D98D3!important;outline-offset:2px!important;background:rgb(61 152 211 / 12%)!important;}`;
           doc.head?.appendChild(style);
         }
 
-        let count = 0;
+        el.setAttribute(PICK_MARK, '');
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 
-        doc.body.querySelectorAll('*').forEach((el) => {
-          const file = el.__vueParentComponent?.type?.__file;
+        clearTimeout(this.pickClear);
+        this.pickClear = setTimeout(() => {
+          try {
+            el.removeAttribute(PICK_MARK);
+          } catch { /* the page navigated out from under it */ }
+        }, 2600);
 
-          if (!file || !wanted.some((p) => file === p || file.endsWith(`/${ p }`))) {
-            return;
-          }
-
-          // Document order, so an ancestor that matched has already been marked.
-          if (el.parentElement?.closest(`[${ MARK }]`)) {
-            return;
-          }
-
-          el.setAttribute(MARK, '');
-          count += 1;
-        });
-
-        this.outlined = count;
-      } catch { /* mid-navigation, or not framed yet */ }
+        return true;
+      } catch {
+        return false;
+      }
     },
 
-    /** Take the outline off again, leaving the framed page as it was found. */
-    clearOutline() {
-      try {
-        const doc = this.$refs.frame?.contentDocument;
+    /**
+     * Hand an element to the conversation.
+     *
+     * Shared by the picker and by the changed-outline, so a thing chosen with the crosshair and
+     * a thing the last change touched arrive as the same kind of context - a component path
+     * when this extension drew it, a picture of it when nothing here did.
+     */
+    emitPick(el) {
+      if (!el?.getBoundingClientRect) {
+        return;
+      }
 
-        doc?.querySelectorAll(`[${ MARK }]`).forEach((el) => el.removeAttribute(MARK));
-        doc?.getElementById(MARK_STYLE)?.remove();
-      } catch { /* the frame is gone, and so is anything that was on it */ }
+      const rect = el.getBoundingClientRect();
 
-      this.outlined = 0;
+      this.$emit('pick', {
+        file:     this.componentFor(el),
+        selector: this.selectorFor(el),
+        label:    (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        tag:      el.tagName.toLowerCase(),
+        route:    this.path,
+        rect:     {
+          x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height),
+        },
+      });
     },
+
+
   },
 };
 </script>
@@ -820,6 +1018,26 @@ export default {
         @click="reload"
       />
 
+      <!--
+        The element picker, the same control every browser's devtools puts here and drawn with
+        the same crosshair, because what it does is the thing people already know it for:
+        point at something in the page and get told what it is.
+      -->
+      <SButton
+        variant="ghost"
+        size="sm"
+        icon="target"
+        icon-only
+        :class="{ 'preview-panel__pick--on': picking }"
+        :disabled="!url"
+        :title="picking
+          ? 'Pick an element in the preview - Esc to cancel'
+          : 'Select an element in the preview to put it in the conversation'"
+        aria-label="Select an element in the preview"
+        data-testid="barn-preview-pick"
+        @click="togglePick"
+      />
+
       <!-- route (9:242): the path inside the frame, and a way to type another one -->
       <div class="preview-panel__route">
         <SIcon name="lock" :size="13" />
@@ -850,31 +1068,15 @@ export default {
       </div>
 
       <!--
-        A menu rather than a chip that cycles: the design draws one chip, and the thing behind
-        it is a choice of three, which a list says and a cycle does not.
+        The width chooser - Desktop, Tablet, Mobile - used to sit here. Taken out: the preview
+        is the extension running, and the pane it runs in is already whatever width somebody
+        dragged it to. A fixed 375px frame inside a variable-width pane answers a question about
+        the frame rather than about the extension.
+
+        `viewportItems`, `currentViewport` and `setViewport` are left below, so restoring it is
+        restoring this menu. The frame keeps whatever width was last chosen, which for anybody
+        who never opened this menu is the pane's own.
       -->
-      <SMenu
-        class="preview-panel__viewport"
-        :items="viewportItems"
-        align="right"
-        aria-label="Change the preview width"
-        @select="setViewport"
-      >
-        <template #trigger>
-          <!--
-            The test id is on the chip, not on the SMenu: a `data-testid` on the component falls
-            through to its root element, which here is the wrapper div and not the button that
-            opens the menu - so a click on it would land on nothing. A click on the chip bubbles
-            to the trigger, which is what a person clicking the chip does too.
-          -->
-          <SChip
-            :label="currentViewport.label"
-            :icon="currentViewport.icon"
-            data-testid="barn-preview-viewport"
-          />
-          <SIcon name="chevronDown" :size="13" />
-        </template>
-      </SMenu>
 
       <a
         class="preview-panel__popout"
@@ -964,17 +1166,15 @@ export default {
       </div>
 
       <!-- what this session changed, and where it is on the page (10:213) -->
-      <div
-        v-if="marker"
-        class="preview-panel__marker"
-        data-testid="barn-preview-new-marker"
-      >
-        <SIcon name="sparkle" :size="14" />
-        <div class="preview-panel__marker-text">
-          <span class="preview-panel__marker-title">{{ marker.title }}</span>
-          <span class="preview-panel__marker-note">{{ marker.note }}</span>
-        </div>
-      </div>
+      <!--
+        The changed-component banner was here (10:213), with its outline toggle and its link to
+        the page a changed component renders. Taken out: what it could truthfully say was
+        "something on this page is drawn by a file that differs", which is a fact about the
+        build rather than about the change, and every attempt to make it point at the change
+        itself either outlined the whole page or outlined nothing. The Changes tab answers the
+        same question with two pictures and a box on the part that moved, which is the answer
+        somebody actually wanted from this.
+      -->
 
       <div class="preview-panel__stage">
         <iframe
@@ -1187,6 +1387,23 @@ export default {
   &__marker-note {
     font:  var(--studio-caption-12);
     color: var(--studio-text-secondary);
+  }
+
+  // The picker's button while it is armed, so it is obvious the next click goes to the page.
+  &__pick--on {
+    color:      var(--studio-blue-600);
+    background: var(--studio-surface-subtle);
+  }
+
+  &__marker-link {
+    padding:    0;
+    border:     0;
+    background: none;
+    font:       var(--studio-caption-12);
+    color:      var(--studio-blue-600);
+    cursor:     pointer;
+
+    &:hover { text-decoration: underline; }
   }
 
   // Desktop fills the well. The other two viewports override both of these inline (see

@@ -1,5 +1,12 @@
 <script>
-// Rancher's split button, composed here rather than imported.
+// The Studio's split button: the design system's Button beside Rancher's dropdown trigger.
+//
+// The near half is `SButton`, so Publish is drawn to the same spec as every other control in
+// the action bar. It used to be `RcButton size="small"`, which is Rancher's spec, and the two
+// do not agree on height, padding, radius or type ramp - which is why Publish never quite
+// lined up with the buttons next to it.
+//
+// The dropdown machinery below is still Rancher's, composed here rather than imported.
 //
 // The shell ships one - `@components/RcButtonSplit` - and this is its markup, its class names
 // and its stylesheet copied across. What it is not is its `<script setup>`, and that is the
@@ -15,15 +22,15 @@
 // which webpack resolves with the alias it already has. So this is Rancher's split button in
 // every respect a person can see, assembled one level down from the wrapper that cannot
 // compile in an extension.
-import { RcButton } from '@components/RcButton';
 import { RcDropdown, RcDropdownItem, RcDropdownTrigger } from '@components/RcDropdown';
 import { RcIcon } from '@components/RcIcon';
+import SButton from './ui/SButton.vue';
 
 export default {
   name: 'PublishSplit',
 
   components: {
-    RcButton, RcDropdown, RcDropdownItem, RcDropdownTrigger, RcIcon
+    RcDropdown, RcDropdownItem, RcDropdownTrigger, RcIcon, SButton
   },
 
   props: {
@@ -49,6 +56,12 @@ export default {
       type:    String,
       default: 'More actions',
     },
+
+    /** The glyph before the label. Button/Primary in the masthead draws icon/rocket (9:221). */
+    icon: {
+      type:    String,
+      default: '',
+    },
   },
 
   emits: ['click', 'select'],
@@ -65,16 +78,17 @@ export default {
         The publish button was unaddressable by automation, which is how a recording of the
         publish flow came to click nothing and wait quietly for a build that never started.
       -->
-      <RcButton
+      <SButton
         class="rc-button-split-action"
         data-testid="barn-publish-button"
         variant="primary"
-        size="small"
+        size="sm"
+        :icon="icon"
         :disabled="disabled"
         @click="$emit('click', $event)"
       >
         {{ label }}
-      </RcButton>
+      </SButton>
 
       <RcDropdownTrigger
         class="rc-button-split-trigger"
@@ -103,36 +117,57 @@ export default {
 </template>
 
 <style lang="scss" scoped>
-// Copied from RcButtonSplit so the two look the same. If the shell's ever changes, this is the
-// file that has to be brought back into line with it.
+// The two halves have to read as one control, and the near half is now the Studio's own button
+// rather than Rancher's. That is the whole point of this block: `RcButton size="small"` brought
+// Rancher's height, padding, radius and type ramp into a bar where every other control is drawn
+// to the Figma file's Button (5px 11px, gap 7px, radius 4, Heading/14 SemiBold, icon 15), so
+// Publish sat a few pixels short of "See what changed" and "Undo" beside it. The caret half is
+// still RcDropdownTrigger, because the dropdown needs it, so it is matched to the near half here.
 .rc-button-split {
-  display: inline-flex;
+  display:     inline-flex;
+  align-items: stretch;
 
-  // Round only the outer left edge of the main button
+  // Round only the outer left edge of the main button.
   :deep(.rc-button-split-action) {
-    border-top-right-radius: 0;
+    border-top-right-radius:    0;
     border-bottom-right-radius: 0;
   }
 
-  // Round only the outer right edge of the trigger button; narrow padding
+  // The caret, brought onto the near half's metrics. Height rather than padding-block: the two
+  // halves are different components and only a shared height keeps their edges flush.
   :deep(button.rc-button-split-trigger) {
-    border-top-left-radius: 0;
+    display:                   inline-flex;
+    align-items:               center;
+    justify-content:           center;
+    min-width:                 unset;
+    box-sizing:                border-box;
+    // The shell's `button { min-height: 40px }` floors this half too - see the note in
+    // SButton. Without it the caret stays 40px while the label half shrinks, and the split
+    // button comes apart into two different-sized pieces.
+    min-height:                var(--studio-control-sm, 30px);
+    height:                    var(--studio-control-sm, 30px);
+    padding:                   0 8px;
+    border:                    1px solid transparent;
+    border-top-left-radius:    0;
     border-bottom-left-radius: 0;
-    padding-left: 8px;
-    padding-right: 8px;
-    min-width: unset;
+    border-radius:             0 var(--studio-radius) var(--studio-radius) 0;
+    background:                var(--studio-green-500);
+    color:                     var(--studio-text-inverse);
+    font:                      var(--studio-heading-14);
+    line-height:               1.4286;
+
+    &:hover:not(:disabled)  { background: var(--studio-green-600); }
+    &:active:not(:disabled) { background: var(--studio-green-700); }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor:  not-allowed;
+    }
   }
 
-  :deep(button.btn-small.rc-button-split-trigger) {
-    padding-left: 4px;
-    padding-right: 4px;
-  }
-
-  // Primary: semi-transparent right border as separator
-  :deep(.rc-button-split-trigger.variant-primary),
-  :deep(.rc-button-split-trigger.variant-secondary),
-  :deep(.rc-button-split-trigger.variant-tertiary) {
-    border-left: 1px solid rgba(255, 255, 255, 0.3);
+  // The separator between the halves.
+  :deep(button.rc-button-split-trigger) {
+    border-left: 1px solid rgb(255 255 255 / 30%);
   }
 }
 </style>

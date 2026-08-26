@@ -17,18 +17,18 @@
 // strip, the extension picker and the settings cog - come in through slots rather than this
 // component knowing what any of them are.
 import {
-  SBadge, SChip, SButton, SIcon, SMenu, SModal, SField
+  SChip, SButton, SMenu, SModal, SField
 } from './ui';
 import PublishSplit from './PublishSplit.vue';
 import { toastSuccess, toastError } from '../toast';
 import {
-  listBranches, countChanges, createSnapshot, listSnapshots, restoreSnapshot, undoLastChange,
-  checkoutBranch, publishedVersion, previewTarget, workingDiff, EXT_NS
+  listBranches, countChanges, approvalState, createSnapshot, listSnapshots, restoreSnapshot,
+  checkoutBranch, publishedVersion, workingDiff
 } from '../extensions';
 import {
   FILES_ROUTE, REVIEW_ROUTE, VERIFICATION_ROUTE, BRIEF_ROUTE
 } from '../editor-product';
-import { readFailure, failureStage, FAILURE_EVENT } from '../publish-failure';
+import { readFailure, FAILURE_EVENT } from '../publish-failure';
 import { findWayBack, rollBack, rollBackLabel } from '../roll-back';
 
 /** Which screen each line of the overflow menu goes to. */
@@ -85,7 +85,7 @@ export default {
   name: 'EditorMasthead',
 
   components: {
-    SBadge, SChip, SButton, SIcon, SMenu, SModal, SField, PublishSplit
+    SChip, SButton, SMenu, SModal, SField, PublishSplit
   },
 
   props: {
@@ -151,7 +151,6 @@ export default {
       // true - which is the failure `createSnapshot` was just made strict to expose.
       autoError: '',
       // Where the preview runs and what else there is, read rather than asserted.
-      target:    null,
       /**
        * Where the tree would go back to, resolved only while there is a failure to go back
        * from (19:959).
@@ -191,71 +190,6 @@ export default {
       return rollBackLabel(this.wayBack);
     },
 
-    // The design shows "Preview on: local" (16:511). It is `local` because that is the cluster
-    // extension pods are created in, which this reads rather than repeats.
-    previewOn() {
-      return this.target?.cluster || 'local';
-    },
-
-    /**
-     * Why this is a readout and not a picker, in terms of what is actually there.
-     *
-     * A disabled dropdown would say the choice exists somewhere else, and it does not: the
-     * cluster is a module literal in extensions.ts, so a pod is created in it or nowhere. What
-     * is read is how many clusters this Rancher has, so the sentence is about this Rancher
-     * rather than about the source code.
-     */
-    previewOnTitle() {
-      const where = `Every extension pod is created in ${ this.previewOn } (EXT_CLUSTER in extensions.ts), so the preview is served from there.`;
-
-      if (!this.target?.read) {
-        return `${ where } This Rancher's cluster list could not be read, so that is the whole of what is known.`;
-      }
-
-      const others = this.target.clusters.filter((name) => name !== this.previewOn);
-
-      if (!others.length) {
-        return `${ where } This Rancher has one cluster, ${ this.previewOn }, so there is nothing to choose between and this is a reading rather than a picker.`;
-      }
-
-      return `${ where } This Rancher also has ${ others.join(', ') }, and no extension pod is ever created there - so this is a reading rather than a picker.`;
-    },
-
-    namespace() {
-      return EXT_NS;
-    },
-
-    /**
-     * Real, now that the working tree is counted and the failure is read.
-     *
-     * Failed first (19:956). Screen 08 is this screen in its failed state, so the badge beside
-     * the extension's name is where the build state is supposed to be visible without reading
-     * the panel - and "Unsaved" over a failed build is true about the tree and useless about
-     * the build. Otherwise the design's own two: Unsaved when something is uncommitted, Live
-     * when nothing is.
-     */
-    state() {
-      if (this.failure) {
-        return 'failed';
-      }
-
-      return this.changes > 0 ? 'unsaved' : 'live';
-    },
-
-    /** What the badge is saying, in one sentence, for anyone hovering it. */
-    stateTitle() {
-      if (this.failure) {
-        const stage = this.failure.stage || failureStage(this.failure.message || '');
-        const when = new Date(this.failure.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-        return `The publish at ${ when } failed. ${ stage || this.failure.message }`;
-      }
-
-      return this.changes > 0
-        ? 'The working tree in the pod has changes that are not committed.'
-        : 'Nothing in the pod\'s working tree differs from its last commit.';
-    },
-
     /**
      * What the extension is doing, in the order the answers matter.
      *
@@ -283,42 +217,17 @@ export default {
         };
       }
 
-      if (this.changes > 0) {
-        return {
-          label: `Iterating · ${ this.changeCount }`, icon: 'refresh', tone: 'info'
-        };
-      }
-
-      return {
-        label: 'No changes', icon: 'check', tone: 'success'
-      };
-    },
-
-    /**
-     * The design's "14 changes since v0.1.0", which is two readings rather than a caption.
-     *
-     * The count is `git status --porcelain | wc -l` in the pod and the version is off the
-     * UIPlugin this Rancher is loading, so "since" means since the last thing that was
-     * published rather than since some remembered moment. With nothing published yet there is
-     * no "since" to state and the count stands on its own.
-     */
-    changeCount() {
-      const n = this.changes;
-      const what = `${ n } change${ n === 1 ? '' : 's' }`;
-
-      return this.version ? `${ what } since v${ this.version }` : what;
-    },
-
-    /**
-     * The design's "Review 3 changes". Nothing to count is nothing to say.
-     *
-     * The count without the version, unlike the phase chip's: the two sit a few centimetres
-     * apart and "since v0.1.0" twice on one bar is noise, not information.
-     */
-    reviewLabel() {
-      const n = this.changes;
-
-      return n > 0 ? `Review ${ n } change${ n === 1 ? '' : 's' }` : 'See what changed';
+      // Nothing, when there is nothing to say.
+      //
+      // Two labels have gone from here. "Iterating · N change sets to review" was the third
+      // place on one screen carrying the same number, and "No changes" was a badge announcing
+      // the absence of news - a green tick on a masthead for the state every extension is in
+      // most of the time, which is exactly when a person is not looking for a status.
+      //
+      // What is left is the three states nothing else reports and that do not last: the pod
+      // coming up, the extension being read, and a publish running. The chip is present when
+      // one of those is true and absent otherwise, so its being there means something.
+      return null;
     },
 
     /**
@@ -395,35 +304,6 @@ export default {
       }));
     },
 
-    /**
-     * The snapshot menu: take one at the top, then the ones there are.
-     *
-     * Each snapshot's own line restores it, which is destructive, so choosing one opens the
-     * confirm dialog rather than doing it.
-     */
-    snapshotItems() {
-      const items = [{ id: 'take', label: 'Take a snapshot', icon: 'save' }, { divider: true }];
-
-      if (!this.snapshots.length) {
-        items.push({
-          id: 'none', label: this.snapshotsRead ? 'No snapshots yet' : 'Reading the snapshots', disabled: true
-        });
-
-        return items;
-      }
-
-      items.push({ id: 'head', label: 'Restore the tree to', disabled: true });
-
-      this.snapshots.forEach((snap) => {
-        items.push({
-          id: `restore:${ snap.ref }`, label: snap.label, note: snap.when, icon: 'undo'
-        });
-      });
-
-      return items;
-    },
-
-    /** The other screens about this extension, plus the two things that are not a screen. */
     overflowItems() {
       return [
         { id: 'files', label: 'Files and history', icon: 'file' },
@@ -431,6 +311,15 @@ export default {
         { id: 'verification', label: 'Verification', icon: 'check' },
         { id: 'brief', label: 'The brief', icon: 'book' },
         { divider: true },
+        {
+          id: 'snapshot', label: 'Take a snapshot', icon: 'clock', note: this.lastSnapshot.label,
+        },
+        // The snapshots themselves, so restoring one is still reachable now that the menu it
+        // used to live in is gone. Capped: the kebab is a menu about the extension, not a
+        // history browser, and the newest few are the ones anybody goes back to.
+        ...this.snapshots.slice(0, 5).map((snap) => ({
+          id: `restore:${ snap.ref }`, label: snap.label, note: snap.when, icon: 'undo',
+        })),
         { id: 'refresh', label: 'Re-read this extension', icon: 'refresh' },
         { divider: true },
         {
@@ -483,13 +372,20 @@ export default {
 
       this.branch = branches?.current || '';
       this.branches = branches?.branches || [];
-      this.changes = await countChanges(this.extension).catch(() => 0);
-      this.version = await publishedVersion(this.extension).catch(() => '');
-      // Per Rancher rather than per extension, so it is read once and kept.
-      if (!this.target) {
-        this.target = await previewTarget().catch(() => null);
-      }
+      // Change sets waiting for review, the same number the Changes tab shows.
+      //
+      // This was `countChanges`, a `git status` line count of the working tree against the
+      // baseline. Two problems with it now: it counted files rather than change sets, so the
+      // bar said "Review 1 change" beside a tab badge reading 10; and it measured the working
+      // tree, which after a turn is clean, so it counted almost nothing. Publishing is now
+      // gated on review, so the number next to Publish should be the size of the queue that
+      // gate is watching.
+      const approval = await approvalState(this.extension).catch(() => null);
 
+      this.changes = approval
+        ? approval.pending.length
+        : await countChanges(this.extension).catch(() => 0);
+      this.version = await publishedVersion(this.extension).catch(() => '');
       this.read = true;
       // The bar carries "Snapshot saved Ns ago", so the snapshots are no longer only the
       // menu's business - they have to be read before anybody opens it.
@@ -611,21 +507,6 @@ export default {
       }
     },
 
-    onSnapshotSelect(id) {
-      if (id === 'take') {
-        this.snapLabel = defaultSnapshotLabel();
-        this.naming = true;
-
-        return;
-      }
-
-      if (id.startsWith('restore:')) {
-        const ref = id.slice('restore:'.length);
-
-        this.restoring = this.snapshots.find((snap) => snap.ref === ref) || null;
-      }
-    },
-
     async takeSnapshot() {
       if (this.busy) {
         return;
@@ -663,43 +544,6 @@ export default {
         toastSuccess(this.$store, `The files in "${ snap.label }" are back as they were. Anything created since is still there.`, { title: 'Snapshot restored' });
         await this.refresh();
         this.$emit('changed');
-      } catch (e) {
-        toastError(this.$store, e.message || String(e));
-      } finally {
-        this.busy = false;
-      }
-    },
-
-    /**
-     * Put the most recently edited file back, or delete it if the assistant created it.
-     *
-     * One file, not the tree: that is what undoLastChange does, and the toast names the file
-     * so it is never a mystery which one moved.
-     */
-    async undo() {
-      if (this.busy) {
-        return;
-      }
-
-      this.busy = true;
-
-      try {
-        const path = await undoLastChange(this.extension);
-
-        if (!path) {
-          toastSuccess(
-            this.$store,
-            'Nothing has changed since the last commit, so there was nothing to put back.',
-            { title: 'Nothing to undo' },
-          );
-        } else {
-          // Neither "restored" nor "deleted": undoLastChange does whichever the file needed
-          // and does not say which, and guessing wrong in the toast is worse than not saying.
-          toastSuccess(this.$store, `The last change to ${ path } has been undone.`, { title: 'Undone' });
-          this.$emit('changed');
-        }
-
-        await this.refresh();
       } catch (e) {
         toastError(this.$store, e.message || String(e));
       } finally {
@@ -787,6 +631,25 @@ export default {
         return;
       }
 
+      // Where the snapshot menu's own "Take one now" went. The dialog is unchanged; only the
+      // way in moved, now that the action bar no longer carries a snapshot control.
+      if (id === 'snapshot') {
+        this.snapLabel = defaultSnapshotLabel();
+        this.naming = true;
+
+        return;
+      }
+
+      // Destructive, so this opens the confirm dialog rather than doing it - the same rule the
+      // snapshot menu had before it was removed.
+      if (id.startsWith('restore:')) {
+        const ref = id.slice('restore:'.length);
+
+        this.restoring = this.snapshots.find((snap) => snap.ref === ref) || null;
+
+        return;
+      }
+
       if (id === 'remove') {
         // The page owns this one: it asks first, and reports on the same strip a publish does.
         this.$emit('publish-select', 'remove');
@@ -803,6 +666,7 @@ export default {
       variant="ghost"
       size="sm"
       icon="chevronLeft"
+      :icon-size="16"
       icon-only
       aria-label="Back"
       @click="$emit('back')"
@@ -817,50 +681,33 @@ export default {
       </div>
     </div>
 
-    <!-- Real: the recorded build failure, or whether the working tree has anything uncommitted. -->
-    <SBadge
-      :status="state"
-      :title="stateTitle"
-      data-testid="barn-state-badge"
-    />
+    <!--
+      The state badge was here - "Unsaved" when the working tree had anything uncommitted.
+      Taken out: every turn now ends in a commit, so the tree is almost never uncommitted and
+      the badge said "Unsaved" about a moment that lasts as long as the assistant is typing.
+      What is actually outstanding is the review queue, and the Changes tab counts that.
+    -->
 
     <!--
-      Real: the branch the pod's package repository is on, and the list it can be switched to.
-      Choosing one runs `git checkout` in the pod.
+      The branch switcher used to sit here, between the state badge and the preview target.
+      Taken out of the action bar: switching branch is not something anybody does in the middle
+      of a change, and it sat beside "See what changed" reading like part of that flow. Its
+      machinery is untouched below - `branch`, `branchItems`, `loadBranches`, `onBranchSelect` -
+      so putting it back is putting the menu back, and the Files screen still shows and switches
+      the branch, which is where somebody looking for it would go.
     -->
-    <SMenu
-      v-if="branch"
-      class="studio-masthead__chip-menu"
-      :items="branchItems"
-      align="left"
-      aria-label="Branch"
-      @open="loadBranches"
-      @select="onBranchSelect"
-    >
-      <template #trigger>
-        <!-- On the chip, not the component: see the note on the preview's viewport menu. -->
-        <SChip
-          :label="branch"
-          icon="branch"
-          data-testid="barn-branch-menu"
-        />
-        <SIcon name="chevronDown" :size="13" />
-      </template>
-    </SMenu>
 
-    <!-- Real: the cluster the preview is served from, and why it is the only one. -->
-    <SChip
-      :label="`Preview on: ${ previewOn }`"
-      icon="server"
-      :title="previewOnTitle"
-      data-testid="barn-preview-target"
-    />
+    <!--
+      "Preview on: local" (16:511) was here. Taken out: extension pods are only ever created in
+      the local cluster, so it was a chip that could not say anything else.
+    -->
 
     <!--
       Real: which of the four states the extension is in. Informational rather than clickable -
       it is a reading, and there is nothing to press it for.
     -->
     <SChip
+      v-if="phase"
       :label="phase.label"
       :icon="phase.icon"
       :tone="phase.tone"
@@ -873,30 +720,13 @@ export default {
     <slot name="status" />
 
     <!--
-      Real: a snapshot is a commit object holding the whole tree, tagged so it survives.
-
-      The trigger carries the design's "Snapshot saved 12s ago" (9:202) rather than the word
-      "Snapshots", because the reading and the menu are about the same thing and the bar has no
-      room to say it twice. Manual rather than automatic, and the tooltip says so: it reports
-      the newest snapshot in the pod, not a timer nobody set.
+      The snapshot reading used to sit here, as a menu whose trigger read "Snapshot saved 12s
+      ago" (9:202). Taken out of the action bar on request. The snapshots themselves are
+      untouched - the tree is still watched and one is still taken when it moves, and the
+      failure panel's roll back still depends on them - so what went is the readout and the
+      way in, not the safety net. Taking one by hand and restoring one both moved into the
+      overflow menu, because a recovery path with no way to reach it is not a recovery path.
     -->
-    <SMenu
-      class="studio-masthead__menu"
-      :items="snapshotItems"
-      aria-label="Snapshots"
-      data-testid="barn-snapshots-menu"
-      :title="lastSnapshot.title"
-      @open="loadSnapshots"
-      @select="onSnapshotSelect"
-    >
-      <template #trigger>
-        <SIcon name="clock" :size="16" />
-        <span
-          class="studio-masthead__saved"
-          data-testid="barn-snapshot-age"
-        >{{ lastSnapshot.label }}</span>
-      </template>
-    </SMenu>
 
     <!--
       Real, and only while there is something to go back from (19:959). The same action as the
@@ -918,36 +748,36 @@ export default {
       {{ rollBackLabel }}
     </SButton>
 
-    <!-- Real: puts the most recently edited file back to its last committed state. -->
-    <SButton
-      variant="ghost"
-      size="sm"
-      icon="undo"
-      :loading="busy"
-      data-testid="barn-undo-button"
-      @click="undo"
-    >
-      Undo
-    </SButton>
+    <!--
+      Undo was here: it put the most recently edited file back to its last committed state.
+      Taken out. Every turn now ends in a commit and the Changes tab can reject a change set,
+      which reverts a whole turn with a commit of its own rather than one file to a state
+      nobody chose - so this was the one control on the bar that undid something the review
+      flow could not see.
+    -->
 
-    <!-- Real: the Changes tab shows a diff of the working tree against its history. -->
-    <SButton
-      variant="secondary"
-      size="sm"
-      icon="compare"
-      data-testid="barn-review-changes"
-      @click="$emit('files')"
-    >
-      {{ reviewLabel }}
-    </SButton>
+    <!--
+      "Review N change sets" was here, opening the Changes tab. Taken out with the strip in the
+      composer that said the same thing: the count is on the Changes tab's own badge, the phase
+      chip a few centimetres to the left already reports it, and Publish now refuses while
+      anything is unreviewed - so the bar states the queue twice and offers a third way to a
+      tab that is always visible.
+    -->
 
-    <!-- Which extension this editor is pointed at. -->
+    <!--
+      The extension picker sat here, between "See what changed" and Publish. Taken out: it was a
+      dropdown of every extension in the Studio in the middle of a bar about *this* one, and the
+      four controls either side of it all act on the extension already open. The slot stays, so
+      putting it back is filling it again, and the Studio's own list is still how somebody moves
+      between extensions.
+    -->
     <slot name="picker" />
 
     <!-- Real: the existing split button, unchanged. -->
     <PublishSplit
       class="studio-masthead__publish"
       label="Publish"
+      icon="rocket"
       aria-label-trigger="Other ways to publish"
       :items="publishOptions"
       :disabled="publishing"
@@ -1104,8 +934,13 @@ export default {
 
   // The snapshot menu sits in a row of ghost buttons, so its trigger is one of them.
   &__menu :deep(.s-menu__trigger) {
-    padding: 5px var(--studio-space-8);
-    gap:     var(--studio-space-4);
+    box-sizing: border-box;
+    min-height: var(--studio-control-sm, 30px);
+    height:     var(--studio-control-sm, 30px);
+    padding:    0 var(--studio-space-8);
+    // The file's autosave group (9:202, layout_AL77CD) is a 13px glyph and a Caption/12
+    // reading 6px apart. It was a 16px glyph 4px from its label.
+    gap:     var(--studio-space-6);
   }
 
   &__say {
@@ -1119,10 +954,8 @@ export default {
   // The split button is the shell's, so its height comes from the shell's stylesheet and
   // not from ours. Scoped CSS reaches a child component's root element only, which is why
   // this needs :deep to get at the buttons inside it.
-  &__publish {
-    :deep(button) {
-      height: 30px;
-    }
-  }
+  // No height override here on purpose. Both halves are now drawn to the file's Button metrics
+  // (5px 11px, Heading/14 SemiBold), which comes out at 30px on its own; pinning a height on
+  // top of that is what would put it out of line again the next time the type ramp moves.
 }
 </style>

@@ -57,8 +57,26 @@ export default function(plugin: IPlugin): void {
   // already warming up by the time anybody opens the editor. Caught for the reason above.
   ensureBrowser().catch(() => {});
 
-  // The Studio's front door: every extension this cluster has (Figma screen 01). The side-menu
-  // button points here, and each row opens the editor below.
+  /**
+   * Rancher's own Extensions page, replaced with the same page plus a way into the Studio.
+   *
+   * Registered under Rancher's route name, so this wins for every existing link to Extensions
+   * without any of them knowing: the menu entry, a bookmark, the redirect after installing
+   * something. The component renders `@shell`'s page rather than reimplementing it, so what is
+   * below the banner is whatever that dashboard ships.
+   *
+   * This is the only way into the Studio now that its product is `public: false` and has no
+   * entry in the top-level menu. If this route ever fails to take effect, the Studio is still
+   * at /barn/extensions - it is unlisted, not unreachable.
+   */
+  plugin.addRoute({
+    name:      'c-cluster-uiplugins',
+    path:      '/c/:cluster/uiplugins',
+    component: () => import('./pages/rancher-extensions.vue'),
+  });
+
+  // The Studio's front door: every extension this cluster has (Figma screen 01). The banner on
+  // Rancher's Extensions page points here, and each row opens the editor below.
   plugin.addRoute('plain', {
     name:      STUDIO_ROUTE,
     path:      '/barn/extensions',

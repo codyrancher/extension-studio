@@ -62,16 +62,20 @@
 //   back "Not logged in - Please run /login". It now reads the credential state of the claude in
 //   the pod (assistantLogin), and says so plainly when there is none.
 import {
-  SIcon, SChip, SLabel, SButton, STabs, SEmpty, SMenu, SModal, SField
+  SIcon, SChip, SLabel, SButton, STabs, SEmpty, SMenu
 } from '../ui';
 import ActivityTurn from './ActivityTurn.vue';
+import ImagePreview from './ImagePreview.vue';
 import { toastSuccess, toastError } from '../../toast';
+import AssistantLoginModal from './AssistantLoginModal.vue';
+import { padded } from '../../change-regions';
+import { promptSaid, promptContextChips } from '../../prompt-context';
+import { stickToBottom } from '../../stick-to-bottom';
 import {
-  countChanges, publishedVersion, listExtensionFiles, writePodImage, assistantLogin, assistantTurns,
-  assistantPermissions, devServerLog, interruptAssistant, assistantConversation, assistantModel,
-  setAssistantModel, assistantMode, cycleAssistantMode
+  countChanges, publishedVersion, writePodImage, assistantLogin, assistantTurns, approvalState,
+  devServerLog, interruptAssistant, assistantConversation,
+  readPodImage, elementShot, startNewConversation, conversationSince
 } from '../../extensions';
-import { accumulatingPacket } from '../../review';
 
 /**
  * Where an attached file lands in the pod.
@@ -123,58 +127,16 @@ const PROGRESS = /^\[\s*\d{1,3}%\]/;
 const LOG_TAIL = 600;
 const LOG_LINES = 200;
 
-/**
- * What the permission chip says for each mode claude can be started in.
- *
- * The design's label is "Ask before each file edit" (11:226), which is claude's `default`
- * mode - so that wording is here, on the mode it is true of, and the others say what they are.
- *
- * Only used for the fallback reading. When there is a session open the chip repeats claude's
- * own status line instead (see MODE_LABELS), because that is the mode it is in now rather than
- * the one it was started in.
- */
-const PERMISSION_LABELS = {
-  bypass:          'Edits apply without asking',
-  'accept-edits':  'Edits apply without asking',
-  plan:            'Planning only, no edits',
-  default:         'Asks before each file edit',
-};
 
-/**
- * The modes claude's own status line names, and what each one means for your files.
- *
- * These are targets to cycle to, not a claim about what this claude has: `cycleAssistantMode`
- * presses shift+tab until the status line says the wanted one and then reports the line it
- * ended on, so a claude whose cycle does not include one of these lands somewhere else and the
- * chip says where. The words are claude's, read off this pod - "bypass permissions", "accept
- * edits", "auto mode" all came off the pane in front of this - and if it renames one the
- * reading follows it while the target here stops matching, which shows up as a mode that
- * cannot be reached rather than as a chip that lies.
- */
-const MODE_LABELS = {
-  'bypass permissions': 'Edits apply without asking',
-  'accept edits':       'File edits apply, everything else asks',
-  'plan mode':          'Planning only, no edits',
-  'auto mode':          'claude decides what to ask about',
-};
 
-/** How often the mode is re-read. It changes under you: shift+tab in the pane is all it takes. */
-const MODE_POLL_MS = 20000;
 
-/**
- * How often the review packet's accumulation is re-read.
- *
- * A minute, for the reason the changes count is a minute: it shells into the pod, and what it
- * counts moves when a turn ends rather than continuously. It is also re-read after this
- * composer sends something, which is the moment somebody is most likely to be watching it.
- */
-const ACCUMULATION_POLL_MS = 60000;
 
 export default {
   name: 'AssistantPanel',
 
   components: {
-    SIcon, SChip, SLabel, SButton, STabs, SEmpty, SMenu, SModal, SField, ActivityTurn
+    SIcon, SChip, SLabel, SButton, STabs, SEmpty, SMenu, ActivityTurn, ImagePreview,
+    AssistantLoginModal
   },
 
   props: {
@@ -206,6 +168,14 @@ export default {
      * merged, with a message that appears in both counted once. This half still matters because
      * it is the half that exists the instant Send is pressed, before any hook has run.
      */
+    // The route the preview is showing. It is context in the plainest sense:
+    // "make this page do X" is the usual thing to say, and the assistant was
+    // never told which page was on screen when it was said.
+    page: {
+      type:    String,
+      default: '',
+    },
+
     turns: {
       type:    Array,
       default: () => [],
@@ -230,7 +200,7 @@ export default {
     },
   },
 
-  emits: ['update:tab', 'send', 'review', 'reconnect'],
+  emits: ['update:tab', 'send', 'review', 'reconnect', 'context', 'cleared'],
 
   data() {
     return {
@@ -241,18 +211,21 @@ export default {
       /**
        * The paths that go with the next message, as `{ path, icon }`.
        *
-       * One list for both ways of adding one - picking a file out of the extension, and
-       * attaching a file from this machine - because they end the same way: a path in the pod
-       * that the assistant is told about.
+       * Files attached from this machine - pasted into the composer or chosen with the
+       * paperclip - as paths in the pod that the assistant is told about.
        */
       context:    [],
-      // The file picker, and what it has read.
-      picking:    false,
-      files:      [],
-      filesRead:  false,
-      fileFilter: '',
+      // The sign-in dialog, opened from the status strip when the pod has no credential.
+      signingIn:  false,
       // Set while a file is on its way into the pod.
       attaching:  false,
+      /**
+       * The attachment being looked at full size, as `{ path, name, src, loading, error }`,
+       * or null when the viewer is closed. The bytes are read on open rather than with the
+       * chip: a conversation with six screenshots attached would otherwise hold six of them
+       * in memory as data URLs for a viewer nobody opened.
+       */
+      preview:    null,
       /**
        * What the pod's claude has to work with, read rather than assumed.
        *
@@ -267,7 +240,6 @@ export default {
        * `null` until the first read, for the reason `login` is: the chip says it is reading
        * rather than asserting a mode nobody has looked for yet.
        */
-      permissions: null,
       // Set while the interrupt is on its way to the pane.
       stopping:    false,
       // The dev server's own output, under the strip the design draws collapsed (32:893).
@@ -292,24 +264,16 @@ export default {
        * `null` until the first read, so "nothing recorded" and "not asked yet" stay different.
        */
       conversation: null,
-      /** The model the pod's claude answers on, and the aliases it accepts. */
-      modelInfo:  null,
-      modelBusy:  '',
       /** The permission mode it is in now, off its own status line. */
-      modeInfo:   null,
-      modeBusy:   '',
-      modeTimer:  null,
-      /**
-       * What has been gathered for the next review packet, as `accumulatingPacket` answered it.
-       *
-       * `null` until the first read: "nothing has accumulated" and "nobody has asked yet" are
-       * different sentences and the strip says which.
-       */
-      accumulation:      null,
-      accumulationTimer: null,
       sendTimer:  null,
       // Ticked so that "2 minutes ago" on a turn counts up rather than freezing at what it
       // said when the pod was last read.
+      // The bottom-pinning handle for the stream. Not reactive: it holds DOM listeners, and
+      // nothing renders from it.
+      streamPin:  null,
+      // Where the conversation on screen begins. Everything the pod recorded before this
+      // belongs to a previous one and is not drawn - see startNewConversation.
+      since:      '',
       now:        Date.now(),
       nowTimer:   null,
     };
@@ -317,13 +281,24 @@ export default {
 
   computed: {
     tabs() {
+      // Files is deliberately absent, not deleted. Its pane below is intact and
+      // still renders when `tab === 'files'`; it is only unreachable from the
+      // strip, so bringing it back is putting this line back:
+      //
+      //   { id: 'files', label: 'Files', icon: 'file' },
+      //
+      // The file tree is still reachable meanwhile - "Files and history" in the
+      // masthead's overflow opens the screen that owns it.
+      // No Terminal tab. The pane itself is still here and still reachable - the status
+      // strip's "Open the terminal", the permission menu's shift+tab entry and the masthead
+      // overflow all switch to it - but it is not one of the two things this panel is for.
+      // Anything that has to be typed at claude's own prompt (/login most of all) still goes
+      // through those.
       return [
         { id: 'assistant', label: 'Assistant', icon: 'sparkle' },
-        { id: 'files', label: 'Files', icon: 'file' },
         {
           id: 'changes', label: 'Changes', icon: 'compare', count: this.changes || null,
         },
-        { id: 'terminal', label: 'Terminal', icon: 'terminal' },
       ];
     },
 
@@ -342,6 +317,26 @@ export default {
      *
      * `tone`: ok | warn | unknown. The dot is green only for the first.
      */
+    /**
+     * Whether the session's own replies say its login has stopped working.
+     *
+     * The credential check below reads a file, and a file says nothing about the process: the
+     * claude in a pod reads its credential when it starts and holds it, so a session can be
+     * running with an expired login, or stuck in a login prompt, while a perfectly good
+     * credential sits on disk beside it. That is not a corner case - it is what happens to
+     * every pod whose session outlives its token, and the strip cheerfully said "signed in"
+     * over a conversation whose every reply was "Login expired · Please run /login".
+     *
+     * So the newest reply is read too. These are claude's own words, not a guess: it says them
+     * in place of the answer, which is exactly when somebody needs to be told.
+     */
+    sessionRefused() {
+      const newest = [...this.podTurns].find((turn) => this.saidIn(turn).text);
+      const said = newest ? this.saidIn(newest).text : '';
+
+      return /login expired|please run \/login|not logged in|invalid bearer token|401/i.test(said);
+    },
+
     sessionState() {
       const detached = this.connected ? '' : ' · the terminal is not attached';
 
@@ -364,7 +359,7 @@ export default {
       if (!this.login.signedIn) {
         return {
           tone:  'warn',
-          label: 'The assistant is not signed in · run /login in the terminal',
+          label: 'The assistant is not signed in',
           title: 'There is no credential in this pod: no OAuth credentials file, no API key in its environment and no account in .claude.json. Every prompt sent from here comes back "Not logged in".',
         };
       }
@@ -373,6 +368,15 @@ export default {
       // nobody, and filling that gap with whoever is signed in to Rancher is exactly the
       // substitution that made this row wrong in the first place.
       const who = this.login.account;
+
+      // A credential on disk and a session that cannot use it.
+      if (this.sessionRefused) {
+        return {
+          tone:  'warn',
+          label: `The assistant's login has expired${ detached }`,
+          title: 'There is a credential in this pod, but the claude running here is answering "Login expired". It read its credential when it started and has held it since, so signing in again - which restarts the session - is what picks up the new one.',
+        };
+      }
 
       return {
         tone:  detached ? 'warn' : 'ok',
@@ -408,12 +412,25 @@ export default {
           unmatched.set(text, (unmatched.get(text) || 0) + 1);
         }
 
-        this.recordedEntries(turn).forEach((props) => {
-          out.push({ key: `${ turn.turn }-${ props.role }`, props });
-        });
+        // Only the newest recorded turn can still be running. See recordedEntries.
+        const entries = this.recordedEntries(turn, turn === recorded[recorded.length - 1])
+          .map((props) => ({ key: `${ turn.turn }-${ props.role }`, props }));
+
+        // One group, sorted as one: a turn's prompt and its reply belong together in that order
+        // whatever else is interleaved around them.
+        out.push({ at: Date.parse(turn.at || turn.endedAt || '') || 0, entries });
       });
 
+      const mark = Date.parse(this.since || '');
+
       this.turns.forEach((turn, i) => {
+        // Anything typed before the mark belongs to the conversation that was cleared. Without
+        // this, a message whose pod record has been filtered out can never be matched to it
+        // again, so it stays in the stream for good, still claiming it has not been recorded.
+        if (!Number.isNaN(mark) && turn.at && turn.at < mark) {
+          return;
+        }
+
         const text = this.flatten(turn.text);
         const left = unmatched.get(text) || 0;
 
@@ -425,17 +442,30 @@ export default {
         }
 
         out.push({
-          key:   `composer-${ i }`,
-          props: {
-            role: 'user',
-            text: turn.text || '',
-            when: turn.when || '',
-            note: 'Sent from this composer · the pod has not recorded it yet',
-          },
+          at:      turn.at || 0,
+          entries: [{
+            key:   `composer-${ i }`,
+            props: {
+              role: 'user',
+              text: turn.text || '',
+              when: turn.when || '',
+              note: 'Sent from this composer · the pod has not recorded it yet',
+            },
+          }],
         });
       });
 
-      return out;
+      // In the order things happened, not "everything the pod recorded, then everything this
+      // browser sent".
+      //
+      // The two halves were concatenated, so an unmatched composer message - one the pod has
+      // not recorded, or never will because the session was wedged when it was sent - was
+      // appended after turns that came minutes later. A conversation that jumps back in time
+      // at the point the record runs out is unreadable, and it hid the newest turn under
+      // messages older than it.
+      return out
+        .sort((a, b) => a.at - b.at)
+        .flatMap((group) => group.entries);
     },
 
     /** Watched rather than the array, which is rebuilt every second by the clock above. */
@@ -492,100 +522,6 @@ export default {
     },
 
     /**
-     * The model chip in the composer's action bar (11:340, drawn "Claude Opus 5").
-     *
-     * A reading first: what the pod says its claude will answer on, in the pod's own spelling.
-     * Nothing in the pod naming a model is a real answer and is said as one - claude then uses
-     * whatever its account defaults to, and inventing a name for that would be the one thing
-     * this panel does not do.
-     */
-    modelChip() {
-      const info = this.modelInfo;
-
-      if (!info) {
-        return {
-          label: 'Reading the model',
-          title: 'Asking the pod which model its claude answers on.',
-        };
-      }
-
-      if (!info.read) {
-        return {
-          label: 'Model not read',
-          title: 'This extension\'s pod could not be asked which model its claude uses.',
-        };
-      }
-
-      const where = {
-        argv:     'the --model the running claude was started with',
-        env:      'ANTHROPIC_MODEL in the pod',
-        settings: '`model` in the pod\'s ~/.claude/settings.json, which is what claude\'s own /model writes',
-        config:   '`model` in the pod\'s ~/.claude.json',
-      }[info.source] || '';
-
-      if (info.model) {
-        return {
-          label: info.model,
-          title: `Read from ${ where }. Choosing another one sends claude's own /model to this pod's session, which changes the model from the next turn and is written back into the pod's settings, so it survives the pod restarting.`,
-        };
-      }
-
-      return {
-        label: 'Default model',
-        title: 'Nothing in this pod names a model: no --model on the claude that is running, no ANTHROPIC_MODEL in its environment, and no `model` in claude\'s settings. So it answers on whatever that install defaults to, and there is nothing here to read a name off. Choosing one below sends claude\'s own /model, after which this names it.',
-      };
-    },
-
-    /**
-     * What the model menu offers: the aliases this pod's claude documents, and nothing else.
-     *
-     * Parsed out of the pod's own `claude --help` rather than listed here, because a list in
-     * this file would be a claim about a program this bundle does not ship. When the help
-     * cannot be parsed the menu says so and points at claude's own picker in the pane, which
-     * is where the real list lives either way.
-     */
-    modelItems() {
-      const aliases = this.modelInfo?.aliases || [];
-      const current = this.modelInfo?.model || '';
-      const items = aliases.map((alias) => ({
-        id:       `model:${ alias }`,
-        label:    alias,
-        icon:     alias === current ? 'check' : 'sparkle',
-        note:     alias === current ? 'in use' : '',
-        disabled: !!this.modelBusy,
-      }));
-
-      if (!items.length) {
-        items.push({
-          id: 'model:none', label: 'No aliases were read from this pod\'s claude --help', disabled: true,
-        });
-      }
-
-      items.push({ divider: true });
-      items.push({
-        id: 'model:pick', label: 'Choose in the terminal', note: '/model', icon: 'terminal',
-      });
-
-      return items;
-    },
-
-    /**
-     * The standing note under the last turn: what the stream is showing and what it is not.
-     *
-     * The second half is the one that matters and it has to keep being said, because the panel
-     * looks complete without it: no step in the design's sense is recorded anywhere, so no step
-     * row is drawn.
-     */
-    streamNote() {
-      return `Each turn above is what the pod recorded for it: the prompt, when it was sent, the screen and
-        user when the Studio sent it, the assistant's own reply read out of claude's transcript, and the
-        files the turn left behind. The per-step detail the design draws - a status and a duration for
-        each step, and live progress on the one in flight - is not here, because the hooks record a
-        turn's start, the files its editing tools touch and its end, and nothing in between. A reply
-        that is a tool call rather than words has no text to show and is not counted as one.`.replace(/\s+/g, ' ');
-    },
-
-    /**
      * Why nothing in this stream ever finishes, when that is the reason.
      *
      * Said only when the pod has actually been asked and answered that it has no credential.
@@ -606,194 +542,26 @@ export default {
         will carry a duration and a commit.`.replace(/\s+/g, ' ');
     },
 
+    /**
+     * The line under the composer, which now counts the same thing the badge does.
+     *
+     * "since v0.1.0" was true of a file count measured from the published version and is not
+     * true of a review queue, so it says what the number is instead of where it was measured
+     * from. Nothing waiting is worth saying plainly: it is the state Publish requires.
+     */
     changesLabel() {
       const n = this.changes;
-      const what = `${ n } change${ n === 1 ? '' : 's' }`;
 
-      return this.version ? `${ what } since v${ this.version }` : what;
+      if (!n) {
+        return 'Nothing waiting for review';
+      }
+
+      return `${ n } change set${ n === 1 ? '' : 's' } to review`;
     },
 
     /** The tmux session in the pod, which is the name a shell would attach to. */
     sessionName() {
       return `mc-${ this.session }`;
-    },
-
-    /**
-     * The permission chip (11:226, 16:557): the mode the assistant is in *now*, and the one
-     * control that actually changes it.
-     *
-     * Two readings, and the order between them is the whole point. `assistantMode` reads
-     * claude's own status line in the pane ("bypass permissions on (shift+tab to cycle)"),
-     * which is the mode it is in at this moment - it follows a shift+tab somebody pressed in
-     * the Terminal tab a second ago. `assistantPermissions` reads the command line claude was
-     * *started* with, which is only the mode it began in, and is all there is to read when no
-     * session is open. The live one wins whenever there is one.
-     *
-     * The chip used to be a readout with no menu, on the argument that nothing here could
-     * change the mode. That was half right. What cannot be changed from here is the mode claude
-     * *starts* in: that is the argument in pod/claude-session.sh, which is seeded from this
-     * bundle and written again on every page load, so anything this screen wrote there would be
-     * overwritten by the next visit. What can be changed is the mode the running session is in,
-     * because claude cycles that on shift+tab and a pane can be typed into - so the menu does
-     * exactly that, and the chip then reports what claude's status line says it landed on
-     * rather than what was asked for.
-     */
-    permissionChip() {
-      const live = this.modeInfo;
-      const perms = this.permissions;
-
-      if (live?.read && live.session && live.mode) {
-        const meaning = MODE_LABELS[live.mode] || '';
-
-        return {
-          label: meaning || live.mode,
-          icon:  live.mode === 'plan mode' ? 'lock' : 'alert',
-          tone:  live.mode === 'plan mode' ? 'info' : 'warning',
-          title: `Read from claude's own status line in this pod's session, which is the mode it is in right now: "${ live.line.trim() }". Choosing another one below presses shift+tab in that session, which is claude's own way of changing it. The mode claude *starts* in is fixed by pod/claude-session.sh, which is seeded from this bundle and written again on every page load, so a session that restarts comes back on that one. Nothing the assistant edits reaches this Rancher until you publish.`,
-        };
-      }
-
-      if (!perms && !live) {
-        return {
-          label: 'Reading the assistant\'s permissions',
-          icon:  'clock',
-          tone:  'default',
-          title: 'Asking the pod what mode its claude is in.',
-        };
-      }
-
-      if (!perms?.read || !perms?.mode) {
-        return {
-          label: 'Permissions not read',
-          icon:  'alert',
-          tone:  'default',
-          title: perms?.read
-            ? 'The pod answered, and no claude command line was found in it - neither a running process nor the session script. Open the Terminal tab to start one.'
-            : 'This extension\'s pod could not be asked what mode its claude is in, so nothing here is known about what it may do.',
-        };
-      }
-
-      const where = perms.source === 'process'
-        ? 'the claude running in this pod'
-        : 'this pod\'s session script, since no session is open yet';
-
-      return {
-        label: PERMISSION_LABELS[perms.mode] || `Permission mode: ${ perms.mode }`,
-        icon:  perms.mode === 'default' ? 'lock' : 'alert',
-        tone:  perms.mode === 'default' ? 'info' : 'warning',
-        title: `No session is open in this pod, so there is no status line to read. This is the mode claude would start in, read from ${ where }: \`${ perms.argv }\`. Open the Terminal tab and the chip reports the running mode instead.`,
-      };
-    },
-
-    /**
-     * Where the two permission readings disagree, said out loud rather than in a tooltip.
-     *
-     * Cross-screen rule 18 asks for the permission mode to be one state in two places. It is
-     * not one state, and it cannot be made into one from here: the chip above changes the mode
-     * the *running* session is in, by pressing shift+tab in the pane the way a person would,
-     * and the settings page reports the mode claude is *started* in, which is an argument in
-     * `pod/claude-session.sh` - a file seeded from this bundle into a ConfigMap that
-     * `ensureDefaultExtension()` writes again on every page load. Anything written there is
-     * overwritten by the next visit, so no control anywhere in this product can persist it.
-     *
-     * What was actually wrong is that the product did not say so. Changing the mode here left
-     * the two screens reporting different things with nothing on either of them to explain it,
-     * and the explanation was in the chip's `title` where a person driving the product never
-     * sees it. So when the two readings disagree, this is the sentence that appears under the
-     * strip, naming both values, where each is read from, and which of them settings shows.
-     *
-     * Empty whenever they agree, whenever either has not been read, and whenever there is no
-     * session - a strip that carried a standing paragraph about a distinction that is not
-     * currently biting would be noise.
-     */
-    modeSplit() {
-      const live = this.modeInfo;
-      const perms = this.permissions;
-
-      if (!live?.read || !live.session || !live.mode || !perms?.read || !perms.mode) {
-        return '';
-      }
-
-      const running = MODE_LABELS[live.mode] || live.mode;
-      const starts = PERMISSION_LABELS[perms.mode] || perms.mode;
-
-      if (running === starts) {
-        return '';
-      }
-
-      return [
-        `The session running in this pod is in "${ running }", which is what the chip above reports and what claude's own status line says.`,
-        `It was started in "${ starts }", which is what Studio settings reports and what the session comes back on if it restarts.`,
-        'Two readings of two different things, and neither screen can change the other: the mode a session starts in is an argument in pod/claude-session.sh, which is seeded from this bundle and written again on every page load.',
-      ].join(' ');
-    },
-
-    /**
-     * The review packet, while it is still accumulating.
-     *
-     * Cross-screen rule 6: "the review packet accumulates quietly in the background. It is only
-     * assembled and handed to a reviewer at the push to a repository." The product obeyed both
-     * halves and showed neither, which from the outside is indistinguishable from a packet
-     * conjured at the push out of whatever happens to be in the tree.
-     *
-     * So the workspace says what has been gathered so far and that none of it is in anybody's
-     * queue. It is a reading, not a record: `accumulatingPacket` counts the pod's commits, its
-     * changed files and the prompts in its provenance log every time it is asked, so what is on
-     * screen is the accumulation itself rather than a number this component has been keeping.
-     */
-    accumulationNote() {
-      const a = this.accumulation;
-
-      if (!a) {
-        return 'Reading what has accumulated for the next review packet.';
-      }
-
-      if (!a.read) {
-        return a.sentence;
-      }
-
-      // The prompts are the half with no other home, so where they exist but no turn ended,
-      // say that: it is the difference between "nothing was captured" and "everything was
-      // captured and none of it could be tied to a line of the diff".
-      const unended = a.turns && !a.ended
-        ? ' None of those turns has an end recorded, so the prompts are kept but no line of the diff can be traced back to one.'
-        : '';
-
-      return `${ a.sentence }${ unended }`;
-    },
-
-    /**
-     * The modes the chip's menu offers, and what each does to your files.
-     *
-     * Targets rather than a claim: each one presses shift+tab until claude's status line says
-     * that mode, and reports where it actually landed. One that this claude does not cycle
-     * through is reachable by nothing and says so, which is why the list can be written down
-     * without it becoming a lie about a program this bundle does not ship.
-     */
-    modeItems() {
-      const current = this.modeInfo?.mode || '';
-      const live = !!this.modeInfo?.session;
-      const items = Object.entries(MODE_LABELS).map(([mode, meaning]) => ({
-        id:       `mode:${ mode }`,
-        label:    meaning,
-        note:     mode === current ? 'in use' : mode,
-        icon:     mode === current ? 'check' : 'lock',
-        disabled: !live || !!this.modeBusy,
-      }));
-
-      items.push({ divider: true });
-
-      if (!live) {
-        items.push({
-          id: 'mode:none', label: 'No session is open in this pod, so there is no mode to change', disabled: true,
-        });
-      }
-
-      items.push({
-        id: 'mode:terminal', label: 'Open the terminal', note: 'shift+tab', icon: 'terminal',
-      });
-
-      return items;
     },
 
     /** The dev server's output, tidied enough to be readable in a pre. */
@@ -859,17 +627,6 @@ export default {
       ];
     },
 
-    /** The files the picker is showing, filtered by whatever has been typed. */
-    shownFiles() {
-      const term = this.fileFilter.trim().toLowerCase();
-      const already = new Set(this.context.map((item) => item.path));
-      const matching = this.files.filter((path) => !already.has(path) && (!term || path.toLowerCase().includes(term)));
-
-      // A package is a few hundred files and the list is scrolled, not paged; a cap keeps a
-      // pod with a stray build directory in it from rendering ten thousand rows.
-      return matching.slice(0, 300);
-    },
-
     /** The hint under the composer, which has to say when a message carries more than itself. */
     hint() {
       const base = 'Shift + Enter for a new line · the assistant never publishes on its own';
@@ -892,16 +649,10 @@ export default {
 
     // Once, and again when the extension changes: this is the mode claude was *started* in,
     // which cannot change without a restart, and it is only the fallback anyway.
-    this.refreshPermissions();
 
     // The running mode does change while somebody watches: shift+tab in the Terminal tab is
     // all it takes, and a chip that went on claiming the old one would be the worst kind of
     // wrong here.
-    this.refreshMode();
-    this.modeTimer = setInterval(() => this.refreshMode(), MODE_POLL_MS);
-
-    // The model is read once and again after it is changed. Nothing else moves it.
-    this.refreshModel();
 
     this.refreshLogin();
     // Half a minute, because this one does change while somebody is looking at it: running
@@ -909,22 +660,22 @@ export default {
     // should notice that you did.
     this.loginTimer = setInterval(() => this.refreshLogin(), 30000);
 
-    this.refreshTurns();
+    this.readSince().then(() => this.refreshTurns());
     this.turnsTimer = setInterval(() => this.refreshTurns(), TURNS_POLL_MS);
 
-    this.refreshAccumulation();
-    this.accumulationTimer = setInterval(() => this.refreshAccumulation(), ACCUMULATION_POLL_MS);
     this.nowTimer = setInterval(() => {
       this.now = Date.now();
     }, 1000);
+
+    this.streamPin = stickToBottom(this.$refs.stream);
+    this.streamPin.pin();
   },
 
   beforeUnmount() {
+    this.streamPin?.stop();
     clearInterval(this.countTimer);
     clearInterval(this.loginTimer);
     clearInterval(this.turnsTimer);
-    clearInterval(this.modeTimer);
-    clearInterval(this.accumulationTimer);
     clearInterval(this.nowTimer);
     clearTimeout(this.sendTimer);
   },
@@ -939,48 +690,47 @@ export default {
     // so the array's identity changes constantly and scrolling on every change of it would drag
     // the view back down under anybody reading further up.
     streamLength() {
-      // After the render, not with it - the element being scrolled to does not exist yet.
-      this.$nextTick(() => {
-        const stream = this.$refs.stream;
-
-        if (stream) {
-          stream.scrollTop = stream.scrollHeight;
-        }
-      });
+      // After the render, and then again as the turn's own content settles - see stickToBottom.
+      // Scrolling once in `nextTick` left the view a little short of the end, because a turn's
+      // pictures and chips are taller a frame later than they are when it first renders.
+      this.$nextTick(() => this.streamPin?.pin());
     },
 
     extension() {
       this.changes = 0;
       this.version = '';
       this.login = null;
-      this.permissions = null;
-      this.modeInfo = null;
-      this.modelInfo = null;
       this.conversation = null;
       this.rawOpen = false;
       this.rawText = '';
       this.rawError = '';
-      this.refreshPermissions();
-      this.refreshMode();
-      this.refreshModel();
-      this.podTurns = [];
+        this.podTurns = [];
+        this.since = '';
+        this.readSince();
       this.podRead = false;
-      this.accumulation = null;
       this.refreshLogin();
       this.refreshTurns();
-      this.refreshAccumulation();
       // The paths belonged to the extension that was open; none of them means anything in the
       // next one's pod.
       this.context = [];
-      this.files = [];
-      this.filesRead = false;
       this.refreshChanges();
     },
   },
 
   methods: {
     async refreshChanges() {
-      this.changes = await countChanges(this.extension).catch(() => 0);
+      // Change sets waiting for review, not files touched.
+      //
+      // The tab's badge sits next to the word "Changes" and beside a Publish button that now
+      // refuses while anything is unreviewed, so the number a person needs there is how many
+      // things they have to look at - not how many files those things happened to touch. A
+      // count of files answered a question nobody was asking and read as done work rather than
+      // as a queue.
+      const approval = await approvalState(this.extension).catch(() => null);
+
+      this.changes = approval
+        ? approval.pending.length
+        : await countChanges(this.extension).catch(() => 0);
       this.version = await publishedVersion(this.extension).catch(() => '');
     },
 
@@ -988,231 +738,6 @@ export default {
       this.login = await assistantLogin(this.extension)
         .catch(() => ({ read: false, signedIn: false, account: '' }));
     },
-
-    /**
-     * Re-read what has been gathered for the next packet.
-     *
-     * Guarded on the extension the same way `refreshPermissions` is: this is three reads into a
-     * pod and the extension can change under a slow one, and an answer about the pod somebody
-     * has just navigated away from is worse than no answer at all.
-     */
-    async refreshAccumulation() {
-      const asked = this.extension;
-      const answer = await accumulatingPacket(asked).catch(() => null);
-
-      if (asked === this.extension && answer) {
-        this.accumulation = answer;
-      }
-    },
-
-    async refreshPermissions() {
-      const asked = this.extension;
-      const perms = await assistantPermissions(asked).catch(() => ({
-        read: false, running: false, mode: '', argv: '', source: '',
-      }));
-
-      if (asked === this.extension) {
-        this.permissions = perms;
-      }
-    },
-
-    /**
-     * The design's collapsed raw-output strip (32:893), expanded in place.
-     *
-     * What expands is the dev server's own output - `vue-cli-service serve`, which is the
-     * command the strip is labelled with and the one the pod actually runs. It is read out of
-     * the pod's log rather than out of the terminal, because the terminal is claude's pane and
-     * the compile happens beside it, in PID 1.
-     */
-    /**
-     * The design's Stop (11:347), which presses Escape in the pane the assistant runs in.
-     *
-     * Drawn beside Send rather than replacing it, as the design draws it, and always available:
-     * nothing in this pod records a turn beginning, so the panel cannot know whether there is
-     * something to interrupt - and a button that greyed itself out on a guess would be wrong
-     * exactly when it was needed. The toast says what was delivered, never that a run stopped.
-     */
-    async stopAssistant() {
-      if (this.stopping) {
-        return;
-      }
-
-      this.stopping = true;
-
-      try {
-        const how = await interruptAssistant(this.extension);
-
-        if (how === 'none') {
-          toastSuccess(
-            this.$store,
-            'There is no session open in this pod, so there was nothing to interrupt.',
-            { title: 'Nothing running' },
-          );
-        } else {
-          toastSuccess(
-            this.$store,
-            'Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.',
-            { title: 'Interrupt sent' },
-          );
-        }
-      } catch (e) {
-        toastError(this.$store, e?.message || String(e), { title: 'The interrupt did not reach the pod' });
-      } finally {
-        this.stopping = false;
-      }
-    },
-
-    async toggleRaw() {
-      this.rawOpen = !this.rawOpen;
-
-      if (this.rawOpen) {
-        await this.readRaw();
-      }
-    },
-
-    async readRaw() {
-      const asked = this.extension;
-
-      this.rawState = 'reading';
-      this.rawError = '';
-
-      try {
-        const text = await devServerLog(asked, LOG_TAIL);
-
-        if (asked !== this.extension) {
-          return;
-        }
-
-        this.rawText = text;
-        this.rawError = text ? '' : `${ asked } has no running pod, so there is no dev server output to read.`;
-      } catch (e) {
-        this.rawText = '';
-        this.rawError = e?.message || String(e);
-      } finally {
-        this.rawState = '';
-      }
-    },
-
-    async refreshTurns() {
-      const asked = this.extension;
-      const turns = await assistantTurns(asked, TURN_LIMIT).catch(() => []);
-
-      // The answer to a question about the extension that is no longer open is not an answer
-      // about this one. Switching pods while an exec is in flight is otherwise how a stream
-      // ends up showing another extension's conversation.
-      if (asked !== this.extension) {
-        return;
-      }
-
-      this.podTurns = Array.isArray(turns) ? turns : [];
-      this.podRead = true;
-
-      // The same beat as the turns, because the two are drawn as one thing: a turn whose reply
-      // arrived a second later would otherwise show as unanswered until the next poll.
-      const said = await assistantConversation(asked, TURN_LIMIT * 2).catch(() => null);
-
-      if (asked === this.extension && said) {
-        this.conversation = said;
-      }
-    },
-
-    async refreshMode() {
-      const asked = this.extension;
-      const mode = await assistantMode(asked).catch(() => ({
-        read: false, session: false, mode: '', line: '',
-      }));
-
-      if (asked === this.extension) {
-        this.modeInfo = mode;
-      }
-    },
-
-    async refreshModel() {
-      const asked = this.extension;
-      const model = await assistantModel(asked).catch(() => ({
-        read: false, model: '', source: '', aliases: [], session: false,
-      }));
-
-      if (asked === this.extension) {
-        this.modelInfo = model;
-      }
-    },
-
-    /**
-     * Point the pod's claude at another model, and then read back what it is on.
-     *
-     * `/model` into the open session when there is one, which is claude's own command and which
-     * claude itself persists into the pod's settings; the same settings key written directly
-     * when there is no session to type into. Either way the chip is re-read afterwards rather
-     * than relabelled, so what it says is what the pod says.
-     */
-    async chooseModel(alias) {
-      if (this.modelBusy) {
-        return;
-      }
-
-      this.modelBusy = alias;
-
-      try {
-        const how = await setAssistantModel(this.extension, alias);
-
-        // claude takes a moment to write its settings after the command lands in the pane.
-        await new Promise((resolve) => setTimeout(resolve, how === 'session' ? 2500 : 0));
-        await this.refreshModel();
-
-        toastSuccess(
-          this.$store,
-          how === 'session'
-            ? `/model ${ alias } went to this pod's session, which is claude's own way of changing it. The chip now shows what the pod reports.`
-            : `No session is open in this pod, so ${ alias } was written into claude's settings there. The next session starts on it.`,
-          { title: 'Model changed' },
-        );
-      } catch (e) {
-        toastError(this.$store, e?.message || String(e), { title: 'The model did not change' });
-      } finally {
-        this.modelBusy = '';
-      }
-    },
-
-    /**
-     * Cycle the pod's session to a permission mode, the way a person at the pane would.
-     *
-     * shift+tab is claude's own control and there is no other: it moves to the next mode and
-     * prints where it landed. So this presses it until the status line says the wanted mode, and
-     * then says which mode it is actually in - never which one was asked for.
-     */
-    async chooseMode(mode) {
-      if (this.modeBusy) {
-        return;
-      }
-
-      this.modeBusy = mode;
-
-      try {
-        const now = await cycleAssistantMode(this.extension, mode);
-
-        this.modeInfo = now;
-
-        if (now.mode === mode) {
-          toastSuccess(
-            this.$store,
-            `This pod's claude is now in ${ mode }. It stays there until the session restarts, which brings it back on the mode pod/claude-session.sh starts it in.`,
-            { title: 'Permission mode changed' },
-          );
-        } else {
-          toastError(
-            this.$store,
-            `shift+tab did not reach ${ mode } in this claude's cycle. It is in ${ now.mode || 'a mode with no status line' } instead, which is what the chip now says.`,
-            { title: 'That mode was not reached' },
-          );
-        }
-      } catch (e) {
-        toastError(this.$store, e?.message || String(e), { title: 'The mode did not change' });
-      } finally {
-        this.modeBusy = '';
-      }
-    },
-
     /** The one line `askAssistant` types, which is what the hook on the other end records. */
     flatten(text) {
       return String(text || '').replace(/\s+/g, ' ').trim();
@@ -1226,19 +751,23 @@ export default {
      * prompt record has no user entry at all - it is a commit the pod made with nothing asked
      * for it - and the assistant entry says exactly that rather than borrowing the prompt above.
      */
-    recordedEntries(turn) {
+    recordedEntries(turn, newest) {
       const entries = [];
 
       if (turn.at) {
         entries.push({
-          role: 'user',
-          text: turn.prompt || 'The prompt for this turn was not recorded.',
-          when: this.ago(turn.at),
-          note: this.originNote(turn),
+          role:    'user',
+          text:    turn.prompt || 'The prompt for this turn was not recorded.',
+          // The chips the composer attached, drawn above the message rather than said inside it.
+          context: turn.context || [],
+          when:    this.ago(turn.at),
+          // No origin note either: every turn in this pane came from this composer, so it said
+          // the same sentence under every message somebody had just watched themselves send.
+          note:    '',
         });
       }
 
-      entries.push(this.outcomeEntry(turn));
+      entries.push(this.outcomeEntry(turn, newest));
 
       return entries;
     },
@@ -1304,7 +833,7 @@ export default {
      * that claude's own reply is read too, such a turn shows the reply that explains it
      * ("Not logged in - Please run /login") instead of only reporting the silence.
      */
-    outcomeEntry(turn) {
+    outcomeEntry(turn, newest = true) {
       const files = Array.isArray(turn.files) ? turn.files : [];
       const commit = (turn.commit || '').slice(0, 7);
       const n = files.length;
@@ -1313,16 +842,38 @@ export default {
 
       if (!turn.endedAt) {
         const why = turn.at
-          ? 'No end was recorded for this turn, so there is nothing yet to show for it.'
+          ? (newest
+            ? 'No end was recorded for this turn, so there is nothing yet to show for it.'
+            : 'This turn never finished. Nothing recorded its end, and the conversation moved on past it.')
           : 'A turn was recorded with neither a prompt nor an end.';
         const open = turn.at ? `Started ${ this.ago(turn.at) } · no duration, because nothing recorded its end` : '';
 
+        /**
+         * Still running, or simply never finished.
+         *
+         * Only the newest turn can be the one in flight: the assistant answers one prompt at a
+         * time, so an older turn with no end recorded is not being worked on - whatever was
+         * going to end it did not. Without this rule, a turn abandoned when a session was
+         * restarted or wedged sat in the middle of the conversation animating "Working" with a
+         * counter climbing past newer messages that had already been answered.
+         */
+        const working = newest && (!said.text || said.failed);
+
         return {
-          role:       'assistant',
-          pending:    !said.text || said.failed,
-          when:       '',
-          text:       said.text || why,
-          note:       said.text ? [why, open].filter(Boolean).join(' · ') : open,
+          role:    'assistant',
+          pending: working,
+          when:    '',
+          // How long it has been going, for the indicator the turn draws while it is pending.
+          // Counted from the prompt, which is the only timestamp a turn in flight has.
+          // `lasted` parses both ends, and `now` is a number - so it is spelled the way the
+          // other end is spelled rather than handed over as milliseconds, which parses to NaN
+          // and would have made this quietly always empty.
+          elapsed: working && turn.at ? this.lasted(turn.at, new Date(this.now).toISOString()) : '',
+          // No prose about the silence while it is still working: the indicator says that, and
+          // saying it twice - once as motion and once as an apology - reads as a failure.
+          // An abandoned turn says so in words, since it has no indicator to say it with.
+          text:    said.text || (working ? '' : why),
+          note:    said.text ? [why, open].filter(Boolean).join(' · ') : '',
           files,
           filesLabel: n ? `${ n } file${ plural } its editing tools have touched so far` : '',
         };
@@ -1362,12 +913,19 @@ export default {
       return {
         role:       'assistant',
         pending:    false,
-        // What the assistant said leads, as the design has it, and what the turn ended in drops
-        // to the caption under it. With nothing said, the caption's sentence is all there is
-        // and it leads instead.
+        // What the assistant said leads, as the design has it. With nothing said, the sentence
+        // about how the turn ended is all there is and it leads instead.
         when:       this.ago(turn.endedAt),
         text:       said.text || outcome,
-        note:       (said.text ? [outcome, ...facts] : facts).join(' · '),
+        // No caption under a turn that spoke for itself.
+        //
+        // It read "Finished, and committed what it left behind · Took 17s · Commit 4bb20db ·
+        // Answered on claude-opus-5" under every single turn - four facts, the same three of
+        // them every time, restating in the caption what the reply above had just said in
+        // words. The one that is not restatement is the commit, and that is what the Changes
+        // tab is: a list of them, with what each one did. So the caption is kept only for a
+        // turn that said nothing, where it is the whole of what is known.
+        note:       said.text ? '' : facts.join(' · '),
         files,
         filesLabel: n
           ? `${ n } file${ plural } ${ commit ? 'in this turn\'s commit' : 'its editing tools touched' }`
@@ -1442,7 +1000,11 @@ export default {
       }
 
       this.draft = '';
-      this.$emit('send', this.withContext(text));
+      // Two texts, deliberately: the assistant is sent the one with the context prefixed, and
+      // the record keeps what was actually typed. They were the same string, so the stream read
+      // back "Context: the preview is on /... . Update the title" - the product's own plumbing
+      // quoted to somebody as though they had said it.
+      this.$emit('send', this.withContext(text), text);
       // Stay on the stream. This used to jump to the terminal, on the argument that the reply
       // arrives there - which was right when the stream had nothing in it and is wrong now that
       // it has your turn: being thrown to another tab the instant you press Send is how you
@@ -1450,17 +1012,542 @@ export default {
       // way to the terminal, and it says so.
       this.$emit('update:tab', 'assistant');
 
+      // The context went with the message, so it is spent.
+      //
+      // It used to persist, which meant the file somebody attached for one question was still
+      // being prefixed to the next three, and a picked element outlived the sentence it was
+      // picked for. Everything in `context` was put there by hand for a particular message;
+      // the three standing chips beside it - the extension, the cluster, the page - are facts
+      // about where you are rather than choices, so they are not in here and do not clear.
+      this.context = [];
+
       // Ask the pod again shortly, so the turn stops being "not recorded yet" as soon as it is
       // recorded rather than at the end of the poll it happened to land in.
       clearTimeout(this.sendTimer);
       this.sendTimer = setTimeout(() => {
         this.refreshTurns();
-        // The prompt just sent is material the next packet will carry, so the count that says
-        // so should move when it is sent rather than a minute later.
-        this.refreshAccumulation();
       }, SEND_SETTLE_MS);
     },
 
+    /**
+     * The whole truth about a chip, where there is room for it.
+     *
+     * The label is deliberately short, so everything it left out is here: which file drew the
+     * element, the selector that finds it, and the text it had in it when it was picked.
+     */
+    contextTitle(item) {
+      if (item.kind === 'shot') {
+        const lines = [
+          item.file ? `Drawn by ${ item.file }` : 'Not drawn by this extension',
+          item.selector ? `Selector: ${ item.selector }` : '',
+          item.text ? `Text: "${ item.text }"` : '',
+          item.route ? `On ${ item.route }` : '',
+          'Click to open the picture of it',
+        ];
+
+        return lines.filter(Boolean).join('\n');
+      }
+
+      return this.isImage(item) ? `${ item.path } - click to open it full size` : item.path;
+    },
+
+    /**
+     * Start a new conversation.
+     *
+     * `/clear` is claude's own, so this is the same instruction a person would type into the
+     * pane - the pod's conversation starts over and nothing on disk moves. The composer's
+     * draft and the context chips go with it: they were gathered for a conversation that is
+     * no longer there, and carrying them into the next one is how a prompt ends up prefixed
+     * with a file somebody attached for a question they already got an answer to.
+     */
+    async clearChat() {
+      this.draft = '';
+      this.context = [];
+
+      try {
+        // Not through the composer's own send: that records a turn, so "/clear" appeared in
+        // the stream as something a person had said - the one message a new conversation
+        // should certainly not open with.
+        this.since = await startNewConversation(this.extension);
+        this.podTurns = [];
+        // The composer's own optimistic turns live in the page, not here.
+        this.$emit('cleared');
+        this.conversation = null;
+        this.refreshTurns();
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The conversation did not clear' });
+      }
+    },
+
+    /** The last two segments, so a chip does not become the whole composer. */
+    shortPath(path) {
+      return path.split('/').slice(-2).join('/');
+    },
+
+    /** Whether this context item is a picture, and so worth opening rather than only naming. */
+    isImage(item) {
+      return item.kind === 'shot' || /\.(png|jpe?g|gif|webp)$/i.test(item.path || '');
+    },
+
+    /**
+     * Something picked out of the preview with the crosshair, or off a changed-outline box.
+     *
+     * It becomes a picture of that element, which is what the Changes tab's regions already
+     * become. It used to become a chip naming the component file instead, and that was two
+     * kinds of context for one gesture: a path the assistant had to go and read, against an
+     * image it can simply look at. The path is still said in the message - it is the useful
+     * half for a component - but what is attached is the picture.
+     *
+     * Cropped to the element rather than the whole page, using the rectangle the capture
+     * recorded for the outline it drew. Same pass, so the crop and the picture agree; and no
+     * scaling between the capture's viewport and this pane's, which is the mistake that
+     * outlined a nav item for a change to a timestamp.
+     */
+    async addPickedElement(pick) {
+      if (!pick) {
+        return;
+      }
+
+      const what = this.elementLabel(pick);
+      const name = pick.file ? `${ what } in ${ this.shortPath(pick.file) }` : what;
+
+      // One picked element at a time: the crosshair answers "this one", and two of those in
+      // the same sentence is two questions.
+      this.context = this.context.filter((c) => !c.picked);
+
+      const placeholder = {
+        path:     '',
+        label:    what,
+        icon:     'target',
+        kind:     'shot',
+        picked:   true,
+        pending:  true,
+        selector: pick.selector || '',
+        route:    pick.route || '',
+        file:     pick.file || '',
+        tag:      pick.tag || '',
+        text:     pick.label || '',
+        src:      '',
+      };
+
+      // On the strip while the pod is being read, so the gesture is visibly doing something.
+      this.context = [...this.context, placeholder];
+      this.$emit('update:tab', 'assistant');
+
+      const shot = await elementShot(this.extension, placeholder.route, placeholder.selector)
+        .catch(() => null);
+
+      const drop = () => {
+        this.context = this.context.filter((c) => c !== placeholder);
+      };
+
+      if (!shot?.src) {
+        drop();
+        toastError(this.$store, 'The pod could not take a picture of that element.', { title: 'Nothing was attached' });
+
+        return;
+      }
+
+      // Cropped and attached the same way a change set's region is, so both gestures leave the
+      // same kind of thing on the strip.
+      if (shot.region) {
+        drop();
+
+        try {
+          await this.cropIntoContext(shot.src, shot.region, name);
+        } catch (e) {
+          toastError(this.$store, e?.message || String(e), { title: 'That part could not be attached' });
+        }
+
+        return;
+      }
+
+      // The capture drew no outline, so there is nothing to cut out and the whole page is the
+      // honest attachment. It is already written into the pod, so it only has to be named.
+      this.context = this.context.map((c) => (c === placeholder
+        ? {
+          ...c, path: shot.path, src: shot.src, pending: false,
+        }
+        : c));
+    },
+
+    /**
+     * The element, in as few characters as still identify it.
+     *
+     * Sized to sit beside "cluster: local" and "page: /home" rather than to be complete: the
+     * whole selector, the file and the text are all on the chip's title, where length costs
+     * nothing. `nth-child` is dropped because a position among siblings tells a reader
+     * nothing they can recognise on screen.
+     */
+    elementLabel(pick) {
+      const selector = pick.selector || '';
+      const testid = /\[data-testid="([^"]+)"\]/.exec(selector);
+
+      let base = '';
+
+      if (testid) {
+        base = testid[1];
+      } else if (selector.startsWith('#')) {
+        base = selector;
+      } else {
+        base = (selector.split('>').pop() || '').trim().replace(/:nth-child\(\d+\)/g, '');
+      }
+
+      base = base || pick.tag || 'element';
+
+      return base.length > 22 ? `${ base.slice(0, 21) }…` : base;
+    },
+
+    /**
+     * What a context chip does when it is clicked.
+     *
+     * A picked component points back at the thing it was picked from; anything with a picture
+     * opens it. A plain file path does nothing, which is what it did before any of this.
+     */
+    openContext(item) {
+      if (item.kind === 'shot') {
+        // Already have the bytes: the capture that made this chip handed them over.
+        if (item.src) {
+          this.preview = {
+            path: item.selector, name: item.path, src: item.src, loading: false, error: '',
+          };
+
+          return true;
+        }
+
+        // Otherwise read it out of the pod, which is where it is.
+        //
+        // This said "This picture is still being taken in the pod" and stopped, which was true
+        // of a chip whose capture was in flight and false of every other one - a chip on an old
+        // message names a file that was written long ago and is sitting there, and nothing was
+        // fetching it. So the viewer opened on a sentence about waiting, forever.
+        return this.openPreview({ ...item, path: item.value || item.path });
+      }
+
+      return this.openPreview(item);
+    },
+
+    /**
+     * Open an attachment full size.
+     *
+     * The chip is the only handle on a file that has already left this machine - it is in the
+     * pod by the time it is a chip - so this reads it back out rather than keeping the bytes
+     * the upload was made from. That also means the picture shown is the one the assistant
+     * will actually be given, which is the thing worth checking.
+     */
+    async openPreview(item) {
+      if (!this.isImage(item)) {
+        return;
+      }
+
+      // A picked element whose capture has not come back yet has no file to read. That is the
+      // one case where "still being taken in the pod" is the truth, so it is the only case
+      // that says it.
+      if (!item.path) {
+        this.preview = {
+          path:    '',
+          name:    item.label || 'the picked element',
+          src:     '',
+          loading: true,
+          error:   '',
+        };
+
+        return true;
+      }
+
+      this.preview = {
+        path: item.path, name: this.shortPath(item.path), src: '', loading: true, error: '',
+      };
+
+      const opened = item.path;
+      const src = await readPodImage(this.extension, item.path).catch(() => '');
+
+      // Closed again, or a different one opened, while the pod was being read.
+      if (this.preview?.path !== opened) {
+        return;
+      }
+
+      this.preview = {
+        ...this.preview,
+        src,
+        loading: false,
+        error:   src ? '' : 'This attachment could not be read back out of the pod.',
+      };
+    },
+
+    /**
+     * The paperclip: a file from this machine, into the pod, named on the next message.
+     *
+     * The same mechanism the terminal's paste uses - writePodImage is a chunked base64 write
+     * and does not care what the bytes are - so an image attached here is a path the assistant
+     * can read exactly as one pasted into the pane is.
+     */
+    async onAttach(event) {
+      const files = [...(event.target.files || [])];
+
+      // Cleared straight away, so attaching the same file twice in a row still fires a change.
+      event.target.value = '';
+
+      await this.attachFiles(files);
+    },
+
+    /**
+     * A screenshot pasted straight into the composer.
+     *
+     * This is how a screenshot actually arrives - Print Screen, or a region grab, then Ctrl+V
+     * into the box you are typing in. Going via the paperclip means saving it to disk first and
+     * finding it again, for something that was already on the clipboard.
+     *
+     * Only the files on the clipboard are taken, and only when there are some: a normal text
+     * paste has none and must fall through untouched, or pasting a path into the composer would
+     * stop working. `preventDefault` is therefore inside the branch, not above it - a screenshot
+     * copied from a browser carries both an image and an `<img>` tag as HTML, and letting that
+     * default through would drop markup into the textarea beside the attachment.
+     */
+    async onPaste(event) {
+      const files = [...(event.clipboardData?.files || [])];
+
+      if (!files.length) {
+        return;
+      }
+
+      event.preventDefault();
+      await this.attachFiles(files);
+    },
+
+    /**
+     * A piece of a change set's picture, put into this conversation.
+     *
+     * Called from the editor when somebody clicks an outlined part of the After shot. The crop
+     * happens here rather than in the pod because the picture is already in the browser: it is
+     * a canvas draw, where sending it away to be cut would be a round trip for something the
+     * page can do in a frame.
+     *
+     * A little air around the region on purpose. A crop tight to the element's box arrives as a
+     * detail with nothing around it, and the assistant has to guess where it sat; a margin of
+     * context is the difference between "this button" and "this button, in that toolbar".
+     */
+    async attachRegion(image, region, name) {
+      try {
+        await this.cropIntoContext(image, region, name);
+      } catch (e) {
+        // Anything that goes wrong here is a failed attachment, not a broken page. It escaped as
+        // an unhandled rejection before, which surfaced as the app's error screen over a
+        // workspace somebody was working in - for something as small as a crop that did not fit.
+        toastError(this.$store, e?.message || String(e), { title: 'That part could not be attached' });
+      }
+    },
+
+    /** The crop itself. Separated so the caller above owns what happens when it fails. */
+    async cropIntoContext(image, region, name) {
+      const source = new Image();
+
+      await new Promise((resolve, reject) => {
+        source.onload = resolve;
+        source.onerror = () => reject(new Error('the picture could not be read back for cropping'));
+        source.src = image;
+      });
+
+      // The same rectangle the outline was drawn at, so the crop is what was pressed.
+      const {
+        x, y, width: w, height: h,
+      } = padded(region, source.naturalWidth, source.naturalHeight);
+
+      if (w <= 0 || h <= 0) {
+        toastError(this.$store, 'That part of the picture is outside it, so there is nothing to cut out.');
+
+        return;
+      }
+
+      const canvas = document.createElement('canvas');
+
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(source, x, y, w, h, 0, 0, w, h);
+
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+
+      if (!blob) {
+        toastError(this.$store, 'The crop could not be turned into an image.');
+
+        return;
+      }
+
+      const file = new File([blob], `${ name }.png`, { type: 'image/png' });
+
+      await this.attachFiles([file]);
+      this.$emit('update:tab', 'assistant');
+    },
+
+    /**
+     * Files into the pod, and onto the context chips.
+     *
+     * Shared by the paperclip and by paste, because they differ only in where the bytes came
+     * from. A pasted screenshot has no filename - the clipboard calls it `image.png`, or
+     * nothing at all - so one is made from the timestamp rather than trusting what arrives.
+     */
+    async attachFiles(files) {
+      if (!files.length) {
+        return;
+      }
+
+      this.attaching = true;
+
+      for (const file of files) {
+        if (file.size > MAX_ATTACHMENT) {
+          toastError(this.$store, `${ file.name || 'that image' } is ${ Math.round(file.size / 1024 / 1024) }MB. The limit here is 8MB; put a bigger file in the pod from the terminal instead.`);
+          continue;
+        }
+
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const named = (file.name || '').replace(/[^\w.-]/g, '_');
+        // A pasted image arrives unnamed; the type is what says it is a png.
+        const ext = (file.type.split('/')[1] || 'png').replace(/[^\w]/g, '');
+        const safe = named || `pasted.${ ext }`;
+        const path = `${ ATTACH_DIR }/${ stamp }-${ safe }`;
+
+        try {
+          await writePodImage(this.extension, path, await file.arrayBuffer());
+          // No toast. The chip appearing on the context row is the confirmation, and it is
+          // both more specific than a toast and in the place the attachment now lives - a
+          // notification that says "attached" beside a row that visibly gained the thing is
+          // one report too many, and it covers the corner of the page while it says it.
+          this.addContext(path, 'upload');
+        } catch (e) {
+          toastError(this.$store, e.message || String(e));
+        }
+      }
+
+      this.attaching = false;
+    },
+
+    /**
+     * The design's Stop (11:347), which presses Escape in the pane the assistant runs in.
+     *
+     * Drawn beside Send rather than replacing it, as the design draws it, and always available:
+     * nothing in this pod records a turn beginning, so the panel cannot know whether there is
+     * something to interrupt - and a button that greyed itself out on a guess would be wrong
+     * exactly when it was needed. The toast says what was delivered, never that a run stopped.
+     */
+    async stopAssistant() {
+      if (this.stopping) {
+        return;
+      }
+
+      this.stopping = true;
+
+      try {
+        const how = await interruptAssistant(this.extension);
+
+        if (how === 'none') {
+          toastSuccess(
+            this.$store,
+            'There is no session open in this pod, so there was nothing to interrupt.',
+            { title: 'Nothing running' },
+          );
+        } else {
+          toastSuccess(
+            this.$store,
+            'Escape went to the session, which is how the assistant is interrupted. Whether it was in the middle of something is only visible in the Terminal tab.',
+            { title: 'Interrupt sent' },
+          );
+        }
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The interrupt did not reach the pod' });
+      } finally {
+        this.stopping = false;
+      }
+    },
+
+    async toggleRaw() {
+      this.rawOpen = !this.rawOpen;
+
+      if (this.rawOpen) {
+        await this.readRaw();
+      }
+    },
+
+    async readRaw() {
+      const asked = this.extension;
+
+      this.rawState = 'reading';
+      this.rawError = '';
+
+      try {
+        const text = await devServerLog(asked, LOG_TAIL);
+
+        if (asked !== this.extension) {
+          return;
+        }
+
+        this.rawText = text;
+        this.rawError = text ? '' : `${ asked } has no running pod, so there is no dev server output to read.`;
+      } catch (e) {
+        this.rawText = '';
+        this.rawError = e?.message || String(e);
+      } finally {
+        this.rawState = '';
+      }
+    },
+
+    /**
+     * Where the current conversation starts, read from the pod.
+     *
+     * Read rather than remembered, so opening the Studio in another tab - or after a reload -
+     * shows the same conversation rather than the whole log again.
+     */
+    async readSince() {
+      const asked = this.extension;
+      const mark = await conversationSince(asked).catch(() => '');
+
+      if (asked === this.extension) {
+        this.since = mark;
+      }
+    },
+
+    async refreshTurns() {
+      const asked = this.extension;
+      const turns = await assistantTurns(asked, TURN_LIMIT).catch(() => []);
+
+      // The answer to a question about the extension that is no longer open is not an answer
+      // about this one. Switching pods while an exec is in flight is otherwise how a stream
+      // ends up showing another extension's conversation.
+      if (asked !== this.extension) {
+        return;
+      }
+
+      // The pod records the prompt exactly as claude received it, context line and all. That
+      // line is the product talking to itself, so it comes off for display: a turn shows what a
+      // person asked for.
+      // Everything before the mark belongs to a conversation somebody has already ended. The
+      // pod still holds it - the Changes tab is built from it - but this pane is the current
+      // conversation and starts where that one did.
+      const mark = Date.parse(this.since || '');
+      const current = (Array.isArray(turns) ? turns : []).filter((turn) => {
+        if (Number.isNaN(mark)) {
+          return true;
+        }
+
+        const at = Date.parse(turn.at || turn.endedAt || '');
+
+        return Number.isNaN(at) || at >= mark;
+      });
+
+      this.podTurns = current.map((turn) => ({
+        ...turn,
+        prompt:  promptSaid(turn.prompt),
+        context: promptContextChips(turn.prompt),
+      }));
+      this.podRead = true;
+
+      // The same beat as the turns, because the two are drawn as one thing: a turn whose reply
+      // arrived a second later would otherwise show as unanswered until the next poll.
+      const said = await assistantConversation(asked, TURN_LIMIT * 2).catch(() => null);
+
+      if (asked === this.extension && said) {
+        this.conversation = said;
+      }
+    },
     /**
      * The line the assistant actually receives.
      *
@@ -1469,9 +1556,16 @@ export default {
      * is the only kind of attaching a terminal has.
      */
     withContext(text) {
-      const paths = this.context.map((item) => item.path);
+      // Only what actually names something. A picked element whose picture is still being
+      // taken has no path yet, and an empty entry would put a stray comma in the sentence.
+      const paths = this.context.map((item) => item.path).filter(Boolean);
 
-      return paths.length ? `Context: ${ paths.join(', ') }. ${ text }` : text;
+      // ` :: ` ends the context, not a full stop. A full stop cannot mark the end of something
+      // whose contents are paths and selectors - `pages/Home.vue`, `.base-home__stamp` - so the
+      // reader that takes this off again stopped at the first dot inside a filename and left
+      // most of the prefix on screen. Kept in step with withoutContext below; the two are a
+      // pair with `splitPrompt` in prompt-context.ts, and neither means anything alone.
+      return paths.length ? `Context: ${ paths.join(', ') } :: ${ text }` : text;
     },
 
     onKeydown(e) {
@@ -1481,34 +1575,6 @@ export default {
         this.submit();
       }
     },
-
-    onModeSelect(id) {
-      if (id === 'mode:terminal') {
-        this.$emit('update:tab', 'terminal');
-
-        return;
-      }
-
-      if (id.startsWith('mode:')) {
-        this.chooseMode(id.slice('mode:'.length));
-      }
-    },
-
-    onModelSelect(id) {
-      if (id === 'model:pick') {
-        // claude's own picker, in the pane, which is where the whole list lives. Typed without
-        // an argument so it opens rather than choosing something.
-        this.$emit('send', '/model');
-        this.$emit('update:tab', 'terminal');
-
-        return;
-      }
-
-      if (id.startsWith('model:')) {
-        this.chooseModel(id.slice('model:'.length));
-      }
-    },
-
     onSessionSelect(id) {
       if (id === 'clear') {
         this.draft = '';
@@ -1554,19 +1620,6 @@ export default {
       }
     },
 
-    /** Open the picker, and read the extension's files the first time it is opened. */
-    async openPicker() {
-      this.picking = true;
-      this.fileFilter = '';
-
-      if (this.filesRead) {
-        return;
-      }
-
-      this.files = await listExtensionFiles(this.extension).catch(() => []);
-      this.filesRead = true;
-    },
-
     addContext(path, icon = 'file') {
       if (!this.context.some((item) => item.path === path)) {
         this.context = [...this.context, { path, icon }];
@@ -1578,54 +1631,12 @@ export default {
       this.picking = false;
     },
 
-    removeContext(path) {
-      this.context = this.context.filter((item) => item.path !== path);
-    },
-
-    /** The last two segments, so a chip does not become the whole composer. */
-    shortPath(path) {
-      return path.split('/').slice(-2).join('/');
-    },
-
-    /**
-     * The paperclip: a file from this machine, into the pod, named on the next message.
-     *
-     * The same mechanism the terminal's paste uses - writePodImage is a chunked base64 write
-     * and does not care what the bytes are - so an image attached here is a path the assistant
-     * can read exactly as one pasted into the pane is.
-     */
-    async onAttach(event) {
-      const files = [...(event.target.files || [])];
-
-      // Cleared straight away, so attaching the same file twice in a row still fires a change.
-      event.target.value = '';
-
-      if (!files.length) {
-        return;
-      }
-
-      this.attaching = true;
-
-      for (const file of files) {
-        if (file.size > MAX_ATTACHMENT) {
-          toastError(this.$store, `${ file.name } is ${ Math.round(file.size / 1024 / 1024) }MB. The limit here is 8MB; put a bigger file in the pod from the terminal instead.`);
-          continue;
-        }
-
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const safe = file.name.replace(/[^\w.-]/g, '_') || 'file';
-        const path = `${ ATTACH_DIR }/${ stamp }-${ safe }`;
-
-        try {
-          await writePodImage(this.extension, path, await file.arrayBuffer());
-          this.addContext(path, 'upload');
-          toastSuccess(this.$store, `${ file.name } is in the pod at ${ path }, and is named on the next message.`, { title: 'Attached' });
-        } catch (e) {
-          toastError(this.$store, e.message || String(e));
-        }
-      }
-
-      this.attaching = false;
+    removeContext(path, item = null) {
+      // By identity when there is one, because two picks can be waiting for their pictures and
+      // both have an empty path until they arrive.
+      this.context = item
+        ? this.context.filter((c) => c !== item)
+        : this.context.filter((c) => c.path !== path);
     },
   },
 };
@@ -1652,32 +1663,24 @@ export default {
         :title="sessionState.title"
         data-testid="barn-session-state"
       >{{ sessionState.label }}</span>
-      <span class="assistant-panel__grow" />
-      <!--
-        The mode the pod's claude is in right now, read off its own status line, and the menu
-        that changes it: each entry presses shift+tab in that session until claude says it is in
-        that mode. The label is what claude reports afterwards, never what was asked for.
 
-        The test id is on the label inside the trigger rather than on the menu, because an
-        attribute on SMenu falls through to its wrapper div and a click there opens nothing. A
-        click on the label is a click on the button it is inside.
+      <!--
+        The way out of the state the strip is describing. It sat here as the sentence "run
+        /login in the terminal", which is a true instruction and not a control: the one thing
+        somebody wants at that moment is a way to fix it.
       -->
-      <SMenu
-        :items="modeItems"
-        aria-label="Permission mode"
-        @select="onModeSelect"
+      <SButton
+        v-if="login && login.read && (!login.signedIn || sessionRefused)"
+        variant="primary"
+        size="sm"
+        icon="sparkle"
+        data-testid="barn-sign-in"
+        @click="signingIn = true"
       >
-        <template #trigger>
-          <SIcon :name="permissionChip.icon" :size="13" />
-          <span
-            class="assistant-panel__chip-label"
-            :class="`assistant-panel__chip-label--${ permissionChip.tone }`"
-            :title="permissionChip.title"
-            data-testid="barn-permission-chip"
-          >{{ permissionChip.label }}</span>
-          <SIcon name="chevronDown" :size="12" />
-        </template>
-      </SMenu>
+        Sign in
+      </SButton>
+
+      <span class="assistant-panel__grow" />
       <SMenu
         :items="sessionItems"
         icon="chevronDown"
@@ -1685,20 +1688,6 @@ export default {
         data-testid="barn-session-menu"
         @select="onSessionSelect"
       />
-    </div>
-
-    <!--
-      The two permission readings, when they disagree. On the strip rather than in the chip's
-      tooltip, because the disagreement is between this screen and the settings page and a
-      person driving them has no reason to hover anything.
-    -->
-    <div
-      v-if="modeSplit"
-      class="assistant-panel__split"
-      data-testid="barn-permission-split"
-    >
-      <SIcon name="alert" :size="13" />
-      <span>{{ modeSplit }}</span>
     </div>
 
     <!-- content. Every tab stays mounted: the terminal is a live session, and unmounting it
@@ -1718,18 +1707,8 @@ export default {
             v-bind="entry.props"
             data-testid="barn-turn"
             @raw="$emit('update:tab', 'terminal')"
+            @context="$emit('context', $event)"
           />
-
-          <!--
-            What the stream is showing and what it is not. The turns above are the pod's own
-            record; the steps the design draws under an assistant turn are not recorded by
-            anything, so none is drawn and this says why rather than inventing four rows with
-            statuses and durations nobody measured.
-          -->
-          <div class="assistant-panel__gap" data-testid="barn-stream-note">
-            <SIcon name="sparkle" :size="13" />
-            <span>{{ streamNote }}</span>
-          </div>
 
           <!-- Why every turn here is open, when that is the reason. Read from the pod. -->
           <div
@@ -1819,17 +1798,6 @@ export default {
             Open the terminal
           </SButton>
         </SEmpty>
-
-        <!--
-          What the reviewer will get, while it is still being gathered (cross-screen rule 6).
-          Outside the stream's v-if on purpose: an extension with no recorded turn still
-          accumulates commits and files, and "nothing has accumulated yet" is a reading worth
-          having. It is the same reading after a reload, because it is read from the pod.
-        -->
-        <div class="assistant-panel__gap" data-testid="barn-review-accumulation">
-          <SIcon name="compare" :size="13" />
-          <span>{{ accumulationNote }}</span>
-        </div>
       </div>
 
       <div v-show="tab === 'files'" class="assistant-panel__pane">
@@ -1845,23 +1813,13 @@ export default {
       </div>
     </div>
 
-    <!-- changes summary (11:305). Drawn only when there is something to review. -->
-    <div v-if="changes > 0" class="assistant-panel__changes">
-      <SIcon name="compare" :size="16" />
-      <div class="assistant-panel__changes-text">
-        <span class="assistant-panel__changes-title">{{ changesLabel }}</span>
-        <span class="assistant-panel__changes-note">
-          Only you can see them. Nothing is asked of you until you publish.
-        </span>
-      </div>
-      <SButton
-        variant="secondary"
-        size="sm"
-        @click="$emit('update:tab', 'changes')"
-      >
-        Review
-      </SButton>
-    </div>
+    <!--
+      The changes summary (11:305) was here: a strip saying "10 change sets to review" with a
+      Review button. Taken out. The tab beside this one is called Changes and carries the same
+      count as a badge, so the strip repeated a number that was already on screen and put a
+      second way into a tab that was one click away - while taking a band of the composer's
+      height to do it.
+    -->
 
     <!-- composer (11:317) -->
     <div class="assistant-panel__composer">
@@ -1870,24 +1828,32 @@ export default {
         <!-- Two facts about where the message goes, and neither is a control. -->
         <SChip :label="extension" icon="puzzle" />
         <SChip label="cluster: local" icon="server" />
-
-        <!-- The paths that will be named in the message. Removable, because they are a choice. -->
         <SChip
-          v-for="item in context"
-          :key="item.path"
-          :label="shortPath(item.path)"
-          :icon="item.icon"
-          :title="item.path"
-          removable
-          @remove="removeContext(item.path)"
+          v-if="page"
+          :label="`page: ${ page }`"
+          icon="compare"
+          clickable
+          :title="`The preview is showing ${ page }, and the assistant is told so.\nClick to point it there again.`"
+          data-testid="barn-page-context"
+          @click="$emit('context', { kind: 'page', value: page, label: page, title: page })"
         />
 
+        <!--
+          The paths that will be named in the message. Removable, because they are a choice, and
+          a picture or a picked element among them opens: a chip names a thing and a name is not
+          enough to tell one screenshot, or one element, from another.
+        -->
         <SChip
-          label="Add"
-          icon="plus"
-          clickable
-          data-testid="barn-add-context"
-          @click="openPicker"
+          v-for="item in context"
+          :key="`${ item.kind || 'file' }:${ item.path }:${ item.selector || '' }`"
+          :label="item.label || shortPath(item.path)"
+          :icon="item.icon"
+          :title="contextTitle(item)"
+          :clickable="isImage(item)"
+          removable
+          :data-testid="`barn-context-${ shortPath(item.path) }`"
+          @click="openContext(item)"
+          @remove="removeContext(item.path, item)"
         />
       </div>
 
@@ -1919,26 +1885,21 @@ export default {
           >
 
           <!--
-            The model chip (11:340). A reading of what the pod says its claude answers on, and a
-            menu of the aliases that pod's own `claude --help` documents. Choosing one sends
-            claude's own /model to the session, so the next turn uses it; the chip is then
-            re-read rather than relabelled.
+            Start over. The same `/clear` the session menu sends, on the bar where the
+            conversation actually is: starting a new one is a thing people do between tasks,
+            and it was three clicks into a menu named after something else.
           -->
-          <SMenu
-            :items="modelItems"
-            align="left"
-            aria-label="Model"
-            @select="onModelSelect"
-          >
-            <template #trigger>
-              <SIcon :name="modelBusy ? 'clock' : 'sparkle'" :size="13" />
-              <span
-                class="assistant-panel__chip-label"
-                :title="modelChip.title"
-                data-testid="barn-model-chip"
-              >{{ modelChip.label }}</span>
-            </template>
-          </SMenu>
+          <SButton
+            variant="ghost"
+            size="sm"
+            icon="refresh"
+            icon-only
+            title="Start a new conversation. The files in the pod are untouched."
+            aria-label="Start a new conversation"
+            data-testid="barn-clear-chat"
+            @click="clearChat"
+          />
+
 
           <span class="assistant-panel__grow" />
           <!--
@@ -2009,6 +1970,21 @@ export default {
         </p>
       </div>
     </SModal>
+    <ImagePreview
+      v-if="preview"
+      :src="preview.src"
+      :name="preview.name"
+      :loading="preview.loading"
+      :error="preview.error"
+      data-testid="barn-attachment-preview"
+      @close="preview = null"
+    />
+    <AssistantLoginModal
+      v-if="signingIn"
+      :extension="extension"
+      @close="signingIn = false"
+      @signed-in="refreshLogin"
+    />
   </div>
 </template>
 
@@ -2017,6 +1993,7 @@ export default {
   display:        flex;
   flex-direction: column;
   min-height:     0;
+  min-width:      0;
   height:         100%;
   background:     var(--studio-surface);
   border-right:   1px solid var(--studio-border);
@@ -2157,6 +2134,7 @@ export default {
     display:    flex;
     flex:       1 1 auto;
     min-height: 0;
+    min-width:  0;
   }
 
   &__stream {
@@ -2229,6 +2207,26 @@ export default {
     align-items: center;
     gap:         6px;
     flex-wrap:   wrap;
+
+    // Every chip on this row is the same shape, whatever is in it. A picked element can carry
+    // a long class name and a file path can be any length, and one chip twice the width of
+    // the four beside it reads as a different kind of thing rather than as a longer name.
+    // The label is already shortened; this is the guard for the cases that shortening cannot
+    // predict, and the full text is on the chip's title either way.
+    :deep(.s-chip) {
+      max-width: 15rem;
+      min-width: 0;
+    }
+
+    // Not `overflow` on the chip itself: an inline-level box with a clipped overflow takes
+    // its baseline from its bottom margin edge instead of from its text, which drops it
+    // against the chips beside it. The label is what needs clipping.
+    :deep(.s-chip__label) {
+      overflow:      hidden;
+      text-overflow: ellipsis;
+      white-space:   nowrap;
+      min-width:     0;
+    }
   }
 
   &__field {

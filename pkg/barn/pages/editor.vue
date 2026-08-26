@@ -21,9 +21,9 @@
 // replaces - so the workspace was the one screen in Rancher you could not sign out of. The
 // design draws the header over this frame, and the header is now left where the shell puts it.
 import PodTerminal from '../components/PodTerminal.vue';
-import ExtensionSelect from '../components/ExtensionSelect.vue';
 import PublishStatus from '../components/PublishStatus.vue';
 import ExtensionFiles from '../components/ExtensionFiles.vue';
+import ChangeEvidence from '../components/studio/ChangeEvidence.vue';
 import NewExtensionModal from '../components/NewExtensionModal.vue';
 import EditorSettingsModal from '../components/EditorSettingsModal.vue';
 import ImportExtensionModal from '../components/ImportExtensionModal.vue';
@@ -102,6 +102,15 @@ const DEV_POLL_MS = 5000;
 // offers the name so it can be attached to from a shell - and they must not drift apart.
 const TERMINAL_SESSION = 'editor';
 
+// The Terminal tab's own tmux session, separate from the assistant's.
+//
+// They used to be one session, so the tab was a second view of claude's TUI: a
+// line typed in the terminal went into the assistant's conversation, and the
+// assistant's output scrolled past whatever you were doing. A terminal should
+// be a terminal. Separate name, separate session, plain shell - and it persists
+// the same way, because it is still tmux.
+const SHELL_SESSION = 'shell';
+
 // Where the messages sent from the composer are kept, so the stream still has your half of the
 // conversation after a reload. Per extension, because each pod has a conversation of its own.
 //
@@ -132,11 +141,50 @@ function writeTurns(extension, turns) {
   } catch { /* storage can be unavailable; the stream is then this tab's only */ }
 }
 
+/**
+ * One section's body out of BRIEF.md, by heading.
+ *
+ * The brief is the only place the two things screen 02 asked for survive - "What
+ * should it do?" is written into `## What you were handed` and "What can someone
+ * not do today?" into `## The problem` - and they are what the first prompt to
+ * the assistant is built from, so they have to be read back out rather than
+ * pointed at.
+ *
+ * Walks lines rather than matching a regex across the document: `##` and `---`
+ * are both section boundaries here, the same reading `brief.vue` uses to parse
+ * the file it writes, and a lookahead spanning the whole brief is the kind of
+ * thing that quietly swallows the next section when somebody adds a heading.
+ *
+ * `_not stated_` is what the brief writes into a section nobody filled in, so it
+ * reads back as empty - otherwise the placeholder itself would be handed to the
+ * assistant as though it were the request.
+ */
+function briefSection(brief, heading) {
+  const want = `## ${ heading }`.trim().toLowerCase();
+  const body = [];
+  let inside = false;
+
+  for (const line of String(brief || '').split('\n')) {
+    if (line.startsWith('## ') || line.trim() === '---') {
+      inside = line.trim().toLowerCase() === want;
+      continue;
+    }
+
+    if (inside) {
+      body.push(line);
+    }
+  }
+
+  const text = body.join('\n').trim();
+
+  return text === '_not stated_' ? '' : text;
+}
+
 export default {
   name: 'BarnEditor',
 
   components: {
-    PodTerminal, ExtensionSelect, ExtensionFiles, NewExtensionModal, StartingExtensions, BuildFailure,
+    PodTerminal, ExtensionFiles, ChangeEvidence, NewExtensionModal, StartingExtensions, BuildFailure,
     PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal, PublishModal,
     InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton,
     SModal
@@ -148,6 +196,17 @@ export default {
     return {
       rightUrl: '',
       terminalSession: TERMINAL_SESSION,
+      shellSession:    SHELL_SESSION,
+
+      // The route the preview is showing, straight from the panel that owns it.
+      // It is context: "make this page do X" is the common thing to say, and
+      // until now the assistant was never told which page was on screen.
+      previewRoute: '',
+
+      // The change set the Changes tab has selected, and the page its picture should be of.
+      // Held here rather than in the tab because the picture is drawn in the other pane.
+      selectedChange: null,
+      changeRoute:    '',
       // Width of the left pane, as a percentage of the page. `null` means the design's own
       // width, which `paneStyle` takes straight off the panel token.
       split:    readSplit(),
@@ -166,7 +225,10 @@ export default {
       // screens ask the pod's assistant a question and then land the user on the terminal,
       // where the answer actually appears. Without this they arrive on Assistant and have to
       // find it.
-      leftTab: ['assistant', 'files', 'changes', 'terminal'].includes(this.$route.query.tab)
+      // 'files' is not in this list while the Files tab is off the strip: a
+      // `?tab=files` from an older link would otherwise select a tab that is not
+      // drawn, leaving the panel showing nothing with no way back to a view.
+      leftTab: ['assistant', 'changes', 'terminal'].includes(this.$route.query.tab)
         ? this.$route.query.tab
         : 'assistant',
       // The terminal's websocket state, for the session row's dot.
@@ -321,6 +383,9 @@ export default {
         role: 'user',
         text: turn.text,
         when: this.ago(turn.at),
+        // Kept, not just rendered: the panel needs the moment itself to tell a turn from this
+        // conversation apart from one typed before it was cleared.
+        at:   turn.at,
       }));
     },
 
@@ -550,8 +615,11 @@ export default {
      *
      * The turn is recorded either way, because it is a record of what this composer sent.
      */
-    async sendToAssistant(text) {
-      this.recordTurn(text);
+    async sendToAssistant(text, typed = text) {
+      // `text` goes to the pod; `typed` is what a person wrote. The stream shows the second,
+      // because a turn is a record of what somebody asked for, and the context this prefixes is
+      // the product talking to itself.
+      this.recordTurn(typed);
 
       try {
         // Stamped with where it came from and who sent it, which is the only way a turn ever
@@ -719,10 +787,63 @@ export default {
         return;
       }
 
-      const text = 'Read BRIEF.md in this package. It is the brief we agreed for this extension. Tell me how you would build it, in steps, before changing anything.';
+      // The first thing the assistant is asked is what the person actually typed
+      // on screen 02, in their own words, rather than a pointer at a file they
+      // have never seen. Both boxes go in: the request says what to build, and
+      // "what can someone not do today" is the part that tells it when the thing
+      // it builds is wrong - which is the whole reason that box is on the form.
+      //
+      // The brief still travels with it, because the brief carries what the two
+      // boxes cannot: the criteria, who it is for, and what we agreed not to do.
+      const handed = briefSection(brief, 'What you were handed');
+      const problem = briefSection(brief, 'The problem');
+
+      const text = [
+        handed
+          ? `Build this, for this Rancher: ${ handed }`
+          : 'Build what BRIEF.md in this package describes.',
+        problem && problem !== handed
+          ? `The problem behind it - what someone cannot do today: ${ problem }`
+          : '',
+        'BRIEF.md in this package is the brief we agreed, and it has the rest: how we will know it worked, who it is written for, and what we are deliberately not doing. Read it first, then build it.',
+      ].filter(Boolean).join('\n\n');
 
       this.leftTab = 'terminal';
       await this.sendToAssistant(text);
+    },
+
+    /**
+     * A clicked part of a change set's picture, into the conversation.
+     *
+     * The crop and the upload belong to the assistant panel - it owns the context chips and the
+     * write into the pod - so this only carries the click across and names the file. The name is
+     * the commit and the selector, so a chip in the composer says which change and which part of
+     * it, rather than reading as one more anonymous screenshot.
+     */
+    async useRegion({ change, region, image }) {
+      const label = `${ change.commit.slice(0, 7) }-${ region.selector.replace(/[^\w-]+/g, '') || 'region' }`;
+
+      // The Assistant tab, because that is where the chip it becomes is visible. Switching
+      // first: the panel is what does the work, and a tab that changes after the toast has
+      // already said "attached" reads as two separate things happening.
+      this.leftTab = 'assistant';
+
+      // The panel is behind a ref rather than a prop, so this says so when the ref is not there
+      // rather than doing nothing at all. A click that silently does nothing is the one failure
+      // nobody can report.
+      const panel = this.$refs.assistant;
+
+      if (!panel?.attachRegion) {
+        toastError(
+          this.$store,
+          'The assistant panel is not mounted, so there is nowhere to put it.',
+          { title: 'That part could not be attached' },
+        );
+
+        return;
+      }
+
+      await panel.attachRegion(image, region, label);
     },
 
     /**
@@ -742,6 +863,78 @@ export default {
     },
 
     /** Reattach the terminal's websocket to the tmux session, from the session menu. */
+    /**
+     * Something was picked out of the preview: hand it to the conversation.
+     *
+     * The page owns this rather than either panel, because it is the only thing that holds
+     * both of them - the same reason the route already travels this way.
+     */
+    onPick(pick) {
+      this.$refs.assistant?.addPickedElement?.(pick);
+
+      // The conversation is where it landed, so that is where to look.
+      if (this.leftTab !== 'assistant') {
+        this.onLeftTab('assistant');
+      }
+    },
+
+    /**
+     * A context chip was pressed, wherever it was drawn.
+     *
+     * The chips say what a message was about; the pane that thing is in is beside them. So the
+     * page ones point the preview at that page, the element ones outline it there, and the
+     * pictures open. An element that is not on the page being previewed says so rather than
+     * doing nothing - it may well belong to another route entirely.
+     */
+    /**
+     * A new conversation was started: forget what this browser had sent.
+     *
+     * `turns` is the composer's own optimistic record - what was typed here, held so a message
+     * appears the instant it is sent rather than when the pod gets round to recording it. It is
+     * kept in this browser, so the pod's conversation mark means nothing to it, and clearing
+     * the conversation left every message somebody had ever typed sitting in the stream saying
+     * "the pod has not recorded it yet".
+     */
+    onConversationCleared() {
+      this.turns = [];
+      writeTurns(this.extension, this.turns);
+    },
+
+    onContextChip(chip) {
+      if (!chip) {
+        return;
+      }
+
+      if (chip.kind === 'page') {
+        this.leftTab = this.leftTab === 'changes' ? 'assistant' : this.leftTab;
+        this.$refs.preview?.goToPath?.(chip.value);
+
+        return;
+      }
+
+      if (chip.kind === 'element') {
+        // The preview goes to the chip's own page first when the element is not on the one it
+        // is showing. See showElement.
+        this.$refs.preview?.showElement?.(chip.value, chip.page).then((found) => {
+          if (!found) {
+            toastError(
+              this.$store,
+              `${ chip.value } could not be found${ chip.page ? ` on ${ chip.page }` : '' }.`,
+              { title: 'Nothing to point at' },
+            );
+          }
+        });
+
+        return;
+      }
+
+      if (chip.kind === 'image') {
+        this.$refs.assistant?.openContext?.({
+          kind: 'shot', path: chip.value, label: chip.label, selector: '',
+        });
+      }
+    },
+
     reconnectTerminal() {
       this.$refs.terminal?.reconnect();
       this.leftTab = 'terminal';
@@ -1106,15 +1299,6 @@ export default {
           See what went wrong
         </SButton>
       </template>
-
-      <template #picker>
-        <ExtensionSelect
-          class="mc-editor__bar-select"
-          :value="extension"
-          @open="openExtension"
-          @create="createExtension"
-        />
-      </template>
     </EditorMasthead>
 
     <StartingExtensions
@@ -1171,6 +1355,7 @@ export default {
           would end the conversation in it.
         -->
         <AssistantPanel
+          ref="assistant"
           class="mc-editor__left-view"
           :extension="extension"
           :tab="leftTab"
@@ -1178,15 +1363,19 @@ export default {
           :revision="changesRevision"
           :connected="terminalConnected"
           :turns="streamTurns"
+          :page="previewRoute"
           @update:tab="onLeftTab"
           @send="sendToAssistant"
           @reconnect="reconnectTerminal"
+          @context="onContextChip"
+          @cleared="onConversationCleared"
         >
           <template #terminal>
             <PodTerminal
               ref="terminal"
               :extension="extension"
-              :session="terminalSession"
+              :session="shellSession"
+              mode="shell"
               @state="terminalState = $event"
             />
           </template>
@@ -1199,6 +1388,10 @@ export default {
             <WorkingChanges
               :extension="extension"
               :revision="changesRevision"
+              :page="previewRoute"
+              @update:selected="selectedChange = $event"
+              @route="changeRoute = $event"
+              @context="onContextChip"
             />
           </template>
         </AssistantPanel>
@@ -1226,10 +1419,31 @@ export default {
         route, the live dot and the viewport chip. All of that used to be spread between this
         page and the action bar; it belongs with the thing it drives.
       -->
+      <!--
+        The Changes tab takes this pane for Before/After. The preview answers "what does this
+        extension look like now", which on a tab about one particular change is the wrong
+        question; the one being asked there needs two pictures, not one. Kept mounted with
+        v-show rather than swapped, because tearing the preview's iframe down on every visit to
+        the Changes tab would reload the dashboard inside it and lose wherever it was.
+      -->
+      <ChangeEvidence
+        v-if="leftTab === 'changes'"
+        class="mc-editor__right"
+        :extension="extension"
+        :change="selectedChange"
+        :route="changeRoute"
+        @use-region="useRegion"
+      />
+
       <PreviewPanel
+        ref="preview"
+        v-show="leftTab !== 'changes'"
         class="mc-editor__right"
         :url="rightUrl"
         :extension="extension"
+        :change="selectedChange"
+        @route="previewRoute = $event"
+        @pick="onPick"
       />
     </div>
 

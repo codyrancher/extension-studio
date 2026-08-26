@@ -10,7 +10,7 @@
 // commit from one exec per pod, and where it is running from the published UIPlugin.
 //
 // Everything on it works. The header sorts, the per-row menu goes to the places that exist for
-// that row and greys out the ones that do not, and search and the two buttons are real.
+// that row and greys out the ones that do not, and the two buttons are real.
 import {
   SButton, SBadge, SIcon, SEmpty, SMenu, SModal
 } from '../components/ui';
@@ -50,7 +50,7 @@ const COLUMNS = [
   {
     id: 'when', label: 'Last change', width: 118, dir: 'desc'
   },
-  { id: 'actions', label: '', width: 104 },
+  { id: 'actions', label: '', width: 56 },
 ];
 
 /**
@@ -171,7 +171,6 @@ export default {
     return {
       rows:     [],
       loading:  true,
-      search:    '',
       importing: false,
       pollTimer: null,
       // Extensions that have been asked for and are coming up. A list rather than one, because
@@ -216,16 +215,13 @@ export default {
       return COLUMNS;
     },
 
+    /**
+     * Every row. Kept as a name rather than folded into `sorted`, because the search box that
+     * used to narrow it is the only thing that went - the shape the table reads is unchanged,
+     * and putting the box back is putting a filter here again.
+     */
     filtered() {
-      const q = this.search.trim().toLowerCase();
-
-      if (!q) {
-        return this.rows;
-      }
-
-      return this.rows.filter((r) => {
-        return r.name.toLowerCase().includes(q) || (r.sourceLabel || '').toLowerCase().includes(q);
-      });
+      return this.rows;
     },
 
     /**
@@ -398,11 +394,10 @@ export default {
     },
 
     /**
-     * The row's Review button, which is not the row itself.
+     * To the diff for one extension.
      *
-     * It used to call `open`, so the one control on the row that names a destination went to
-     * the same place as clicking anywhere else on it - the workspace. The menu's "Review
-     * changes" already went to the diff; this is the same push.
+     * Reached from the row menu's "Review changes". There was a Review button beside the menu
+     * as well, on rows with uncommitted work; it is gone, and this is what it called.
      */
     review(name) {
       this.$router.push({ name: REVIEW_ROUTE, params: { extension: name } });
@@ -591,48 +586,40 @@ export default {
         <h1 class="studio-home__title">
           Extension Studio
         </h1>
-        <span
-          class="studio-home__count"
-          data-testid="studio-count"
-          :title="search ? `${ filtered.length } of ${ rows.length } match “${ search }”` : `${ rows.length } extensions`"
-        >{{ filtered.length }}</span>
+        <!--
+          The Studio's settings, beside the name of the thing they are the settings for, where
+          the count used to be. Icon only: a cog beside a title is read as "the settings for
+          this", and the word was carrying no meaning the icon did not.
+
+          It goes to the settings page rather than to the token modal - screen 09's caption
+          makes that page the one home for connection, permissions, access and data, and a
+          second surface editing the same values is the thing it replaces.
+        -->
+        <SButton
+          variant="ghost"
+          size="sm"
+          icon="gear"
+          icon-only
+          title="Studio settings"
+          aria-label="Studio settings"
+          data-testid="studio-settings"
+          @click="$router.push({ name: routes.SETTINGS_ROUTE })"
+        />
 
         <span class="studio-home__grow" />
 
-        <div class="studio-home__search">
-          <SIcon name="search" :size="13" />
-          <input
-            v-model="search"
-            class="studio-home__search-input"
-            placeholder="Search"
-            aria-label="Search extensions"
-          >
-        </div>
-
         <SButton variant="neutral" icon="github" @click="importing = true">
           Import
-        </SButton>
-        <!--
-          The Studio's settings, which this screen had no route to at all: the only way in was
-          the import dialog's "Add one in settings" link, and that link is gone. It goes to the
-          settings page rather than to the token modal - screen 09's caption makes that page
-          the one home for connection, permissions, access and data, and a second surface
-          editing the same values is the thing it replaces.
-        -->
-        <SButton
-          variant="neutral"
-          icon="gear"
-          data-testid="studio-settings"
-          @click="$router.push({ name: routes.SETTINGS_ROUTE })"
-        >
-          Settings
         </SButton>
         <SButton variant="primary" icon="plus" @click="newExtension">
           New extension
         </SButton>
       </div>
 
-      <p class="studio-home__lede">
+      <p
+        class="studio-home__lede"
+        title="Describe what you want in plain language; the assistant builds it against this Rancher. Nothing reaches users until you publish."
+      >
         Describe what you want in plain language; the assistant builds it against this Rancher.
         Nothing reaches users until you publish.
       </p>
@@ -679,13 +666,6 @@ export default {
           </SButton>
         </SEmpty>
 
-        <SEmpty
-          v-else-if="!loading && !filtered.length"
-          icon="search"
-          title="Nothing matches"
-          :message="`No extension matches “${ search }”.`"
-        />
-
         <div
           v-for="row in sorted"
           :key="row.name"
@@ -719,17 +699,8 @@ export default {
 
           <div
             class="studio-home__td studio-home__td--actions"
-            :style="{ width: '104px', flex: '0 0 104px' }"
+            :style="{ width: '56px', flex: '0 0 56px' }"
           >
-            <SButton
-              v-if="row.state === 'unsaved'"
-              variant="secondary"
-              size="sm"
-              :data-testid="`studio-review-${ row.name }`"
-              @click.stop="review(row.name)"
-            >
-              Review
-            </SButton>
             <SMenu
               :items="rowMenu(row)"
               :aria-label="`Actions for ${ row.name }`"
@@ -833,45 +804,22 @@ export default {
     margin:         0;
   }
 
-  &__count {
-    padding:       var(--studio-space-2) var(--studio-space-8);
-    background:    var(--studio-surface-nav);
-    border-radius: var(--studio-radius-control);
-    font:          var(--studio-caption-12-semi);
-    color:         var(--studio-text-secondary);
-  }
-
   &__grow { flex: 1 1 auto; }
 
-  &__search {
-    display:       flex;
-    align-items:   center;
-    gap:           var(--studio-space-8);
-    width:         180px;
-    padding:       7px 10px;
-    border:        1px solid var(--studio-border);
-    border-radius: var(--studio-radius);
-    color:         var(--studio-text-tertiary);
-
-    &:focus-within { border-color: var(--studio-border-focus); }
-  }
-
-  &__search-input {
-    flex:       1 1 auto;
-    min-width:  0;
-    border:     none;
-    outline:    none;
-    background: transparent;
-    padding:    0;
-    font:       var(--studio-body-14);
-    color:      var(--studio-text);
-  }
-
   &__lede {
-    font:      var(--studio-body-14);
-    color:     var(--studio-text-secondary);
-    margin:    0;
-    max-width: 90ch;
+    font:          var(--studio-body-14);
+    color:         var(--studio-text-secondary);
+    margin:        0;
+    // One line. `max-width: 90ch` was narrower than the masthead, so the sentence broke with
+    // a single word - "publish." - alone on the second line, which reads as a mistake rather
+    // than as a paragraph.
+    //
+    // Ellipsis rather than overflow, so a narrow pane shortens the sentence instead of pushing
+    // the masthead wider than the screen; the whole sentence stays on the element's title, so
+    // nothing that was said becomes unreadable.
+    white-space:   nowrap;
+    overflow:      hidden;
+    text-overflow: ellipsis;
   }
 
   &__table-wrap {
@@ -947,8 +895,9 @@ export default {
       gap:            var(--studio-space-2);
     }
 
-    // Review plus the menu inside the frame's 104px column, which they only fit in if the
-    // menu's trigger gives back the padding it carries elsewhere.
+    // The row menu alone now: the Review button that shared this column is gone, and the
+    // menu's own "Review changes" is the way to the diff. The trigger still gives back the
+    // padding it carries elsewhere, which is what keeps it inside the column.
     &--actions {
       justify-content: flex-end;
       gap:             var(--studio-space-4);

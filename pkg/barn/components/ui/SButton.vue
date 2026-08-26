@@ -54,6 +54,16 @@ export default {
       validator: (v) => ['sm', 'md'].includes(v),
     },
 
+    /**
+     * Override the glyph size, for the few places the design draws a bare icon at a size of
+     * its own rather than a button's icon. The masthead's back arrow and kebab are both
+     * icon/16 in the file (9:178, 9:227) while a button's icon is 15.
+     */
+    iconSize: {
+      type:    Number,
+      default: 0,
+    },
+
     type: {
       type:    String,
       default: 'button',
@@ -65,6 +75,15 @@ export default {
   computed: {
     inert() {
       return this.disabled || this.loading;
+    },
+
+    /**
+     * The glyph size. 15 at `sm` is the file's own measurement - layout_FNBL51, on all three
+     * masthead buttons. It used to be 13, which is the chip's size, so the action bar drew a
+     * glyph two pixels small beside a 14px label.
+     */
+    glyph() {
+      return this.iconSize || (this.size === 'sm' ? 15 : 14);
     },
   },
 
@@ -95,13 +114,13 @@ export default {
     <SIcon
       v-if="loading"
       name="spinner"
-      :size="size === 'sm' ? 13 : 14"
+      :size="glyph"
       class="s-btn__spin"
     />
     <SIcon
       v-else-if="icon"
       :name="icon"
-      :size="size === 'sm' ? 13 : 14"
+      :size="glyph"
     />
 
     <span v-if="!iconOnly" class="s-btn__label"><slot /></span>
@@ -113,26 +132,54 @@ export default {
   display:         inline-flex;
   align-items:     center;
   justify-content: center;
+  // The height below is a border-box height, so a bordered variant is the same height as a
+  // ghost one rather than two pixels taller.
+  box-sizing:      border-box;
   gap:             var(--studio-space-8);
   padding:         var(--studio-space-8) var(--studio-space-16);
   border:          1px solid transparent;
   border-radius:   var(--studio-radius);
   font:            var(--studio-heading-14);
+  // Both of these exist to beat the shell's own button rule, which is
+  //
+  //   .btn, button, [class^='btn-'] { line-height: 40px; min-height: 40px; }
+  //
+  // in global/_button.scss, on a bare element selector, so it applies to every button this
+  // design system draws. `min-height` wins over `height` whatever the height says, so until
+  // this was here a Studio button was 40px tall no matter what it was told - which is why
+  // successive attempts to shrink the action bar changed its width and never its height.
+  //
+  // `min-height: 0` on the base rather than a number, so a size class is free to state its
+  // own; the class selectors below beat the element selector on specificity.
+  min-height:      0;
   cursor:          pointer;
   white-space:     nowrap;
   transition:      background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
 
+  // The file's Button, measured off 9:177 in dev mode: content 68x20, padding 5px 11px,
+  // gap 7px, radius 4px. 20 + 5 + 5 is the 30px below.
+  //
+  // Stated as a height rather than as vertical padding, and with `min-height` beside it, for
+  // the reason in the base rule above: the shell floors every button at 40px, and a padding
+  // that adds up to 30 loses to it silently. A border-box height with the label centred is
+  // the same 30px the file draws and cannot be floored.
   &--sm {
-    padding: 5px 11px;
-    gap:     7px;
+    height:     var(--studio-control-sm, 30px);
+    min-height: var(--studio-control-sm, 30px);
+    padding:    0 11px;
+    gap:        7px;
   }
 
   &--icon-only {
     padding: var(--studio-space-8);
 
+    // Square, so a toolbar of icons is a row of equal boxes.
     &.s-btn--sm {
-      padding: 5px;
+      width:   var(--studio-control-sm, 30px);
+      padding: 0;
     }
+
+    &.s-btn--md { min-height: 0; }
   }
 
   &:disabled {
