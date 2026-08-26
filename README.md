@@ -1,9 +1,10 @@
 # extension-studio
 
-A Rancher extension for writing Rancher extensions. It adds a Studio to the Extensions page:
-describe what you want, and an assistant writes it, runs it against the Rancher you are already
-logged into, and shows you the result before anything is installed.
+A Rancher extension for writing Rancher extensions. Allow you to create, edit and host on the 
+rancher instance it's hosted on.
 
+
+## Installing
 Install it from this repository's Helm repo - add `https://codyrancher.github.io/extension-studio`
 under **Apps -> Repositories**, then install **Extension Studio** from **Extensions**.
 
@@ -40,9 +41,3 @@ yarn install
 yarn build-pkg extension-studio     # dist-pkg/extension-studio-<version>/
 node scripts/gen-extension-seed.mjs # after editing extension-skeleton/ or base-extension/
 ```
-
-Releasing goes through `.github/workflows/build-extension-charts.yml`, which can be run from the
-Actions tab and publishes whatever version `pkg/extension-studio/package.json` names. It needs
-`gh-pages` to exist and the repository to be public - Rancher fetches the chart index from Pages
-and the files from `raw.githubusercontent.com` with no credential of the installer's, so a
-private repository publishes successfully and then serves 404 to everyone.
