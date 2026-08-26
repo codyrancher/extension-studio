@@ -1,7 +1,7 @@
 {
   "name": "extension-studio",
   "description": "Author, preview and review Rancher UI extensions from inside Rancher",
-  "version": "0.5.22",
+  "version": "0.5.23",
   "private": false,
   "icon": "https://rancher.github.io/ui-internal-tools/ai/magic-closet/logo.svg",
   "homepage": "https://github.com/codyrancher/extension-studio",
