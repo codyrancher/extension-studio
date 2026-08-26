@@ -1,13 +1,13 @@
 {
   "name": "extension-studio",
-  "description": "Provision and manage closet dev environments from Rancher",
+  "description": "Author, preview and review Rancher UI extensions from inside Rancher",
   "version": "0.5.22",
   "private": false,
   "icon": "https://rancher.github.io/ui-internal-tools/ai/magic-closet/logo.svg",
   "homepage": "https://github.com/codyrancher/barn",
   "rancher": {
     "annotations": {
-      "catalog.cattle.io/display-name": "Barn",
+      "catalog.cattle.io/display-name": "Extension Studio",
       "catalog.cattle.io/rancher-version": ">= 2.10.0",
       "catalog.cattle.io/ui-extensions-version": ">= 3.0.0 < 4.0.0"
     }
