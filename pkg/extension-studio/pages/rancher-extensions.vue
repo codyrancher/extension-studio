@@ -48,8 +48,7 @@ export default {
       <div class="barn-extensions__text">
         <span class="barn-extensions__title">Extension Studio</span>
         <span class="barn-extensions__note">
-          Describe an extension and the assistant writes it, runs it against this Rancher, and
-          shows you the result before anything is installed.
+          Create, import, edit and publish extensions, all within Rancher.
         </span>
       </div>
       <SButton
