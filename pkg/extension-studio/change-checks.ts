@@ -136,7 +136,7 @@ function isPlaceholder(value: string | undefined): boolean {
     return true;
   }
 
-  // A slug, a path or a dotted name - `barn-settings`, `owner/name`, `catalog.cattle.io`.
+  // A slug, a path or a dotted name - `settings`, `owner/name`, `catalog.cattle.io`.
   return /^[a-z][a-z0-9]*(?:[-_./][a-z0-9]+)+$/.test(value);
 }
 

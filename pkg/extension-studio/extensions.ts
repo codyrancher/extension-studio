@@ -73,8 +73,8 @@ const EXT_BASE = `/k8s/clusters/${ EXT_CLUSTER }`;
  * with the session of whoever is looking at it, so it widens what is reachable
  * without widening who can reach it.
  */
-export const EXT_ACCOUNT = 'barn-extension';
-export const EXT_ROLE_BINDING = 'barn-extension-cluster-admin';
+export const EXT_ACCOUNT = 'extension-studio';
+export const EXT_ROLE_BINDING = 'extension-studio-cluster-admin';
 
 /**
  * What an extension was seeded from, remembered on its own ConfigMap.
@@ -119,18 +119,18 @@ function encodeSeedKey(filePath: string): string {
 /**
  * What an extension's objects are called.
  *
- * `barn-<name>-extension` rather than anything shorter, because the namespace
- * holds the editor's content pod too and a bare name would eventually collide
- * with it. It is also the label every one of its objects carries, so the
+ * `<name>-extension` rather than the bare name, because the namespace holds the
+ * editor's content pod and the browser too, and a bare name would eventually
+ * collide with one of them. It is also the label every one of its objects carries, so the
  * Deployment, the Service, the ConfigMap and the pod all answer to one string.
  */
 export function extensionObject(name: string): string {
-  return `barn-${ name }-extension`;
+  return `${ name }-extension`;
 }
 
 /** The reverse, for listing: null for anything in the namespace that is not an extension. */
 function extensionName(object: string): string | null {
-  const match = object.match(/^barn-(.+)-extension$/);
+  const match = object.match(/^(.+)-extension$/);
 
   return match ? match[1] : null;
 }
@@ -139,14 +139,9 @@ function extensionName(object: string): string | null {
  * Where the node keeps an extension's working tree and node_modules between pod
  * restarts. The install is minutes and the tree is what you edit, so neither can
  * live in the pod's own filesystem.
- *
- * Still `barn` after the rename, and staying that way: this is a path on the node,
- * not a Kubernetes name, so nothing reconciles it. Changing it would not move the
- * trees, it would abandon them - every existing extension would come back to an
- * empty directory and reinstall from scratch, losing whatever was not committed.
  */
 function hostCachePath(name: string): string {
-  return `/var/lib/rancher/barn/${ name }-extension`;
+  return `/var/lib/rancher/extension-studio/${ name }-extension`;
 }
 
 /**
@@ -568,7 +563,7 @@ async function anyRunningPod(): Promise<string | null> {
 // ---------------------------------------------------------------------------
 // The GitHub credential, read where it is used.
 //
-// The token is write-only: it goes into the `barn-settings` Secret and never comes back into
+// The token is write-only: it goes into the `settings` Secret and never comes back into
 // the browser. See SETTINGS_SECRET for what that costs and why. What makes it possible is that
 // the thing which needs the token is a pod, and the pod has a service account of its own -
 // `EXT_ACCOUNT`, bound to cluster-admin - so it can read the Secret itself. Everything below is
@@ -979,7 +974,7 @@ export function seedConfigMapBody(name: string, source: string = DEFAULT_SEED): 
 /**
  * The grant a reviewer needs, which is not the grant the pods have.
  *
- * Signing off writes the `barn-review-<extension>` ConfigMap in this namespace, and today
+ * Signing off writes the `review-<extension>` ConfigMap in this namespace, and today
  * everything in here is admin territory in practice. This creates the Role; binding it to
  * somebody is an admin decision and not one an extension gets to make for them.
  *
@@ -988,7 +983,7 @@ export function seedConfigMapBody(name: string, source: string = DEFAULT_SEED): 
  * disabled with the real reason shown. An enabled button that turns into a 403 is the failure
  * this exists to make visible.
  */
-export const REVIEWER_ROLE = 'barn-reviewer';
+export const REVIEWER_ROLE = 'extension-studio-reviewer';
 
 export function reviewerRoleBody(): Record<string, unknown> {
   return {
@@ -1210,7 +1205,7 @@ export function ensureDefaultExtension(): Promise<void> {
  * expensive thing in here - Chromium with a desktop around it - so a second one
  * would be paid for again on every extension anybody creates.
  */
-export const BROWSER_OBJECT = 'barn-browser';
+export const BROWSER_OBJECT = 'browser';
 
 /**
  * The image the closet's own browser sidecar runs, and the harness's Browser tab
@@ -1252,7 +1247,7 @@ const BROWSER_CDP_PORT = 9222;
  * bundle cannot read the repo it was built from, and kept as whole files rather
  * than command lines because each has an ordering in it.
  */
-export const BROWSER_SERVICES = 'barn-browser-services';
+export const BROWSER_SERVICES = 'browser-services';
 
 /**
  * Republishes CDP on the pod's own address.
@@ -1263,7 +1258,7 @@ export const BROWSER_SERVICES = 'barn-browser-services';
  *
  * The consequence for whoever drives it is the one thing to know about this
  * browser: Chromium validates the Host header on that port and rejects anything
- * that is not an IP or localhost, so `barn-browser:9222` gets a 403 while the
+ * that is not an IP or localhost, so `browser:9222` gets a 403 while the
  * Service's ClusterIP works. See the seeded CLAUDE.md, which says so where it
  * will be read.
  */
@@ -5042,7 +5037,7 @@ export interface PublishResult {
  *     credential;
  *   - the repository, which was never a secret and only lived in here because the token did.
  */
-export const SETTINGS_SECRET = 'barn-settings';
+export const SETTINGS_SECRET = 'settings';
 
 /** The key names are the Secret's, so `kubectl get secret barn-settings -o yaml` reads plainly. */
 export const TOKEN_KEY = 'gh_token';

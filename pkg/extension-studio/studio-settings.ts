@@ -7,10 +7,10 @@
 //
 // Where things live, and why they live in two objects rather than one:
 //
-//   - The GitHub credential is in Secret `barn-settings` (extensions.ts owns it). It is
+//   - The GitHub credential is in Secret `settings` (extensions.ts owns it). It is
 //     write-only: it goes in, it never comes back out to a page, and `readSettings` answers
 //     only whether one is stored.
-//   - Everything else is in ConfigMap `barn-studio-settings` in the same namespace, one JSON
+//   - Everything else is in ConfigMap `studio-settings` in the same namespace, one JSON
 //     key. That includes what GitHub said about the credential when it was stored - the account
 //     and its scopes, which are not secret and are the whole of what the design's
 //     "Connected as ..." row shows. Keeping them out of the Secret is what lets the page name
@@ -29,7 +29,7 @@ import {
 const EXT_BASE = '/k8s/clusters/local';
 
 /** One ConfigMap for the Studio's own settings, one key in it. */
-export const SETTINGS_OBJECT = 'barn-studio-settings';
+export const SETTINGS_OBJECT = 'studio-settings';
 const SETTINGS_KEY = 'settings.json';
 
 /** Off / Notified / Required: the three values every cell of the sign-off matrix can hold. */

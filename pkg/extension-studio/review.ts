@@ -7,7 +7,7 @@
 //   is the store that already moves with the code.
 //
 //   Everything about PEOPLE AND THEIR DECISIONS lives here, in one ConfigMap per extension,
-//   `barn-review-<extension>` in namespace `barn`, because a sign-off has to be readable by the
+//   `review-<extension>` in namespace `extension-studio`, because a sign-off has to be readable by the
 //   queue without an exec into every pod, has to outlive the pod that happens to be serving the
 //   extension today, and has to be attributable to a Rancher principal that the pod knows
 //   nothing about.
@@ -37,7 +37,7 @@ const EXT_BASE = '/k8s/clusters/local';
 
 /** One ConfigMap per extension, one key in it. */
 export function reviewObject(extension: string): string {
-  return `barn-review-${ extension }`;
+  return `review-${ extension }`;
 }
 
 const REVIEW_KEY = 'review.json';
@@ -1289,7 +1289,7 @@ export async function handOverForReview(
     `Handed over from the Rancher Extension Studio as packet ${ packet.n }.`,
     '',
     `- Collapsed against \`${ packet.base.slice(0, 12) }\`, the last version other people could get.`,
-    `- Two sign-offs are outstanding: the code review and the outcome sign-off. They are recorded in the \`barn-review-${ extension }\` ConfigMap in the \`barn\` namespace, and the distribution is refused until two different people have given them.`,
+    `- Two sign-offs are outstanding: the code review and the outcome sign-off. They are recorded in the \`review-${ extension }\` ConfigMap in the \`extension-studio\` namespace, and the distribution is refused until two different people have given them.`,
     '- These sign-offs are recorded and auditable, not cryptographically attested. This product has no server of its own, so every write is a browser write with the signer\'s own Rancher session.',
     '',
     '## The brief',
