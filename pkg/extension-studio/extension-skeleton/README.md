@@ -9,7 +9,7 @@ HMR. The browser reaches it through the Kubernetes apiserver's service proxy, on
 own origin:
 
 ```
-https://<rancher>/k8s/clusters/local/api/v1/namespaces/barn/services/http:barn-<name>-extension:8005/proxy/
+https://<rancher>/k8s/clusters/local/api/v1/namespaces/extension-studio/services/http:barn-<name>-extension:8005/proxy/
 ```
 
 So it is a second dashboard at a URL of its own. Rancher's own UI is untouched: no
@@ -97,7 +97,7 @@ in sync. The terminal in the editor's left pane is already there, and claude in 
 pointed at the package (with a `CLAUDE.md` explaining where it is). Otherwise:
 
 ```bash
-kubectl -n barn exec -it deploy/barn-<name>-extension \
+kubectl -n extension-studio exec -it deploy/barn-<name>-extension \
   -- bash -c 'cd "$(ls -d /app/pkg/*/ | head -1)" && exec bash'
 ```
 

@@ -19,7 +19,7 @@
 // four objects. There is no install step and nothing to run outside the cluster.
 //
 // Editing is done in the pod. That tree is the live source once it has booted:
-//   kubectl -n barn exec -it deploy/barn-<name>-extension \
+//   kubectl -n extension-studio exec -it deploy/barn-<name>-extension \
 //     -- bash -c 'cd "$(ls -d /app/pkg/*/ | head -1)" && exec bash'
 // ---------------------------------------------------------------------------
 import { rancherFetch } from './api';
@@ -29,7 +29,7 @@ import { SEEDS } from './extension-seed.generated';
 // contexts that have no cluster of their own, and a dev server should be at one
 // URL regardless of where you were when you opened it.
 const EXT_CLUSTER = 'local';
-export const EXT_NS = 'barn';
+export const EXT_NS = 'extension-studio';
 const EXT_PORT = 8005;
 
 // The one container in a pod. Named here because two things address it: the
@@ -139,6 +139,11 @@ function extensionName(object: string): string | null {
  * Where the node keeps an extension's working tree and node_modules between pod
  * restarts. The install is minutes and the tree is what you edit, so neither can
  * live in the pod's own filesystem.
+ *
+ * Still `barn` after the rename, and staying that way: this is a path on the node,
+ * not a Kubernetes name, so nothing reconciles it. Changing it would not move the
+ * trees, it would abandon them - every existing extension would come back to an
+ * empty directory and reinstall from scratch, losing whatever was not committed.
  */
 function hostCachePath(name: string): string {
   return `/var/lib/rancher/barn/${ name }-extension`;

@@ -72,7 +72,7 @@ watching it, so leave it somewhere sensible.
   write a hostname in yourself.
 - **Where the browser is.** `$BARN_BROWSER_SERVICE` on `$BARN_BROWSER_CDP_PORT`, and you have
   to resolve the name yourself:
-  `kubectl -n barn get svc "$BARN_BROWSER_SERVICE" -o jsonpath='{.spec.clusterIP}'`.
+  `kubectl -n extension-studio get svc "$BARN_BROWSER_SERVICE" -o jsonpath='{.spec.clusterIP}'`.
   Chromium answers a debugging-port request whose `Host` is not an IP with a 403, so the
   ClusterIP works and `barn-browser:9222` does not.
 - **The first navigation lands on the login page**, because a fresh profile has no Rancher

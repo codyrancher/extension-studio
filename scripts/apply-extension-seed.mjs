@@ -28,7 +28,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const OWNER = path.join(here, '..', 'pkg', 'extension-studio', 'extensions.ts');
 const SEED = path.join(here, '..', 'pkg', 'extension-studio', 'extension-seed.generated.ts');
 
-const NAMESPACE = 'barn';
+const NAMESPACE = 'extension-studio';
 
 /**
  * Which extension's ConfigMap to write, since there is more than one kind now.

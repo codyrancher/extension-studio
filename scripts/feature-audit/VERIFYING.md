@@ -53,7 +53,7 @@ So for each feature, ask what would be observably different if it worked, and th
 
 **Where the truth lives.** Much of this screen is backed by a real pod in namespace `barn`. If a
 feature claims to write a file, commit, snapshot or publish, go and look:
-`kubectl -n barn exec deploy/barn-base-extension -- sh -c '...'`. The UI saying it worked is not
+`kubectl -n extension-studio exec deploy/barn-base-extension -- sh -c '...'`. The UI saying it worked is not
 evidence that it worked.
 
 ## Recording a verdict
@@ -121,7 +121,7 @@ to hold still - another agent may add one between your two reads.
 **2. Put back what you disturb.** Before you touch the working tree, record where it was:
 
 ```bash
-kubectl -n barn exec deploy/barn-base-extension -- sh -c 'cd /app/pkg/*/ && git rev-parse HEAD && git status --porcelain | head -40'
+kubectl -n extension-studio exec deploy/barn-base-extension -- sh -c 'cd /app/pkg/*/ && git rev-parse HEAD && git status --porcelain | head -40'
 ```
 
 Afterwards, restore anything you added that a later verifier would trip over. Leave the tree

@@ -107,7 +107,7 @@ You can still check your work without building:
 - Unit-test any pure logic you add by lifting it into a scratch `.mjs` and running it against real
   data. The two fixes that opened this loop were both caught this way: the brief parser looked
   right and returned an empty criteria array against the real file.
-- Read the pod's real state with `kubectl -n barn exec deploy/barn-base-extension -- sh -c '...'`
+- Read the pod's real state with `kubectl -n extension-studio exec deploy/barn-base-extension -- sh -c '...'`
   to confirm your assumptions about what the data looks like.
 
 If your change is pure logic, a scratch test against real data is worth more than a browser pass.

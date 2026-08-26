@@ -4,9 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { login, RANCHER } from './login.mjs';
 
 const kc = { env: { ...process.env, KUBECONFIG: '/workspace/.kube/config' } };
-const pod = execFileSync('kubectl', ['-n', 'barn', 'get', 'pods', '-l', 'app=barn-base-extension',
+const pod = execFileSync('kubectl', ['-n', 'extension-studio', 'get', 'pods', '-l', 'app=barn-base-extension',
   '-o', 'jsonpath={.items[0].metadata.name}'], kc).toString().trim();
-const cfg = () => execFileSync('kubectl', ['-n', 'barn', 'exec', pod, '--', 'su', '-s', '/bin/bash', '-c',
+const cfg = () => execFileSync('kubectl', ['-n', 'extension-studio', 'exec', pod, '--', 'su', '-s', '/bin/bash', '-c',
   'cd /app/pkg/base && git config --local --get barn.review.deferred || echo "(unset)"', 'node'], kc).toString().trim();
 
 const browser = await chromium.connectOverCDP(process.env.CLAUDE_BROWSER_CDP || 'http://localhost:9222');
@@ -22,7 +22,7 @@ const check = (label, ok, detail = '') => {
 };
 
 try {
-  execFileSync('kubectl', ['-n', 'barn', 'exec', pod, '--', 'su', '-s', '/bin/bash', '-c',
+  execFileSync('kubectl', ['-n', 'extension-studio', 'exec', pod, '--', 'su', '-s', '/bin/bash', '-c',
     'cd /app/pkg/base && git config --local --unset barn.review.deferred 2>/dev/null; true', 'node'], kc);
   check('starts undeferred', cfg() === '(unset)', cfg());
 
@@ -57,7 +57,7 @@ try {
   console.log('ERROR', e.message.split('\n')[0]);
   fails++;
 } finally {
-  execFileSync('kubectl', ['-n', 'barn', 'exec', pod, '--', 'su', '-s', '/bin/bash', '-c',
+  execFileSync('kubectl', ['-n', 'extension-studio', 'exec', pod, '--', 'su', '-s', '/bin/bash', '-c',
     'cd /app/pkg/base && git config --local --unset barn.review.deferred 2>/dev/null; git config --local --unset barn.review.deferred-note 2>/dev/null; true', 'node'], kc);
   console.log(`\n${ fails === 0 ? 'ALL PASS' : fails + ' FAILED' }`);
   await page.close().catch(() => {});

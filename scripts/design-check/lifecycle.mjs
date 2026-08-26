@@ -13,11 +13,11 @@ const R = 'https://magic-closet-rancher/dashboard';
 const kc = { env: { ...process.env, KUBECONFIG: '/workspace/.kube/config' } };
 
 const podName = () => execFileSync('kubectl',
-  ['-n', 'barn', 'get', 'pods', '-l', `app=barn-${ NAME }-extension`,
+  ['-n', 'extension-studio', 'get', 'pods', '-l', `app=barn-${ NAME }-extension`,
     '-o', 'jsonpath={.items[0].metadata.name}'], kc).toString().trim();
 
 const inPod = (script) => execFileSync('kubectl',
-  ['-n', 'barn', 'exec', podName(), '--', 'su', '-s', '/bin/bash', '-c',
+  ['-n', 'extension-studio', 'exec', podName(), '--', 'su', '-s', '/bin/bash', '-c',
     `cd "$(ls -d /app/pkg/*/ | head -1)" && ${ script }`, 'node'], kc).toString();
 
 export default async function ({

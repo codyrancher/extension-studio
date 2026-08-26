@@ -122,7 +122,7 @@ A change that leaves any of those worse than it found them is not finished.
 
 ## Known environment condition: the preview browser pod is not Ready
 
-`kubectl -n barn get pods` shows `barn-browser` as `0/1 Running`. Its readiness probe asks
+`kubectl -n extension-studio get pods` shows `barn-browser` as `0/1 Running`. Its readiness probe asks
 `http://<pod>:9222/json/version` and gets EOF; it has failed roughly 6600 times over 17 hours.
 The container itself is alive and streaming (its log shows an active H264 stream and audio
 pipeline), so this is the CDP port not answering rather than a dead pod.

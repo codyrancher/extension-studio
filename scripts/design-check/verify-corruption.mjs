@@ -8,7 +8,7 @@ import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { login, RANCHER } from './login.mjs';
 
-const NS = 'barn';
+const NS = 'extension-studio';
 const kc = { env: { ...process.env, KUBECONFIG: '/workspace/.kube/config' } };
 const pod = execFileSync('kubectl', ['-n', NS, 'get', 'pods', '-l', 'app=barn-base-extension',
   '-o', 'jsonpath={.items[0].metadata.name}'], kc).toString().trim();

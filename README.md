@@ -14,32 +14,6 @@ rancher instance it's hosted on.
 3. **Install it.** Back on **Extensions**, under **Available**, install **Extension Studio**.
 4. **Reload the page** when it asks. **Extensions** now has an **Open the Studio** button on it.
 
-## Architecture
-
-An extension you make here never leaves the cluster, and never has to be hosted anywhere for you
-to use it.
-
-```
-browser ---> Rancher ---> apiserver service proxy ---> pod (dashboard + your package)
-                |                                       ^
-                +-- UIPlugin (direct: true) ------------+
-```
-
-- **Each extension is a pod.** Creating one writes a Deployment, a Service and a ConfigMap of
-  source into the `barn` namespace. The pod runs a whole Rancher dashboard with your package
-  compiled into it, on port 8005.
-- **The browser reaches it through the apiserver**, at
-  `/api/v1/namespaces/barn/services/http:<name>:8005/proxy`. That is Rancher's own origin
-  carrying the session you already have, so nothing is exposed and there is nothing extra to log
-  into.
-- **Editing happens inside the pod.** The assistant runs there too, so a save recompiles and hot
-  reloads the Preview. There is no build step and nothing to reinstall.
-- **Publish writes a UIPlugin**, in `cattle-ui-plugin-system`, marked `direct: "true"` and
-  pointing at that same proxy URL. Rancher's own index picks it up and the browser loads the
-  bundle straight from the pod, which is why the extension lives exactly as long as the pod does.
-- **A release does not involve the pod at all.** Publish to GitHub, tag it, and the chart on
-  `gh-pages` is what other people add as a repository, the same way you added this one.
-
 ## Creating
 
 - **Extensions -> Open the Studio -> Create.** Give it a name and a sentence about what it
@@ -72,3 +46,29 @@ yarn install
 yarn build-pkg extension-studio     # dist-pkg/extension-studio-<version>/
 node scripts/gen-extension-seed.mjs # after editing extension-skeleton/ or base-extension/
 ```
+
+## Architecture
+
+An extension you make here never leaves the cluster, and never has to be hosted anywhere for you
+to use it.
+
+```
+browser ---> Rancher ---> apiserver service proxy ---> pod (dashboard + your package)
+                |                                       ^
+                +-- UIPlugin (direct: true) ------------+
+```
+
+- **Each extension is a pod.** Creating one writes a Deployment, a Service and a ConfigMap of
+  source into the `extension-studio` namespace. The pod runs a whole Rancher dashboard with
+  your package compiled into it, on port 8005.
+- **The browser reaches it through the apiserver**, at
+  `/api/v1/namespaces/extension-studio/services/http:<name>:8005/proxy`. That is Rancher's own
+  origin carrying the session you already have, so nothing is exposed and there is nothing extra
+  to log into.
+- **Editing happens inside the pod.** The assistant runs there too, so a save recompiles and hot
+  reloads the Preview. There is no build step and nothing to reinstall.
+- **Publish writes a UIPlugin**, in `cattle-ui-plugin-system`, marked `direct: "true"` and
+  pointing at that same proxy URL. Rancher's own index picks it up and the browser loads the
+  bundle straight from the pod, which is why the extension lives exactly as long as the pod does.
+- **A release does not involve the pod at all.** Publish to GitHub, tag it, and the chart on
+  `gh-pages` is what other people add as a repository, the same way you added this one.

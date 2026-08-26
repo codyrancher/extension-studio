@@ -27,6 +27,7 @@
 //   --before-path/--after-path, --before-label/--after-label
 //   --output PATH         where the png goes
 import { writeFile, mkdir, readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,8 +109,15 @@ function browserOrigin() {
     throw new Error('BARN_BROWSER_SERVICE is not set: this pod was not told where the browser is');
   }
 
+  // The pod's own namespace, not a constant: this ran with the namespace spelled
+  // out until it was renamed, and a hardcoded one is a rename away from breaking
+  // again. Every pod is told where it lives, so ask.
+  const ns = readFileSync(
+    '/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8'
+  ).trim();
+
   const ip = execFileSync('kubectl', [
-    '-n', 'barn', 'get', 'svc', svc, '-o', 'jsonpath={.spec.clusterIP}',
+    '-n', ns, 'get', 'svc', svc, '-o', 'jsonpath={.spec.clusterIP}',
   ], { encoding: 'utf8' }).trim();
 
   if (!ip) {
