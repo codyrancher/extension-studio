@@ -200,16 +200,6 @@ export default {
         again to put the record on GitHub too.
       </SBanner>
 
-      <SBanner
-        v-if="briefMissing"
-        type="warning"
-        data-testid="barn-publish-github-no-brief"
-      >
-        {{ gate.reason }} The hand-over will go ahead anyway, and the pull request will say plainly
-        that no brief was written. What it costs is the outcome sign-off, which has no acceptance
-        criteria to walk and no recorded requester until somebody writes one.
-      </SBanner>
-
       <SField
         v-model="repo"
         label="GitHub repository"

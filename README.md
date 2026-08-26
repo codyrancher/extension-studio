@@ -39,11 +39,15 @@ https://github.com/user-attachments/assets/5d4ffff3-4070-47df-8fe8-239dba4bdfab
 
 ## Deploying
 
-- **Publish**, in the editor, builds the package in its pod and installs it into the Rancher
-  you are looking at. It is a dev loop: it lives as long as the pod does and nobody else can
-  reach it.
-- **Publish to GitHub** puts the source in a repository of your own. Tagging a release there
-  builds the Helm chart and serves it from `gh-pages`, which is how anyone else installs it.
+- **Publish** builds the package in its pod and loads it into the Rancher you are looking at.
+  Nothing is installed by hand: the page is not there, you publish, you reload, and it is.
+  Everybody signed in here gets it on their next page load, and it lasts as long as the pod does.
+
+https://github.com/user-attachments/assets/f4d0cffb-a4c7-4b02-98d8-a7061c1b7de8
+
+- **Push the source to GitHub** hands the change over instead: it assembles the work as a
+  numbered packet, puts it in the review queue, and pushes it as a branch with a pull request
+  against the default branch. Nothing is merged, so closing that pull request is the way back.
 
 ## Building this extension
 

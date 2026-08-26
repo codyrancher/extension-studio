@@ -3054,11 +3054,6 @@ export default {
             </div>
           </div>
 
-          <SBanner v-if="!briefSections.length" type="warning">
-            This change has no brief. Nobody wrote down what it is for, so the only thing to
-            review it against is the diff itself.
-          </SBanner>
-
           <!-- does it do the job? (38:1141) - the read-only mirror of screen 13's list -->
           <div v-if="criteria.length" class="rc__section" data-testid="rc-criteria">
             <div class="rc__criteria-head">

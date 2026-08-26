@@ -1674,18 +1674,11 @@ export async function distributionGate(extension: string): Promise<DistributionG
     reason:  `${ reason }${ discrepancy }`,
   });
 
-  if (!state.brief) {
-    // Still a refusal, and now the only one the brief makes. The hand-over stopped requiring a
-    // brief because refusing it broke a capability that worked; the distribution keeps
-    // requiring one because this is the boundary rule 1 names, and past it the extension is
-    // installable by people who cannot ask what it was for. The sentence has to say both, or a
-    // reader takes "no brief" to mean the change is stuck where it is.
-    return answer(
-      'no-brief',
-      'This change has no brief, so there is nothing written down for the outcome sign-off to be given against. It can still be handed over for review; it cannot be distributed until somebody writes one.'
-    );
-  }
-
+  // There used to be a refusal here for a change with no brief, on the grounds that past this
+  // boundary the extension is installable by people who cannot ask what it was for. The brief
+  // screen is gone, and with it the seeded BRIEF.md - so every change now has no brief, and the
+  // refusal stopped being a gate and became a wall. What is left standing in its place is the
+  // rest of this function: a packet somebody handed over, and two sign-offs on it.
   if (!packet) {
     return answer(
       'no-packet',

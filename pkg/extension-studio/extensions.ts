@@ -960,20 +960,44 @@ export function seedConfigMapBody(
   const object = extensionObject(name);
   const from = BUILT_IN_SEEDS.includes(source) ? source : DEFAULT_SEED;
   const files = renameSeedPackage(seedFiles(from), from, name);
+  const annotations: Record<string, string> = { [SOURCE_ANNOTATION]: from };
+
+  // Whatever the caller wants on top of the stock seed - today that is the placement, which is
+  // written as code rather than described in prose.
+  //
+  // `extras` are paths inside the package, not inside the tree: `l10n/en-us.yaml`, not
+  // `pkg/<name>/l10n/en-us.yaml`. Merging them as given writes them to the root of the tree
+  // instead of over the seed's own copies, which is a tree with two l10n files in it and the
+  // stock one still winning - the placement is then made and silently ignored. So the prefix is
+  // read off the seed's own keys rather than assumed: an imported repository keeps its own
+  // package name, and PACKAGE_DIR in the pod resolves the same way, by looking.
+  if (extras && Object.keys(extras).length) {
+    const prefix = Object.keys(files).map((k) => /^(pkg\/[^/]+\/)/.exec(k)?.[1]).find(Boolean);
+
+    if (prefix) {
+      const authored: string[] = [];
+
+      for (const [relative, contents] of Object.entries(extras)) {
+        files[prefix + relative] = contents;
+        authored.push(encodeSeedKey(prefix + relative));
+      }
+
+      // Which keys were written rather than seeded. The pod only writes a seeded file it does
+      // not already have; an authored one is meant to win, and this is how it knows which.
+      annotations[AUTHORED_ANNOTATION] = authored.join(',');
+    }
+  }
 
   return {
     apiVersion: 'v1',
     kind:       'ConfigMap',
     metadata:   {
-      namespace:   EXT_NS,
-      name:        object,
-      labels:      { app: object },
-      annotations: { [SOURCE_ANNOTATION]: from },
+      namespace: EXT_NS,
+      name:      object,
+      labels:    { app: object },
+      annotations,
     },
-    // Whatever the caller wants on top of the stock seed - today that is the placement, which
-    // is written as code rather than described in prose. Applied after the rename so a file it
-    // means to replace is replaced rather than renamed out from under it.
-    data: seedData({ ...files, ...(extras || {}) }),
+    data: seedData(files),
   };
 }
 
