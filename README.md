@@ -1,6 +1,6 @@
 # extension-studio
 
-A Rancher extension for writing Rancher extensions. Allows you to create, edit and host on the 
+A Rancher extension for writing Rancher extensions. Allows you to create, edit and install extensions on the 
 rancher instance it's hosted on.
 
 
