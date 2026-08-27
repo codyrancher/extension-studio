@@ -24,6 +24,7 @@
 // ---------------------------------------------------------------------------
 import { rancherFetch } from './api';
 import { SEEDS } from './extension-seed.generated';
+import { parseQuestion, AssistantQuestion } from './assistant-question';
 
 // The `local` cluster, like the editor's content pod: the extension loads in
 // contexts that have no cluster of their own, and a dev server should be at one
@@ -5734,6 +5735,52 @@ export async function publishedVersion(name: string): Promise<string> {
  *
  * Empty string when there is no session to read - not an error, just nothing running yet.
  */
+/**
+ * The question the assistant is waiting on, if it is waiting on one.
+ *
+ * Same capture as `assistantOutput`, read rather than shown. A pane sitting on a question is
+ * indistinguishable from a pane working, from outside: both are "not a prompt". The difference
+ * matters because one of them ends when the model is finished and the other ends when somebody
+ * presses a key, and nobody in the browser could press it - so a survey claude threw up on its
+ * own would hold a turn open until somebody thought to open the terminal.
+ */
+export async function assistantQuestion(name: string): Promise<AssistantQuestion | null> {
+  const pane = await assistantOutput(name, 40).catch(() => '');
+
+  return pane ? parseQuestion(pane) : null;
+}
+
+/**
+ * Answer it, by pressing the key it named.
+ *
+ * The key on its own, then Return, with the same pause between them that `askAssistant` uses and
+ * for the same reason: the pane redraws as it receives. `Esc` and `Enter` are sent as tmux key
+ * names rather than as literal text, which is what makes "Esc to cancel" answerable too.
+ */
+export async function answerAssistant(name: string, key: string): Promise<void> {
+  const named = /^(escape|esc|enter|return|tab|space)$/i.test(key);
+  const press = named
+    ? `tmux send-keys -t ${ ASSISTANT_SESSION } ${ shellQuote(namedKey(key)) }`
+    : `tmux send-keys -t ${ ASSISTANT_SESSION } -l ${ shellQuote(key) } && sleep 1 && tmux send-keys -t ${ ASSISTANT_SESSION } Enter`;
+
+  const out = await inPackage(name, [
+    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
+    `${ press } && echo BARN-ANSWERED ;`,
+    'else echo BARN-NO-SESSION ; fi',
+  ].join(' '));
+
+  if (!out.includes('BARN-ANSWERED')) {
+    throw new Error(`the answer did not reach ${ name }: ${ out.trim().slice(0, 200) || 'no output' }`);
+  }
+}
+
+/** tmux spells them its own way, and only these are ever sent. */
+function namedKey(key: string): string {
+  return {
+    esc: 'Escape', escape: 'Escape', enter: 'Enter', return: 'Enter', tab: 'Tab', space: 'Space',
+  }[key.toLowerCase()] || key;
+}
+
 export async function assistantOutput(name: string, lines = 120): Promise<string> {
   const out = await inPackage(name, [
     `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,

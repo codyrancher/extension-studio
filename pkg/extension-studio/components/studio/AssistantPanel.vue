@@ -68,12 +68,13 @@ import ActivityTurn from './ActivityTurn.vue';
 import ImagePreview from './ImagePreview.vue';
 import { toastSuccess, toastError } from '../../toast';
 import AssistantLoginModal from './AssistantLoginModal.vue';
+import { parseQuestion } from '../../assistant-question';
 import { padded } from '../../change-regions';
 import { promptSaid, promptContextChips } from '../../prompt-context';
 import { stickToBottom } from '../../stick-to-bottom';
 import {
   countChanges, publishedVersion, writePodImage, assistantLogin, assistantTurns, approvalState,
-  assistantOutput, interruptAssistant, assistantConversation,
+  assistantOutput, answerAssistant, interruptAssistant, assistantConversation,
   readPodImage, elementShot, startNewConversation, conversationSince
 } from '../../extensions';
 
@@ -240,6 +241,9 @@ export default {
       // The dev server's own output, under the strip the design draws collapsed (32:893).
       // The assistant's own pane, tailed while a turn is in flight and shown in its card.
       output:      '',
+      // The question it is waiting on, when it is waiting on one, and which answer is going.
+      question:    null,
+      answering:   '',
       /**
        * The turns the pod recorded, newest first, exactly as `assistantTurns` returns them.
        *
@@ -1433,23 +1437,56 @@ export default {
      * are swallowed to the last good text rather than surfaced - the card is reporting on a
      * turn, not on this reader, and a failed capture is not news about the turn.
      */
+    /**
+     * Read the assistant's screen: what it is doing, and whether it is waiting on an answer.
+     *
+     * One capture, two readings, and only the first of them is gated on a turn being in flight.
+     * The question is not, and the reason is the case this was written for: "How is Claude doing
+     * this session?" is thrown up *after* a turn ends, so a reader that only looked while one was
+     * running would look everywhere except where that question lives - and the pane would sit on
+     * it until somebody thought to open the terminal.
+     */
     async readOutput() {
       const asked = this.extension;
-
-      if (!this.stream.some((entry) => entry.props?.pending)) {
-        this.output = '';
-
-        return;
-      }
+      const pending = this.stream.some((entry) => entry.props?.pending);
 
       try {
         const text = await assistantOutput(asked, OUTPUT_TAIL);
 
-        if (asked === this.extension) {
-          this.output = text.trimEnd();
+        if (asked !== this.extension) {
+          return;
         }
+
+        // The tail belongs to the working card, so it goes when there is no card to put it in.
+        this.output = pending ? text.trimEnd() : '';
+        this.question = parseQuestion(text);
       } catch {
-        // Kept as it was.
+        // Kept as it was. A capture that failed is not news about the turn.
+      }
+    },
+
+    /**
+     * Press the key an option names, on behalf of whoever clicked it.
+     *
+     * The question is dropped as soon as the key is sent rather than when the next poll confirms
+     * it: the pane takes a moment to redraw, and a card that stays up after it has been answered
+     * invites a second press into whatever is on screen by then.
+     */
+    async answer(option) {
+      const asked = this.extension;
+
+      this.answering = option.key;
+
+      try {
+        await answerAssistant(asked, option.key);
+
+        if (asked === this.extension) {
+          this.question = null;
+        }
+      } catch (e) {
+        toastError(this.$store, e?.message || String(e), { title: 'The answer did not reach the assistant' });
+      } finally {
+        this.answering = '';
       }
     },
 
@@ -1724,6 +1761,47 @@ export default {
     -->
 
     <!-- composer (11:317) -->
+      <!--
+        The assistant asked something, and it is waiting on a keypress nobody in the browser
+        could make. Drawn where the answer would be typed rather than up in the stream, because
+        it is the composer's job that it is doing: this is the reply, and the options are it.
+      -->
+      <div v-if="question" class="assistant-panel__question" data-testid="barn-assistant-question">
+        <div class="assistant-panel__question-head">
+          <SIcon name="alert" :size="14" />
+          <span class="assistant-panel__question-title">{{ question.title }}</span>
+        </div>
+        <p v-if="question.detail" class="assistant-panel__question-detail">
+          {{ question.detail }}
+        </p>
+        <div class="assistant-panel__question-options">
+          <SButton
+            v-for="option in question.options"
+            :key="option.key"
+            variant="secondary"
+            size="sm"
+            :loading="answering === option.key"
+            :title="option.hint"
+            :data-testid="`barn-answer-${ option.key }`"
+            @click="answer(option)"
+          >
+            {{ option.key }} · {{ option.label }}
+          </SButton>
+          <SButton
+            variant="ghost"
+            size="sm"
+            :loading="answering === 'Escape'"
+            data-testid="barn-answer-escape"
+            @click="answer({ key: 'Escape', label: 'Dismiss' })"
+          >
+            Esc
+          </SButton>
+        </div>
+        <p class="assistant-panel__question-note">
+          Or type an answer below - it goes to the same prompt.
+        </p>
+      </div>
+
     <div class="assistant-panel__composer">
       <div class="assistant-panel__context">
         <SLabel text="Context" />
@@ -2102,6 +2180,47 @@ export default {
     background:     var(--studio-surface-subtle);
     border-top:     1px solid var(--studio-border);
     flex:           0 0 auto;
+  }
+
+  &__question {
+    margin:        0 0 10px;
+    padding:       12px 14px;
+    border:        1px solid var(--studio-border);
+    border-left:   3px solid var(--warning, var(--primary));
+    border-radius: var(--studio-radius, 4px);
+    background:    var(--studio-surface-subtle, var(--body-bg));
+  }
+
+  &__question-head {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+  }
+
+  &__question-title {
+    font-size:   13px;
+    font-weight: 600;
+    color:       var(--studio-text, var(--body-text));
+  }
+
+  &__question-detail {
+    margin:      6px 0 0;
+    font-size:   12px;
+    line-height: 1.5;
+    color:       var(--studio-text-secondary, var(--muted));
+  }
+
+  &__question-options {
+    display:   flex;
+    flex-wrap: wrap;
+    gap:       6px;
+    margin:    10px 0 0;
+  }
+
+  &__question-note {
+    margin:    8px 0 0;
+    font-size: 11px;
+    color:     var(--studio-text-tertiary, var(--muted));
   }
 
   &__context {
