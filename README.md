@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/365ff965-25be-4c25-bfee-e7197147cf55
   an element picker, and whatever you click becomes another chip - so "this heading" is a thing
   you can say, and the thing you pointed at is the thing that changes.
 
-https://github.com/user-attachments/assets/5ab4f906-abdd-40df-8885-4f7b8babeac9
+https://github.com/user-attachments/assets/15d00f52-ada1-40de-8aa2-82c330eddc5a
 
 - **Read what it did, in the Changes tab.** Every turn is a change set with before and after
   screenshots and the changed region outlined. Approve them, or reject back to any point.
