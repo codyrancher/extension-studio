@@ -120,7 +120,7 @@ const TURN_LIMIT = 25;
  * sequences a container log needed stripping for belonged to the dev server's compile output,
  * which this no longer reads.
  */
-const OUTPUT_TAIL = 120;
+const OUTPUT_TAIL = 20;
 const OUTPUT_POLL_MS = 3000;
 
 

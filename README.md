@@ -35,14 +35,15 @@ https://github.com/user-attachments/assets/5d4ffff3-4070-47df-8fe8-239dba4bdfab
   reloads - no build step, no reinstall. While a turn runs, its card carries the assistant's own
   screen, so what it is doing is on the page rather than behind a spinner.
 
-https://github.com/user-attachments/assets/365ff965-25be-4c25-bfee-e7197147cf55
+https://github.com/user-attachments/assets/adc92fad-ea26-41ce-848e-178f2d55f5c0
 
 - **Point at what you mean.** Which extension, which cluster and which page the preview is on
   are attached to every message already. The target button beside the URL turns the preview into
-  an element picker, and whatever you click becomes another chip - so "this heading" is a thing
-  you can say, and the thing you pointed at is the thing that changes.
+  an element picker, and whatever you click becomes another chip - on any page, not only the one
+  you are building. Point at something on Rancher's own home page, walk back to yours, and "this
+  banner" means the thing you pointed at.
 
-https://github.com/user-attachments/assets/15d00f52-ada1-40de-8aa2-82c330eddc5a
+https://github.com/user-attachments/assets/916d366d-efbd-42c1-8a31-b96e18ab2e33
 
 - **Read what it did, in the Changes tab.** Every turn is a change set with before and after
   screenshots and the changed region outlined. Approve them, or reject back to any point.

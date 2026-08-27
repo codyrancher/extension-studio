@@ -5850,12 +5850,17 @@ export async function conversationMessages(
   }
 }
 
-export async function assistantOutput(name: string, lines = 120): Promise<string> {
+export async function assistantOutput(name: string, lines = 20): Promise<string> {
   const out = await inPackage(name, [
     `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
-    // -S -<n> starts the capture n lines back into the scrollback, so this is the tail of what
-    // has been on screen rather than only what fits on it now.
-    `tmux capture-pane -p -S -${ lines } -t ${ ASSISTANT_SESSION } | tr -cd '\\11\\12\\15\\40-\\176' ;`,
+    // The visible pane, not the scrollback, and only the foot of it.
+    //
+    // This used to reach 120 lines back with `-S -120`, which on a session that had not run for
+    // long meant the card showed claude's start-up banner - the release notes, the /clear, the
+    // model line - under a heading that says "Working". That is not what it is doing, it is what
+    // it said when it booted. What it is doing is at the bottom of the screen it is drawing.
+    `tmux capture-pane -p -t ${ ASSISTANT_SESSION } | tr -cd '\\11\\12\\15\\40-\\176'`,
+    `| sed -e 's/[[:space:]]*$//' | grep -v '^$' | tail -n ${ Math.max(4, Math.min(60, lines)) } ;`,
     'fi',
   ].join(' ')).catch(() => '');
 
