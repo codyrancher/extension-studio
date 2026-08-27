@@ -58,10 +58,20 @@ function tsConstant(file, name) {
 const EXTENSION = process.argv[2] || tsConstant(OWNER, 'DEFAULT_EXTENSION');
 // The same shape extensionObject() builds in the bundle. Named here rather than imported
 // because this is a node script and that is TypeScript compiled into a browser bundle.
-const NAME = `barn-${ EXTENSION }-extension`;
+const NAME = `${ EXTENSION }-extension`;
 
-const source = fs.readFileSync(SEED, 'utf8');
-const files = JSON.parse(source.slice(source.indexOf('{'), source.lastIndexOf('}') + 1));
+// Imported rather than parsed out of the file's text. The slice-between-braces this replaced
+// took the whole `SEEDS` map - `{ base: { ... } }` - so every value it then wrote into the
+// ConfigMap was a seed rather than a file, and the apiserver refused the lot with "cannot
+// unmarshal object into ... data of type string". Node strips the types off the import.
+const { SEEDS } = await import(SEED);
+const SEED_NAME = process.argv[3] || tsConstant(OWNER, 'DEFAULT_SEED') || 'base';
+const files = SEEDS[SEED_NAME];
+
+if (!files) {
+  console.error(`no seed called ${ SEED_NAME }; the generated file has: ${ Object.keys(SEEDS).join(', ') }`);
+  process.exit(1);
+}
 
 const separator = tsConstant(OWNER, 'PATH_SEPARATOR');
 const data = {};

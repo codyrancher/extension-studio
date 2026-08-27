@@ -5781,6 +5781,75 @@ function namedKey(key: string): string {
   }[key.toLowerCase()] || key;
 }
 
+/** One message in the conversation, as the pod assembles it. */
+export interface ConversationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  at: string;
+  text: string;
+  /** User messages only: the turn it started, and what that turn left behind. */
+  turn?: string;
+  ended?: string;
+  commit?: string;
+  files?: string[];
+  who?: string;
+  screen?: string;
+  /** Assistant messages only. */
+  model?: string;
+  error?: string;
+  session?: string;
+}
+
+export interface Conversation {
+  read: boolean;
+  dir: string;
+  session: string;
+  version: string;
+  mode: string;
+  model: string;
+  total: number;
+  messages: ConversationMessage[];
+}
+
+const NO_MESSAGES: Conversation = {
+  read: false, dir: '', session: '', version: '', mode: '', model: '', total: 0, messages: [],
+};
+
+const CONVERSATION_LINE = 'BARN-CONVERSATION:';
+
+/**
+ * The conversation, as one ordered list, assembled in the pod.
+ *
+ * This function is deliberately thin, and that is the point of it. What it replaces read
+ * claude's transcripts through a 139-line script held as a string in this file and heredoc'd
+ * into the pod on every poll, and the panel then merged the result with the user's own messages
+ * out of sessionStorage. Three sources, two of them in the pod, one of them in a browser tab,
+ * and the ordering decided by whichever tab was looking.
+ *
+ * `pod/conversation.mjs` does the merge now, next to the files it merges. This asks it.
+ */
+export async function conversationMessages(
+  name: string, opts: { since?: string; limit?: number } = {},
+): Promise<Conversation> {
+  const args = [
+    opts.since ? `--since ${ shellQuote(opts.since) }` : '',
+    `--limit ${ Math.max(1, Math.min(200, Math.floor(opts.limit || 60))) }`,
+  ].filter(Boolean).join(' ');
+
+  const out = await inPackage(name, `node /seed/conversation.mjs ${ args }`).catch(() => '');
+  const at = out.indexOf(CONVERSATION_LINE);
+
+  if (at < 0) {
+    return NO_MESSAGES;
+  }
+
+  try {
+    return { ...NO_MESSAGES, ...JSON.parse(out.slice(at + CONVERSATION_LINE.length).split('\n')[0]) };
+  } catch {
+    return NO_MESSAGES;
+  }
+}
+
 export async function assistantOutput(name: string, lines = 120): Promise<string> {
   const out = await inPackage(name, [
     `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
