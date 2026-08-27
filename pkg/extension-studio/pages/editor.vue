@@ -1365,6 +1365,7 @@ export default {
           :turns="streamTurns"
           :page="previewRoute"
           @update:tab="onLeftTab"
+          @changed="changesRevision++"
           @send="sendToAssistant"
           @reconnect="reconnectTerminal"
           @context="onContextChip"

@@ -45,8 +45,15 @@ https://github.com/user-attachments/assets/adc92fad-ea26-41ce-848e-178f2d55f5c0
 
 https://github.com/user-attachments/assets/916d366d-efbd-42c1-8a31-b96e18ab2e33
 
-- **Read what it did, in the Changes tab.** Every turn is a change set with before and after
-  screenshots and the changed region outlined. Approve them, or reject back to any point.
+## Reviewing
+
+- **Every turn is a change set.** The Changes tab keeps what was asked and what it touched, with
+  a before and after of the page - and on the after, the parts that actually changed are outlined.
+  Approve one, or reject back to any point before it.
+- **The outlines are controls, not just marks.** Click one and that element goes into the
+  conversation, so the next thing you ask is about the thing you have just been looking at.
+
+https://github.com/user-attachments/assets/1863416a-532a-46bd-afda-f8bea19f2b49
 
 ## Deploying
 

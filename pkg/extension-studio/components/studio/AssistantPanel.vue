@@ -196,7 +196,7 @@ export default {
     },
   },
 
-  emits: ['update:tab', 'send', 'review', 'reconnect', 'context', 'cleared'],
+  emits: ['update:tab', 'send', 'review', 'reconnect', 'context', 'cleared', 'changed'],
 
   data() {
     return {
@@ -204,6 +204,8 @@ export default {
       changes:    0,
       version:    '',
       countTimer: null,
+      // How many turns had ended last time the poll looked, so a turn finishing can be noticed.
+      endedTurns: 0,
       /**
        * The paths that go with the next message, as `{ path, icon }`.
        *
@@ -1533,12 +1535,28 @@ export default {
         return Number.isNaN(at) || at >= mark;
       });
 
+      // A turn that has just finished is a change set that has just appeared, so the rail is
+      // re-read here rather than only on its own minute-long timer. Watching the Changes tab
+      // while a turn lands and seeing nothing for the better part of a minute reads as the
+      // change having been missed.
+      const ended = current.filter((turn) => turn.endedAt).length;
+      const settled = this.podRead && ended !== this.endedTurns;
+
+      this.endedTurns = ended;
+
       this.podTurns = current.map((turn) => ({
         ...turn,
         prompt:  promptSaid(turn.prompt),
         context: promptContextChips(turn.prompt),
       }));
       this.podRead = true;
+
+      if (settled) {
+        this.refreshChanges();
+        // And the rail, which is a sibling and reloads on the revision the editor holds. The
+        // badge alone is not enough: it is the tab you are looking at while the turn lands.
+        this.$emit('changed');
+      }
 
       // The same beat as the turns, because the two are drawn as one thing: a turn whose reply
       // arrived a second later would otherwise show as unanswered until the next poll.
