@@ -35,14 +35,14 @@ https://github.com/user-attachments/assets/5d4ffff3-4070-47df-8fe8-239dba4bdfab
   reloads - no build step, no reinstall. While a turn runs, its card carries the assistant's own
   screen, so what it is doing is on the page rather than behind a spinner.
 
-https://github.com/user-attachments/assets/a129b3ec-3979-4e10-a68f-db8caa7913d6
+https://github.com/user-attachments/assets/365ff965-25be-4c25-bfee-e7197147cf55
 
 - **Point at what you mean.** Which extension, which cluster and which page the preview is on
   are attached to every message already. The target button beside the URL turns the preview into
-  an element picker, and whatever you click becomes another chip - so "this panel" is a thing you
-  can say.
+  an element picker, and whatever you click becomes another chip - so "this heading" is a thing
+  you can say, and the thing you pointed at is the thing that changes.
 
-https://github.com/user-attachments/assets/f4583d98-2056-4fb4-a936-8a62a87d0c20
+https://github.com/user-attachments/assets/5ab4f906-abdd-40df-8885-4f7b8babeac9
 
 - **Read what it did, in the Changes tab.** Every turn is a change set with before and after
   screenshots and the changed region outlined. Approve them, or reject back to any point.
