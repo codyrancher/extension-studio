@@ -401,6 +401,23 @@ const POD = path.join(here, '..', 'pkg', 'extension-studio', 'extension-skeleton
 // so it is emitted as its own file set and the extension seeds never see it.
 const SERVICE_DIR = 'service';
 
+/**
+ * The global agent pod, which is the same story a second time and for the same reason.
+ *
+ * One pod, one ConfigMap, so its two scripts and its CLAUDE.md are emitted on their own rather
+ * than added to every extension's seed. What it is NOT is a second copy of the terminal: the
+ * agent's panes run the same shell.sh, claude-session.sh, terminal-tools.sh and tmux.conf that
+ * an extension's do, so those are picked out of the shared set below rather than written again
+ * here. A file listed in both places is the agent's own - `session-claude.md` is what shell.sh
+ * copies in as a session's CLAUDE.md, and the agent's says something different from an
+ * extension's.
+ */
+const AGENT_DIR = 'agent';
+const AGENT_SHARED = [
+  'shell.sh', 'claude-session.sh', 'claude-defaults.mjs', 'claude-credentials.mjs',
+  'terminal-tools.sh', 'tmux.conf',
+];
+
 /** Read one pod-side file, with the tokens this generator owns substituted into it. */
 function podFile(clean) {
   let contents = fs.readFileSync(path.join(POD, clean), 'utf8');
@@ -423,6 +440,7 @@ function podFile(clean) {
 // so a nested path is flattened with the same separator the tree uses and boot.sh
 // un-flattens it back under /seed - see the skills loop there.
 const service = {};
+const agentOwn = {};
 
 for (const rel of walk(POD, '.')) {
   const clean = rel.replace(/^\.\//, '');
@@ -435,8 +453,31 @@ for (const rel of walk(POD, '.')) {
     continue;
   }
 
+  if (head === AGENT_DIR) {
+    // Flat too, and at the same names the shared scripts use, because they are mounted into one
+    // /seed together: boot.sh is the container's command and session-claude.md is what shell.sh
+    // looks for beside it.
+    agentOwn[rest.join('/')] = podFile(clean);
+    continue;
+  }
+
   shared[clean.split('/').join(SEPARATOR)] = podFile(clean);
 }
+
+// The agent's /seed: the terminal scripts every pod shares, then its own on top. Its own last,
+// so a name in both is the agent's - which is how it gets a different CLAUDE.md and a boot
+// script that starts no dev server.
+const agent = {};
+
+for (const name of AGENT_SHARED) {
+  if (!shared[name]) {
+    throw new Error(`the agent pod needs ${ name }, which is not in ${ POD_DIR }/`);
+  }
+
+  agent[name] = shared[name];
+}
+
+Object.assign(agent, agentOwn);
 
 // One file set per package: the shared skeleton plus that package's own source.
 const seeds = {};
@@ -475,11 +516,21 @@ export const SEED_FILES = SEEDS.dev;
  * that its boot script then declined to write. Read by pkg/extension-studio/service.ts.
  */
 export const SERVICE_FILES: Record<string, string> = ${ JSON.stringify(service, null, 2) };
+
+/**
+ * The global agent pod's /seed, which is not part of any extension's tree either.
+ *
+ * Mostly the same terminal scripts an extension pod runs - see AGENT_SHARED in the generator -
+ * plus the boot script and the CLAUDE.md that make this pod the agent rather than a dev server.
+ * Read by pkg/extension-studio/agent.ts.
+ */
+export const AGENT_FILES: Record<string, string> = ${ JSON.stringify(agent, null, 2) };
 `;
 
 fs.writeFileSync(OUT, `${ header }${ JSON.stringify(seeds, null, 2) };\n${ footer }`);
 
 console.log(`service: ${ Object.keys(service).length } files, ${ (Buffer.byteLength(JSON.stringify(service)) / 1024).toFixed(1) } KiB`);
+console.log(`agent:   ${ Object.keys(agent).length } files, ${ (Buffer.byteLength(JSON.stringify(agent)) / 1024).toFixed(1) } KiB`);
 
 
 for (const [id, set] of Object.entries(seeds)) {

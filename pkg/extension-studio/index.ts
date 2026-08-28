@@ -2,6 +2,8 @@ import { importTypes } from '@rancher/auto-import';
 import { IPlugin } from '@shell/core/types';
 import { ensureBrowser, ensureDefaultExtension } from './extensions';
 import { ensureService } from './service';
+import { ensureAgent } from './agent';
+import { registerAgentOverlay } from './agent-overlay';
 import { ensureApiRegistration, studioApiEntry } from './api-registry';
 import {
   EDITOR_ROUTE, EXTENSION_STARTING_ROUTE, STUDIO_ROUTE, NEW_EXTENSION_ROUTE,
@@ -61,6 +63,18 @@ export default function(plugin: IPlugin): void {
   ensureApiRegistration(studioApiEntry()).catch(() => {});
 
   ensureDefaultExtension().catch(() => {});
+
+  // The one agent pod, made the same way and caught for the same reason. It is not per
+  // extension: the extension pods have a claude each, pointed at one tree, and this is the one
+  // that can see all of them at once. Started here so it is already installing tmux and claude
+  // by the time somebody first presses the chord.
+  ensureAgent().catch(() => {});
+
+  // And the chord that opens a terminal into it, from any page in Rancher. This function runs on
+  // every page load of the whole dashboard, which is exactly the hook a global key handler needs
+  // and the reason there is no new mechanism here. Who it is offered to, and why that is not
+  // everybody, is in agent-overlay.ts.
+  registerAgentOverlay();
 
   // And the browser those extensions are looked at in (see ensureBrowser): one
   // Chromium for the namespace, with CDP open on its Service, so a claude in an

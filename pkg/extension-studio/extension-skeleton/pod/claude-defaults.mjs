@@ -118,13 +118,53 @@ const changed = [
     const hooks = settings.hooks || (settings.hooks = {});
 
     /**
+     * Whether a hook names a script this pod does not have.
+     *
+     * Not every pod carries every script. The agent pod's /seed is the terminal and nothing
+     * else - there is no extension tree in it, so no provenance to record - and a hook whose
+     * script is absent does not quietly do nothing: it ends every single turn with a
+     * MODULE_NOT_FOUND printed into the pane, under the answer.
+     */
+    const missingScript = (command) => {
+      const named = /\/seed\/[A-Za-z0-9._-]+/.exec(command || '');
+
+      return !!named && !fs.existsSync(named[0]);
+    };
+
+    // Written first, and this is a prune rather than a guard on the registration below because
+    // the home these settings live in outlives the pod. /app and /workspace are both hostPaths,
+    // so a settings file written by a pod that had a script is read by a later one that does
+    // not, and nothing else would ever take the dead hook back out.
+    for (const [event, list] of Object.entries(hooks)) {
+      const kept = list
+        .map((entry) => ({ ...entry, hooks: (entry.hooks || []).filter((hook) => !missingScript(hook.command)) }))
+        .filter((entry) => entry.hooks.length);
+
+      // The event goes with its last hook, so a pod that runs none of them has no hooks block
+      // rather than a row of empty lists for a reader to wonder about.
+      if (kept.length) {
+        hooks[event] = kept;
+      } else {
+        delete hooks[event];
+      }
+    }
+
+    /**
      * Add one hook to one event, once.
      *
      * Matched on the command string rather than on position, for the reason the credentials
      * hook already had: this runs on every boot and on every tab, and a settings file that
      * accumulated a copy of each hook per tab would run the same commit five times.
+     *
+     * Skipped outright when this pod does not have the script, which is what keeps the list
+     * below readable: every hook this product wants is stated once, and the pods that cannot
+     * run one simply do not get it.
      */
     const register = (event, command, matcher) => {
+      if (missingScript(command)) {
+        return;
+      }
+
       const list = hooks[event] || (hooks[event] = []);
       const already = list.some((entry) => (entry.hooks || []).some((hook) => hook.command === command));
 

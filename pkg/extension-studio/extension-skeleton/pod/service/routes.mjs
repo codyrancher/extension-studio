@@ -29,18 +29,37 @@ const POD_PARAM = {
   schema:      { type: 'string' },
 };
 
-const COMMAND_BODY = {
+// What both exec routes take, and then one field each that only one of them does.
+//
+// Split rather than shared, because the two routes do not accept the same body and a document
+// that says they do is a document contradicting the code it is rendered from. It was shared, and
+// each route then advertised the other's field: the by-pod route rejects `script` with a 400,
+// and the by-name route accepts `container` and silently ignores it. Two shapes is the honest
+// arrangement, and the descriptions no longer have to end with a sentence retracting themselves.
+const COMMAND_FIELDS = {
   command: {
     type:        'array',
     description: 'argv, one element per argument. A joined string would be one argument containing spaces.',
   },
-  script: {
-    type:        'string',
-    description: 'Shell to run in the extension\'s package directory as the tree\'s owner, instead of "command". The service composes the privilege drop, the HOME and the directory lookup, which every caller used to compose for itself. Only on the by-name route, since it needs to know whose package directory.',
-  },
   timeoutMs: {
     type:        'integer',
     description: 'How long to wait before reporting the connection, rather than the command, as broken. Defaults to four minutes, which is what a package build in a pod legitimately takes.',
+  },
+};
+
+const EXTENSION_COMMAND_BODY = {
+  ...COMMAND_FIELDS,
+  script: {
+    type:        'string',
+    description: 'Shell to run in the extension\'s package directory as the tree\'s owner, instead of "command". The service composes the privilege drop, the HOME and the directory lookup, which every caller used to compose for itself.',
+  },
+};
+
+const POD_COMMAND_BODY = {
+  ...COMMAND_FIELDS,
+  container: {
+    type:        'string',
+    description: 'Which container in the pod to run it in. Defaults to an extension dev server\'s, which is the only container most pods here have.',
   },
 };
 
@@ -164,7 +183,7 @@ export const ROUTES = [
     auth:        true,
     operationId: 'runInExtension',
     parameters:  [NAME_PARAM],
-    requestBody: COMMAND_BODY,
+    requestBody: EXTENSION_COMMAND_BODY,
     summary:     'Run one command in the extension\'s pod and report how it went.',
     description: 'The same stream as the WebSocket on this path, read to the end and answered as JSON. The service resolves the pod, demultiplexes the apiserver\'s channels, decodes them and reads the exit code out of the status frame, which is the work every browser tab used to do for itself.',
     responses:   COMMAND_RESPONSES,
@@ -176,7 +195,7 @@ export const ROUTES = [
     auth:        true,
     operationId: 'runInPod',
     parameters:  [POD_PARAM],
-    requestBody: COMMAND_BODY,
+    requestBody: POD_COMMAND_BODY,
     summary:     'The same, for a caller that already knows the pod.',
     description: 'Exists because that is the shape the browser has: a pod is resolved once and then several commands are run in it, and re-resolving it per command would be a round trip per read.',
     responses:   COMMAND_RESPONSES,

@@ -25,6 +25,7 @@ import Socket, {
 import {
   extensionPod, extensionShellUrl, writePodImage, DEFAULT_EXTENSION
 } from '../extensions';
+import { agentPod, agentShellUrl } from '../agent';
 
 // The dashboard's own build pulls this in globally; an extension's does not, so
 // without it a built extension renders the terminal unstyled.
@@ -63,6 +64,20 @@ export default {
     extension: {
       type:    String,
       default: DEFAULT_EXTENSION,
+    },
+
+    // Which kind of pod this pane opens into. 'extension' is one extension's dev server,
+    // addressed by the prop above; 'agent' is the single global agent pod, which belongs to no
+    // extension and so has no name to be given.
+    //
+    // A prop rather than a second component, because everything below is the same for both:
+    // xterm, the channel protocol, the backlog, the resize frames, the reconnect. A copy of all
+    // of that for one different URL is a copy that stops matching the first time either is
+    // fixed. The two lines that actually differ are in connectWhenPodIsUp and connect.
+    target: {
+      type:      String,
+      default:   'extension',
+      validator: (value) => ['extension', 'agent'].includes(value),
     },
 
     // What the pane runs: the assistant's claude session, or a plain login
@@ -110,7 +125,7 @@ export default {
   computed: {
     statusText() {
       return {
-        waiting:    'Waiting for the dev server pod',
+        waiting:    this.target === 'agent' ? 'Waiting for the agent pod' : 'Waiting for the dev server pod',
         connecting: 'Connecting',
         closed:     'Disconnected',
       }[this.state] || '';
@@ -217,7 +232,7 @@ export default {
       this.error = '';
 
       while (!this.unmounted) {
-        const pod = await extensionPod(this.extension);
+        const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
 
         if (pod) {
           this.connect(pod);
@@ -233,7 +248,10 @@ export default {
     },
 
     connect(pod) {
-      const socket = new Socket(extensionShellUrl(pod, this.session, this.mode), false, 0, 'base64.channel.k8s.io');
+      const url = this.target === 'agent'
+        ? agentShellUrl(pod, this.session, this.mode)
+        : extensionShellUrl(pod, this.session, this.mode);
+      const socket = new Socket(url, false, 0, 'base64.channel.k8s.io');
 
       socket.addEventListener(EVENT_CONNECTING, () => {
         this.state = 'connecting';
@@ -307,7 +325,11 @@ export default {
     async onImages(event, source) {
       const files = [...(source?.files || [])].filter((file) => file.type.startsWith('image/'));
 
-      if (!files.length) {
+      // Not in the agent pod. Getting an image in there means a route that writes into a pod
+      // that is not an extension, and that is a piece of the service rather than a line here -
+      // so the paste falls through to xterm, which is what it did before this prop existed,
+      // rather than reporting a failure the person cannot act on.
+      if (!files.length || this.target === 'agent') {
         return;
       }
 

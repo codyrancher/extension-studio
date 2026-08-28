@@ -22,10 +22,16 @@ import { RANCHER_URL } from './rancher.mjs';
  * The commands are repeated parameters, not a joined string. This is argv: `command=sh&
  * command=-c&command=ls` runs `sh -c ls`, and `command=sh,-c,ls` asks the kubelet to run a
  * single binary whose name contains two commas.
+ *
+ * The container defaults to an extension's, because for most of this namespace that is the only
+ * one there is. It is a parameter because the namespace now also holds the agent pod, whose
+ * container serves nothing and is therefore not called `devserver` - and a pod exec that names
+ * the wrong container is answered by the apiserver with a 404 about a container, which reads
+ * like a missing pod.
  */
-export function execPath(pod, command, interactive) {
+export function execPath(pod, command, interactive, container = EXT_CONTAINER) {
   const params = new URLSearchParams({
-    container: EXT_CONTAINER,
+    container,
     stdin:     interactive ? '1' : '0',
     stdout:    '1',
     stderr:    '1',

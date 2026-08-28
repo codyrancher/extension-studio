@@ -356,8 +356,20 @@ async function runInExtension({ cred, params, body }) {
   return ok({ pod, ...await runInPod(cred, pod, work, timeoutIn(body)) });
 }
 
+/**
+ * The by-pod form, which is also the only one that can name a container.
+ *
+ * By-extension cannot: an extension is one Deployment whose one container is its dev server, so
+ * there is nothing to choose. The agent pod is addressed here, by name, and its container is
+ * not called what an extension's is.
+ */
 async function runInNamedPod({ cred, params, body }) {
-  return ok({ pod: params.pod, ...await runInPod(cred, params.pod, commandIn(body), timeoutIn(body)) });
+  const container = typeof body?.container === 'string' && body.container ? body.container : undefined;
+
+  return ok({
+    pod: params.pod,
+    ...await runInPod(cred, params.pod, commandIn(body), timeoutIn(body), container),
+  });
 }
 
 /**

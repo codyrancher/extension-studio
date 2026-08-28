@@ -220,8 +220,11 @@ function settlement(reader, closeCode, timedOutAfter) {
  * than an error: plenty of callers run commands that are expected to fail (`git rev-parse
  * --verify -q` on a ref that does not exist, a grep that matches nothing). Whether the code
  * matters is the caller's decision.
+ *
+ * `container` is passed straight through and defaults in execPath rather than here, so there is
+ * one place that decides what an unnamed container means.
  */
-export function runInPod(cred, pod, command, timeoutMs = EXEC_TIMEOUT_MS) {
+export function runInPod(cred, pod, command, timeoutMs = EXEC_TIMEOUT_MS, container = undefined) {
   return new Promise((resolve) => {
     const { socket, host, ready } = connectUpstream();
     const reader = channelReader();
@@ -247,7 +250,7 @@ export function runInPod(cred, pod, command, timeoutMs = EXEC_TIMEOUT_MS) {
     };
 
     socket.on(ready, () => {
-      socket.write(handshakeRequest(execPath(pod, command, false), host, cred, {
+      socket.write(handshakeRequest(execPath(pod, command, false, container), host, cred, {
         key:      crypto.randomBytes(16).toString('base64'),
         protocol: 'base64.channel.k8s.io',
       }));

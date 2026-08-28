@@ -1582,11 +1582,21 @@ export function extensionShellUrl(pod: string, session: string, mode: PaneMode =
  */
 export type PaneMode = 'claude' | 'shell';
 
-/** The exec subresource, for a shell (tty, stdin) or for one command (neither). */
-function execUrl(pod: string, command: string[], interactive: boolean): string {
+/**
+ * The exec subresource, for a shell (tty, stdin) or for one command (neither).
+ *
+ * The container defaults to an extension's, because that is what this file is about. It is a
+ * parameter so the agent pod's terminal can reuse this rather than build a second URL beside
+ * it: everything else about the two - the origin, the protocol, argv as repeated parameters -
+ * is identical, and the apiserver answers a wrong container name with a 404 that reads like a
+ * missing pod.
+ */
+export function execUrl(
+  pod: string, command: string[], interactive: boolean, container: string = EXT_CONTAINER,
+): string {
   const origin = window.location.origin.replace(/^http/, 'ws');
   const params = new URLSearchParams({
-    container: EXT_CONTAINER,
+    container,
     stdin:     interactive ? '1' : '0',
     stdout:    '1',
     stderr:    '1',
@@ -1649,9 +1659,12 @@ export interface PodExecResult {
  * whether the code matters. `podExecStrict` is the form that decides it is fatal.
  */
 export async function podExecResult(
-  pod: string, command: string[], timeoutMs = EXEC_TIMEOUT_MS,
+  pod: string, command: string[], timeoutMs = EXEC_TIMEOUT_MS, container?: string,
 ): Promise<PodExecResult> {
-  return execResult(`/v1/pods/${ apiName(pod) }/exec`, { command, timeoutMs });
+  // Left off the body entirely when it was not asked for, rather than sent as an explicit
+  // default: the service decides what an unnamed container means, and two defaults would be
+  // two places to change when the answer moves.
+  return execResult(`/v1/pods/${ apiName(pod) }/exec`, { command, timeoutMs, ...(container ? { container } : {}) });
 }
 
 /**
