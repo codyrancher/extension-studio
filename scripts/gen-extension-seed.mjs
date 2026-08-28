@@ -10,7 +10,39 @@
 // The generated file is committed, so normal builds and CI never run this.
 import fs from 'node:fs';
 import path from 'node:path';
+import { registerHooks } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+// Let this script import the extension's own TypeScript.
+//
+// It is here for one check: the objects the pod's service creates have to be the objects the
+// browser creates, and the only way to know that is to render both and compare them. Node
+// strips the types off a .ts file by itself; what it will not do is guess the extension on
+// `./install`, which is how every import in this codebase is written. Appending it on a failed
+// resolve is the whole of the bridge, and it is scoped to this process.
+// The extension's package.json has no `type`, because it is built as a UMD bundle and adding
+// one would change what webpack produces. Node therefore warns, at five lines, every time this
+// script imports a .ts file - which is noise about a thing nobody is going to change.
+process.removeAllListeners('warning');
+process.on('warning', (warning) => {
+  if (warning.code !== 'MODULE_TYPELESS_PACKAGE_JSON') {
+    console.warn(warning);
+  }
+});
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (e) {
+      if (specifier.startsWith('.')) {
+        return nextResolve(`${ specifier }.ts`, context);
+      }
+
+      throw e;
+    }
+  },
+});
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.join(here, '..', 'pkg', 'extension-studio', 'extension-skeleton');
@@ -111,7 +143,32 @@ function sourceOf(file, pattern, what) {
     throw new Error(`could not find ${ what } in ${ path.basename(file) }`);
   }
 
-  return match[1].trim();
+  return normalise(match[1]);
+}
+
+/**
+ * A captured value with the parts that are allowed to differ taken out.
+ *
+ * Two of the constants below are arrays spread over several lines, and the browser's copy
+ * carries paragraphs of comment inside the array that the pod's copy has no room for. Comparing
+ * the text verbatim would report drift on every one of those sentences. What actually has to
+ * agree is the shell that comes out the other end, so whole-line comments go and runs of
+ * whitespace collapse. For a single-line value this does nothing.
+ *
+ * The collapse is the blind spot, and it is here rather than in a bug because no guarded value
+ * has repeated whitespace that means anything yet: a doubled space inside a quoted string - a
+ * `sed` pattern, say, or a printf format - reads the same to this as a single one, so the two
+ * copies could drift there and be called equal. Guard a value like that by comparing it
+ * verbatim instead of through here.
+ */
+function normalise(value) {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('//'))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function checkInStep() {
@@ -119,7 +176,95 @@ function checkInStep() {
   const pod = path.join(barn, 'extension-skeleton', 'pod');
   const capture = path.join(pod, 'skills', 'barn-screenshot', 'screenshot.mjs');
   const regions = path.join(barn, 'change-regions.ts');
+  // The service creates the same objects the browser creates, from a pod, which is a third
+  // place this product is written twice - see pod/service/names.mjs. Only constants have to
+  // agree, and every one of them is here, because the way they fail is silent: a Deployment
+  // naming a container the browser does not expect installs, runs, and cannot be exec'd into.
+  const names = path.join(pod, 'service', 'names.mjs');
+  // The review reads are a third copy of this product's git knowledge, and the dangerous half of
+  // it is the ref names: `refs/barn/approved` is written only by the browser (approveUpTo) and
+  // read only by the pod (approvalScript), so a rename on one side is silent. Nothing fails,
+  // nothing logs, and every change set stays pending for ever.
+  const changes = path.join(pod, 'service', 'changes.mjs');
+  const registry = path.join(pod, 'service', 'registry.mjs');
   const pairs = [
+    [
+      // Two readers of one registry, and the label is the whole of how they find it. A label
+      // written on one side and selected on the other is a registry that looks empty.
+      'the label a registry entry carries',
+      [registry, /^const API_REGISTRY_LABEL = (.+);$/m],
+      [path.join(barn, 'api-registry.ts'), /^export const API_REGISTRY_LABEL = (.+);$/m],
+    ],
+    [
+      'the ref recording how far review has got',
+      [changes, /^const APPROVED_REF = (.+);$/m],
+      [OWNER, /^export const APPROVED_REF = (.+);$/m],
+    ],
+    [
+      'the ref naming the last version published to a registry',
+      [changes, /^const BASELINE_OCI_REF = (.+);$/m],
+      [OWNER, /^export const BASELINE_OCI_REF = (.+);$/m],
+    ],
+    [
+      'the ref naming the last version this Rancher loads',
+      [changes, /^const BASELINE_LOCAL_REF = (.+);$/m],
+      [OWNER, /^export const BASELINE_LOCAL_REF = (.+);$/m],
+    ],
+    [
+      'the rule resolving the point a change is measured from',
+      [changes, /^const BASELINE_SH = \[([\s\S]+?)\]\.join\(' '\);$/m],
+      [OWNER, /^const BASELINE_SH = \[([\s\S]+?)\]\.join\(' '\);$/m],
+    ],
+    [
+      'telling git that the untracked files are coming',
+      [changes, /^const INTENT_SH = (.+);$/m],
+      [OWNER, /^const INTENT_SH = (.+);$/m],
+    ],
+    [
+      'the namespace extensions live in',
+      [names, /^export const EXT_NS = (.+);$/m],
+      [OWNER, /^export const EXT_NS = (.+);$/m],
+    ],
+    [
+      'the account extension pods run as',
+      [names, /^export const EXT_ACCOUNT = (.+);$/m],
+      [OWNER, /^export const EXT_ACCOUNT = (.+);$/m],
+    ],
+    [
+      'the binding that grants it',
+      [names, /^export const EXT_ROLE_BINDING = (.+);$/m],
+      [OWNER, /^export const EXT_ROLE_BINDING = (.+);$/m],
+    ],
+    [
+      'the container a terminal execs into',
+      [names, /^const EXT_CONTAINER = (.+);$/m],
+      [OWNER, /^const EXT_CONTAINER = (.+);$/m],
+    ],
+    [
+      'the image an extension pod runs',
+      [names, /^const EXT_IMAGE = (.+);$/m],
+      [OWNER, /^export const EXT_IMAGE = (.+);$/m],
+    ],
+    [
+      'the port a dev server serves on',
+      [names, /^const EXT_PORT = (.+);$/m],
+      [OWNER, /^const EXT_PORT = (.+);$/m],
+    ],
+    [
+      'the browser every extension is looked at in',
+      [names, /^export const BROWSER_OBJECT = (.+);$/m],
+      [OWNER, /^export const BROWSER_OBJECT = (.+);$/m],
+    ],
+    [
+      'the port that browser answers CDP on',
+      [names, /^const BROWSER_CDP_PORT = (.+);$/m],
+      [OWNER, /^const BROWSER_CDP_PORT = (.+);$/m],
+    ],
+    [
+      'the separator a tree path is flattened into a ConfigMap key with',
+      [names, /^const PATH_SEPARATOR = (.+);$/m],
+      [OWNER, /^export const PATH_SEPARATOR = (.+);$/m],
+    ],
     [
       'the attributes a changed line can be found by',
       [path.join(pod, 'barn-provenance.mjs'), /^const SELECTABLE = (.+);$/m],
@@ -158,6 +303,81 @@ function checkInStep() {
   }
 }
 
+/**
+ * The objects, rendered by both sides and compared.
+ *
+ * Comparing the constants was not enough, and saying why is the point of this function. The
+ * service builds an extension's Deployment from a pod, and the browser builds the same
+ * Deployment from a page: two files, three hundred lines apart, agreeing field for field on
+ * probes, the Recreate strategy, NODE_OPTIONS and a hostPath volume. A field added to one of
+ * them produces a pod the other side would never have made, and the way that shows up is not a
+ * failure - it is an extension that installs, runs, and behaves differently depending on which
+ * half of the product created it.
+ *
+ * Both sides are pure functions of a name, so there is nothing to mock and nothing to arrange:
+ * render them, and compare the JSON. A difference fails the seed generation, which is the
+ * moment a person is already editing these files.
+ */
+async function checkBodiesInStep() {
+  const barn = path.join(here, '..', 'pkg', 'extension-studio');
+  const service = path.join(barn, 'extension-skeleton', 'pod', 'service');
+  const browser = await import(path.join(barn, 'extensions.ts'));
+  const browserInstall = await import(path.join(barn, 'install.ts'));
+  const browserRegistry = await import(path.join(barn, 'api-registry.ts'));
+  const pod = await import(path.join(service, 'bodies.mjs'));
+  const podInstall = await import(path.join(service, 'install.mjs'));
+  const podRegistry = await import(path.join(service, 'registry.mjs'));
+
+  // A name that is obviously not real, so anything that leaks it into a cluster is findable.
+  const NAME = 'drift-check';
+  const object = browser.extensionObject(NAME);
+  const pairs = [
+    ['the Namespace', browser.namespaceBody(), pod.namespaceBody()],
+    ['the ServiceAccount', browser.serviceAccountBody(), pod.serviceAccountBody()],
+    ['the ClusterRoleBinding', browser.clusterRoleBindingBody(), pod.clusterRoleBindingBody()],
+    ['an extension Service', browser.serviceBody(object, browser.EXT_PORTS), pod.serviceBody(object, pod.EXT_PORTS)],
+    ['an extension Deployment', browser.deploymentBody(NAME), pod.deploymentBody(NAME)],
+    // The registry has a writer on one side and a reader on the other, and they have to agree
+    // about the object's name and about how an entry's two URL halves are joined.
+    ['a registry object name', browserRegistry.apiRegistryObject(NAME), podRegistry.apiRegistryObject(NAME)],
+    [
+      'how an entry\'s url and docs are joined',
+      browserRegistry.apiDocsUrl({ url: '/proxy/', docs: '/openapi.json' }),
+      podRegistry.apiDocsUrl({ url: '/proxy/', docs: '/openapi.json' }),
+    ],
+  ];
+
+  for (const [what, a, b] of pairs) {
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      throw new Error(
+        `${ what } has drifted between extensions.ts and pod/service/bodies.mjs:\n` +
+        `  extensions.ts: ${ JSON.stringify(a) }\n` +
+        `  bodies.mjs:    ${ JSON.stringify(b) }`,
+      );
+    }
+  }
+
+  // And that the two install lists agree about what each step is. The browser's list is longer -
+  // it also makes the browser pod and this service - so every step the pod knows about has to
+  // appear in it, addressing the same object.
+  const wanted = new Map(browserInstall.installSteps(NAME).map((step) => [step.id, step]));
+
+  for (const step of podInstall.installSteps(NAME)) {
+    const other = wanted.get(step.id);
+
+    if (!other) {
+      throw new Error(`pod/service/install.mjs has a step "${ step.id }" that install.ts does not`);
+    }
+
+    const mine = JSON.stringify([step.type, step.namespace || null, step.name]);
+    const theirs = JSON.stringify([other.type, other.namespace || null, other.name]);
+
+    if (mine !== theirs) {
+      throw new Error(`the "${ step.id }" step has drifted: install.ts says ${ theirs }, install.mjs says ${ mine }`);
+    }
+  }
+}
+
 checkInStep();
 
 // The skeleton and the pod scripts, which every seed shares. Taken from the dev extension's
@@ -172,12 +392,17 @@ for (const f of ROOT_FILES) {
 // read straight out of /seed, vue.config.js is seeded to /app alongside package.json.
 const POD = path.join(here, '..', 'pkg', 'extension-studio', 'extension-skeleton', POD_DIR);
 
-// Recursive, because the pod directory is no longer flat: pod/skills/<name>/ holds
-// the skills the pod's assistant is given. A ConfigMap key cannot contain a slash,
-// so a nested path is flattened with the same separator the tree uses and boot.sh
-// un-flattens it back under /seed - see the skills loop there.
-for (const rel of walk(POD, '.')) {
-  const clean = rel.replace(/^\.\//, '');
+// The Studio's own API service, which lives under pod/ because it is a pod-side program like
+// any other, and does NOT belong in an extension's seed.
+//
+// It was in it, briefly, and the cost was measurable: 77.5 KiB of every extension's ConfigMap
+// and of this bundle, for source that boot.sh then refused to write, in every extension, for
+// ever. It has one pod of its own and one ConfigMap of its own (pkg/extension-studio/service.ts),
+// so it is emitted as its own file set and the extension seeds never see it.
+const SERVICE_DIR = 'service';
+
+/** Read one pod-side file, with the tokens this generator owns substituted into it. */
+function podFile(clean) {
   let contents = fs.readFileSync(path.join(POD, clean), 'utf8');
 
   for (const [token, value] of Object.entries(SUBSTITUTIONS)) {
@@ -190,7 +415,27 @@ for (const rel of walk(POD, '.')) {
     throw new Error(`${ clean } still has an unsubstituted token: ${ leftover[0] }`);
   }
 
-  shared[clean.split('/').join(SEPARATOR)] = contents;
+  return contents;
+}
+
+// Recursive, because the pod directory is no longer flat: pod/skills/<name>/ holds
+// the skills the pod's assistant is given. A ConfigMap key cannot contain a slash,
+// so a nested path is flattened with the same separator the tree uses and boot.sh
+// un-flattens it back under /seed - see the skills loop there.
+const service = {};
+
+for (const rel of walk(POD, '.')) {
+  const clean = rel.replace(/^\.\//, '');
+  const [head, ...rest] = clean.split('/');
+
+  if (head === SERVICE_DIR) {
+    // Flat already: the service's files sit beside each other at /seed and import each other
+    // by name, so there is nothing to flatten and nothing to un-flatten.
+    service[rest.join('/')] = podFile(clean);
+    continue;
+  }
+
+  shared[clean.split('/').join(SEPARATOR)] = podFile(clean);
 }
 
 // One file set per package: the shared skeleton plus that package's own source.
@@ -221,9 +466,20 @@ export const SEEDS: Record<string, Record<string, string>> = `;
 const footer = `
 /** What a new extension is seeded from unless something else is asked for. */
 export const SEED_FILES = SEEDS.dev;
+
+/**
+ * The Studio's own API service, which is not part of any extension's tree.
+ *
+ * Its own file set rather than a prefix inside every seed: it is mounted into one pod of its
+ * own, so carrying it in each extension's ConfigMap meant every extension paying for source
+ * that its boot script then declined to write. Read by pkg/extension-studio/service.ts.
+ */
+export const SERVICE_FILES: Record<string, string> = ${ JSON.stringify(service, null, 2) };
 `;
 
 fs.writeFileSync(OUT, `${ header }${ JSON.stringify(seeds, null, 2) };\n${ footer }`);
+
+console.log(`service: ${ Object.keys(service).length } files, ${ (Buffer.byteLength(JSON.stringify(service)) / 1024).toFixed(1) } KiB`);
 
 
 for (const [id, set] of Object.entries(seeds)) {
@@ -231,6 +487,11 @@ for (const [id, set] of Object.entries(seeds)) {
 }
 
 console.log(`-> ${ path.relative(path.join(here, '..'), OUT) }`);
+
+// After the write, not before it: this imports the extension's own TypeScript, and part of that
+// tree imports the file this script generates. Checking first would mean a fresh checkout could
+// never produce the file it needs in order to be checked.
+await checkBodiesInStep();
 
 // A ConfigMap tops out around 1 MiB, and each seed becomes one ConfigMap of its own, so the
 // limit is per seed rather than on the total. Source only - node_modules is installed in the

@@ -1,6 +1,8 @@
 import { importTypes } from '@rancher/auto-import';
 import { IPlugin } from '@shell/core/types';
 import { ensureBrowser, ensureDefaultExtension } from './extensions';
+import { ensureService } from './service';
+import { ensureApiRegistration, studioApiEntry } from './api-registry';
 import {
   EDITOR_ROUTE, EXTENSION_STARTING_ROUTE, STUDIO_ROUTE, NEW_EXTENSION_ROUTE,
   REVIEW_ROUTE, FILES_ROUTE, REVIEW_QUEUE_ROUTE, REVIEW_CHANGE_ROUTE,
@@ -47,6 +49,17 @@ export default function(plugin: IPlugin): void {
   // webpack's error overlay over the login form and makes the dashboard unusable. There is
   // nothing to report either way: if the objects cannot be made now, the editor's own install
   // checklist makes them when somebody opens it.
+  // The service the rest of this bundle talks to, first: every screen's reads and writes go
+  // through it now, so a cluster without it is a Studio that loads and can do nothing. Started
+  // before the extension it will be asked about, and caught for the reason above - on the login
+  // page this is a 401 like the others.
+  ensureService().catch(() => {});
+
+  // And say so in the registry, so another extension can find this API without being told about
+  // it. The Studio registers itself through exactly the mechanism anything else would use; there
+  // is no special case for it, which is the only way to know the mechanism works.
+  ensureApiRegistration(studioApiEntry()).catch(() => {});
+
   ensureDefaultExtension().catch(() => {});
 
   // And the browser those extensions are looked at in (see ensureBrowser): one

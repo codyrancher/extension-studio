@@ -8,6 +8,7 @@
 // The list is the source for three things that used to disagree - the install itself, the
 // progress the editor shows, and the uninstall - so a resource added in one place cannot be
 // forgotten by the other two.
+import { serviceSteps } from './service';
 import {
   EXT_NS, EXT_ACCOUNT, EXT_ROLE_BINDING, BROWSER_OBJECT, BROWSER_SERVICES, BROWSER_PORTS,
   EXT_PORTS, extensionObject, namespaceBody, serviceAccountBody, clusterRoleBindingBody,
@@ -157,7 +158,10 @@ export function extensionSteps(
 export function installSteps(
   name: string, source?: string, extras?: Record<string, string>,
 ): InstallStep[] {
-  return [...sharedSteps(), ...extensionSteps(name, source, extras), ...browserSteps()];
+  // The service before the extension: every screen that watches this install reads the cluster
+  // through it, so a checklist that made the extension first would be watching a pod it could
+  // not ask about.
+  return [...sharedSteps(), ...serviceSteps(), ...extensionSteps(name, source, extras), ...browserSteps()];
 }
 
 /**

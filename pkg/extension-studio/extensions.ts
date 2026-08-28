@@ -23,8 +23,10 @@
 //     -- bash -c 'cd "$(ls -d /app/pkg/*/ | head -1)" && exec bash'
 // ---------------------------------------------------------------------------
 import { rancherFetch } from './api';
+import { serviceFetch, servicePost, apiName } from './service-api';
 import { SEEDS } from './extension-seed.generated';
-import { parseQuestion, AssistantQuestion } from './assistant-question';
+import { parseQuestion } from './assistant-question';
+import type { AssistantQuestion } from './assistant-question';
 
 // The `local` cluster, like the editor's content pod: the extension loads in
 // contexts that have no cluster of their own, and a dev server should be at one
@@ -39,7 +41,7 @@ const EXT_CONTAINER = 'devserver';
 
 // Plain node, not a built image: the pod installs from the seeded package.json,
 // so there is nothing to publish and nothing that can be older than the source.
-const EXT_IMAGE = 'node:24';
+export const EXT_IMAGE = 'node:24';
 
 /**
  * The extension every Rancher gets, and the one the Editor opens.
@@ -55,7 +57,7 @@ const EXT_IMAGE = 'node:24';
  */
 export const DEFAULT_EXTENSION = 'base';
 
-const EXT_BASE = `/k8s/clusters/${ EXT_CLUSTER }`;
+export const EXT_BASE = `/k8s/clusters/${ EXT_CLUSTER }`;
 
 /**
  * The ServiceAccount every extension pod runs as, and what it can do.
@@ -239,20 +241,9 @@ export interface ExtensionSummary {
  * vanish from the picker while continuing to serve.
  */
 export async function listExtensions(): Promise<ExtensionSummary[]> {
-  const deployments = await rancherFetch(`${ EXT_BASE }/v1/apps.deployments/${ EXT_NS }`).catch(() => null);
+  const answer = await serviceFetch('/v1/extensions').catch(() => null);
 
-  return (deployments?.data || [])
-    .map((deployment: any) => {
-      const name = extensionName(deployment.metadata?.name || '');
-
-      return name === null ? null : {
-        name,
-        ready: (deployment.status?.readyReplicas || 0) > 0,
-        url:   extensionUrl(name),
-      };
-    })
-    .filter(Boolean)
-    .sort((a: ExtensionSummary, b: ExtensionSummary) => a.name.localeCompare(b.name));
+  return answer?.items || [];
 }
 
 // GET a Steve resource; resolve null if it isn't there yet.
@@ -1650,46 +1641,6 @@ export interface PodExecResult {
 }
 
 /**
- * What the apiserver said on channel 3, as an exit code.
- *
- * Two wire formats, and which one arrives depends on the subprotocol that was negotiated.
- * Rancher's proxy accepts `base64.channel.k8s.io` and refuses `base64.v4.channel.k8s.io`
- * outright - the socket does not open - so what actually arrives here today is v1's prose:
- *
- *   command terminated with non-zero exit code: error executing command [...], exit code 3
- *
- * The v4 form is a `metav1.Status` as JSON, and is read too, so this keeps working if the
- * proxy ever negotiates it. Nothing at all on channel 3 means the command succeeded: v1 sends
- * the frame only when something went wrong.
- */
-function statusExitCode(status: string): number {
-  const text = status.trim();
-
-  if (!text) {
-    return 0;
-  }
-
-  if (text.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(text);
-
-      if (parsed?.status === 'Success') {
-        return 0;
-      }
-
-      const cause = (parsed?.details?.causes || []).find((c: any) => c?.reason === 'ExitCode');
-      const code = parseInt(cause?.message, 10);
-
-      return Number.isFinite(code) ? code : -1;
-    } catch { /* not the JSON form after all, so read it as prose below */ }
-  }
-
-  const m = /exit code (\d+)/.exec(text);
-
-  return m ? parseInt(m[1], 10) : -1;
-}
-
-/**
  * Run one command in an extension's pod and report everything about how it went.
  *
  * Resolves rather than rejects for a non-zero exit, because a non-zero exit is a fact rather
@@ -1697,128 +1648,44 @@ function statusExitCode(status: string): number {
  * --verify -q` on a ref that does not exist, a grep that matches nothing). The caller decides
  * whether the code matters. `podExecStrict` is the form that decides it is fatal.
  */
-export function podExecResult(pod: string, command: string[], timeoutMs = EXEC_TIMEOUT_MS): Promise<PodExecResult> {
-  return new Promise((resolve) => {
-    // Decoded incrementally, not per frame. `atob` gives a binary string - one character per
-    // byte - so a UTF-8 character read out of a pod arrived as mojibake: claude's own
-    // "Not logged in · Please run /login" came back as "Â· ". Every exec reader was affected, so
-    // a source file or a diff containing an accented name or a dash rendered wrong on the Files
-    // and Changes screens. Nothing had noticed because nothing had sent non-ASCII through it.
-    //
-    // `stream: true` matters as much as the decoder does: a multi-byte character can straddle two
-    // frames, and decoding each frame on its own would corrupt exactly the characters this is
-    // meant to fix. One decoder per channel, fed in order, flushed at the end.
-    const outDecoder = new TextDecoder('utf-8');
-    const errDecoder = new TextDecoder('utf-8');
-    const bytes = (b64: string): Uint8Array => {
-      const raw = atob(b64);
-      const out = new Uint8Array(raw.length);
+export async function podExecResult(
+  pod: string, command: string[], timeoutMs = EXEC_TIMEOUT_MS,
+): Promise<PodExecResult> {
+  return execResult(`/v1/pods/${ apiName(pod) }/exec`, { command, timeoutMs });
+}
 
-      for (let i = 0; i < raw.length; i++) {
-        out[i] = raw.charCodeAt(i);
-      }
+/**
+ * One exec through the service, whatever shape was asked for.
+ *
+ * This function used to be a hundred and thirty lines here, and every one of them was about the
+ * wire rather than about this product: opening a WebSocket to the apiserver, demultiplexing
+ * base64 channels, feeding two streaming UTF-8 decoders because a character can straddle a
+ * frame, and reading an exit code out of the apiserver's English. Several tabs each did all of
+ * it at once, each with its own copy of the state. It is now `pod/service/podexec.mjs`, done
+ * once, on the side that has one clock.
+ *
+ * What did not change is what a caller sees, and that is deliberate: it still resolves rather
+ * than rejects for a non-zero exit, because a non-zero exit is a fact rather than an error and
+ * plenty of callers run commands expected to fail. A request that could not be made at all is a
+ * transport failure with the reason in `status`, which is the same shape a dropped socket
+ * produced before.
+ */
+async function execResult(path: string, body: Record<string, unknown>): Promise<PodExecResult> {
+  try {
+    const result = await servicePost(path, body);
 
-      return out;
+    return {
+      stdout:    result.stdout || '',
+      stderr:    result.stderr || '',
+      status:    result.status || '',
+      code:      typeof result.code === 'number' ? result.code : -1,
+      transport: !!result.transport,
     };
-
-    let stdout = '';
-    let stderr = '';
-    let status = '';
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    // The socket can report twice - an error is usually followed by a close - and the first
-    // report is the one that knows what happened.
-    const settle = (closeCode: number) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-
-      // A clean 1000 with no status frame is the only shape that means success. Anything else
-      // with nothing on channel 3 is the connection failing rather than the command, which is
-      // a different sentence for a screen to say and must not be reported as exit 0.
-      const broke = !status && closeCode !== 1000;
-
-      resolve({
-        // Flush: a decoder holding a partial sequence emits it (as U+FFFD) rather than losing it.
-        stdout: stdout + outDecoder.decode(),
-        stderr: stderr + errDecoder.decode(),
-        status: status || (broke ? `the exec connection closed without running the command (${ closeCode })` : ''),
-        code:   broke ? -1 : statusExitCode(status),
-        transport: broke,
-      });
+  } catch (e: any) {
+    return {
+      stdout: '', stderr: '', status: e?.message || String(e), code: -1, transport: true,
     };
-
-    try {
-      const socket = new WebSocket(execUrl(pod, command, false), 'base64.channel.k8s.io');
-
-      // Every frame is a channel digit then base64. 1 is stdout, 2 is stderr, 3 is the
-      // apiserver's own status - which is where the exit code lives and is the whole reason
-      // this function replaced the one that read only channel 1.
-      socket.onmessage = (event) => {
-        const frame = String(event.data || '');
-        let raw: Uint8Array;
-
-        try {
-          raw = bytes(frame.slice(1));
-        } catch {
-          return; // a frame that is not base64 is not output
-        }
-
-        if (frame.startsWith('1')) {
-          stdout += outDecoder.decode(raw, { stream: true });
-        } else if (frame.startsWith('2')) {
-          stderr += errDecoder.decode(raw, { stream: true });
-        } else if (frame.startsWith('3')) {
-          // The status frame is the apiserver's own prose or JSON, always ASCII, so it needs no
-          // streaming decoder - but it does need decoding from the same bytes as the rest.
-          status += new TextDecoder('utf-8').decode(raw);
-        }
-      };
-
-      socket.onclose = (event) => settle(event.code);
-      // No close event to read a code off: a pod or container that does not exist fails the
-      // upgrade and only ever fires this.
-      socket.onerror = () => settle(0);
-
-      // And a socket that does neither.
-      //
-      // This promise used to have no way to end except a close or an error frame, so an exec
-      // whose socket opened and then went quiet - the apiserver holding it, a proxy dropping
-      // the upgrade halfway - never settled at all. Every caller awaiting it waited for the
-      // rest of the session: the Changes tab sat on "Taking this change set's picture in the
-      // pod" with no error anywhere, because from its point of view the request was still in
-      // flight and always would be. A caller can decide something did not work; it cannot
-      // decide anything about a promise that never resolves.
-      if (timeoutMs > 0) {
-        timer = setTimeout(() => {
-          try {
-            socket.close();
-          } catch { /* already gone */ }
-
-          if (!settled) {
-            settled = true;
-            resolve({
-              stdout:    stdout + outDecoder.decode(),
-              stderr:    stderr + errDecoder.decode(),
-              status:    `the exec did not finish within ${ Math.round(timeoutMs / 1000) }s`,
-              code:      -1,
-              transport: true,
-            });
-          }
-        }, timeoutMs);
-      }
-    } catch {
-      settle(0);
-    }
-  });
+  }
 }
 
 /**
@@ -1927,18 +1794,21 @@ function asPodUser(script: string): string[] {
 const packageDir = (name: string) => `"$(d=/app/pkg/${ shellQuote(name).replace(/^'|'$/g, '') } ; ` +
   '[ -d "$d" ] && printf %s "$d" || ls -d /app/pkg/*/ | head -1)"';
 
-/** Run something in the pod, in the extension's package directory, as the tree's owner. */
+/**
+ * Run something in the pod, in the extension's package directory, as the tree's owner.
+ *
+ * The composition moved. This used to resolve the pod, wrap the script in a setpriv drop, work
+ * out the package directory with a shell conditional and brace the list, all in the browser, so
+ * that every one of the hundred and fifty callers below paid a pod lookup and carried a copy of
+ * four facts about the inside of a container. It now sends the script and the extension's name.
+ * `pod/service/podscript.mjs` does the rest, next to the pod it is about.
+ */
 async function inPackage(name: string, script: string): Promise<string> {
-  const pod = await extensionPod(name);
+  return (await inPackageResult(name, script)).stdout;
+}
 
-  if (!pod) {
-    return '';
-  }
-
-  // Braces, not a bare `&&`. Several of these scripts are `;`-separated lists, and `cd X &&
-  // a ; b` only guards `a`: a failed cd would run the rest of the list wherever the shell
-  // happened to be, which for `git init` means initialising a repository in /.
-  return podExecOnce(pod, asPodUser(`cd ${ packageDir(name) } && { ${ script } ; }`));
+function inPackageResult(name: string, script: string): Promise<PodExecResult> {
+  return execResult(`/v1/extensions/${ apiName(name) }/exec`, { script });
 }
 
 /**
@@ -1953,13 +1823,13 @@ async function inPackage(name: string, script: string): Promise<string> {
  * `what` is a phrase, not a sentence: it becomes "<what> failed in the pod (exit 1): ...".
  */
 async function inPackageStrict(name: string, script: string, what: string): Promise<string> {
-  const pod = await extensionPod(name);
+  const result = await inPackageResult(name, script);
 
-  if (!pod) {
-    throw new Error(`${ what } could not be done: ${ name } has no running pod`);
+  if (result.code !== 0) {
+    throw new PodExecError(what, result);
   }
 
-  return podExecStrict(pod, asPodUser(`cd ${ packageDir(name) } && { ${ script } ; }`), what);
+  return result.stdout;
 }
 
 /**
@@ -2477,65 +2347,14 @@ export interface ApprovalState {
  * reports all of its turns as pending.
  */
 export async function approvalState(name: string): Promise<ApprovalState> {
-  const out = await inPackage(name, [
-    'test -d .git || { echo BARN-NOGIT ; exit 0 ; }',
-    `approved=$(git rev-parse --verify -q ${ APPROVED_REF } 2>/dev/null || true)`,
-    'echo "APPROVED=$approved"',
-    // The floor when nothing has been approved yet.
-    //
-    // It was `git rev-list HEAD` - every commit in the repository, the seed included. A brand
-    // new extension has exactly one commit, "The seeded extension", so the Changes tab's badge
-    // read 1 while the tab underneath it said nothing had been asked for yet. It was counting
-    // the tree the extension started as as though somebody had to review it.
-    //
-    // The same chain every other screen measures from: what has been published, and failing
-    // that the root commit, which is the tree this extension started as and is therefore never
-    // itself something to approve.
-    'base="$approved"',
-    // One line, and each fallback on its own statement.
-    //
-    // This was a single `base=$(a || b || c)` split across three array entries, which joins to
-    // a command substitution broken over three lines - and the pod's shell is dash, which reads
-    // a line starting with `||` inside `$( )` as a syntax error rather than a continuation.
-    // Every read therefore died with `Syntax error: "||" unexpected`, and because the failure
-    // was in the script rather than in the exec, it came back as output with no PENDING marker:
-    // the review state was unreadable for every change set, which the rail then drew as
-    // "reviewed".
-    `[ -n "$base" ] || base=$(git rev-parse --verify -q ${ BASELINE_OCI_REF } 2>/dev/null || true)`,
-    `[ -n "$base" ] || base=$(git rev-parse --verify -q ${ BASELINE_LOCAL_REF } 2>/dev/null || true)`,
-    '[ -n "$base" ] || base=$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)',
-    'echo PENDING',
-    'if [ -n "$base" ] ; then git rev-list "$base"..HEAD 2>/dev/null ; else git rev-list HEAD 2>/dev/null ; fi',
-  ].join('\n')).catch(() => 'BARN-APPROVAL-FAILED');
-
-  // A tree with no history has nothing to review, which is the one honest `clear: true`.
-  if (out.includes('BARN-NOGIT')) {
-    return {
-      sha: '', pending: [], clear: true, read: true,
-    };
-  }
-
-  // Anything else that did not answer is unknown, and unknown is not clear.
-  //
-  // This used to fall back to `{ pending: [], clear: true }`, which reads everywhere as "all
-  // reviewed, ready to publish" - so an exec that failed for any reason turned the review gate
-  // off and marked every change set as looked at. The gate exists to stop exactly that, and a
-  // fallback that opens it is worse than no gate at all.
-  if (out.includes('BARN-APPROVAL-FAILED') || !out.includes('PENDING')) {
-    return {
-      sha: '', pending: [], clear: false, read: false,
-    };
-  }
-
-  const sha = (/APPROVED=(\S*)/.exec(out)?.[1] || '').trim();
-  const at = out.indexOf('PENDING');
-  const pending = at === -1
-    ? []
-    : out.slice(at + 'PENDING'.length).split('\n').map((l) => l.trim()).filter((l) => /^[0-9a-f]{7,40}$/i.test(l));
-
-  return {
-    sha, pending, clear: !pending.length, read: true,
-  };
+  // The failure is the interesting half. A read that could not happen must come back as
+  // `read: false`, never as an empty pending list, because everywhere in the product an empty
+  // pending list means "all reviewed, ready to publish". The route answers in those terms; this
+  // only has to not lose them, which is why the catch produces the unknown shape rather than a
+  // default object with `clear: true` in it.
+  return serviceFetch(`/v1/extensions/${ apiName(name) }/approval`).catch(() => ({
+    sha: '', pending: [], clear: false, read: false,
+  }));
 }
 
 /**
@@ -2773,74 +2592,9 @@ export interface ChangedFile {
 }
 
 export async function changedFiles(name: string): Promise<ChangedFile[]> {
-  // Two readings in one exec, because a name-status alone cannot say how big a change is and
-  // a second shell into the pod per screen is a second the reviewer waits.
-  //
-  // Against the baseline rather than against `git status`, which is the whole of step 2 for
-  // this function: status answers "what is uncommitted", and once the assistant commits a
-  // turn at a time that is nothing, while the change the reviewer is here for is every commit
-  // since the last published version. `git diff --name-status <baseline>` answers the
-  // question the screen is actually asking, and it covers untracked files too once INTENT_SH
-  // has told git they are coming.
-  const out = await inPackage(
-    name,
-    [
-      BASELINE_SH,
-      INTENT_SH,
-      'git diff --name-status --no-renames "$BARN_BASE" 2>/dev/null',
-      'echo "--numstat--"',
-      'git diff --numstat --no-renames "$BARN_BASE" 2>/dev/null',
-    ].join(' ; ')
-  ).catch(() => '');
+  const answer = await serviceFetch(`/v1/extensions/${ apiName(name) }/changes`).catch(() => null);
 
-  return parseChangedFiles(out);
-}
-
-/**
- * The two halves of the reading above, turned into rows.
- *
- * Split out so `changedFilesSince` parses the same output the same way rather than growing a
- * second copy that drifts. Nothing about it is specific to which commit the diff was against.
- */
-function parseChangedFiles(out: string): ChangedFile[] {
-  const [statusOut, numstatOut = ''] = out.split('--numstat--');
-  const stats: Record<string, { added: number; removed: number }> = {};
-  // Quotes come off the same way on both readings: git quotes a path with anything awkward in
-  // it, and every caller keys on the plain one.
-  const unquote = (path: string) => path.trim().replace(/^"|"$/g, '');
-
-  numstatOut.split('\n').forEach((line) => {
-    const [added, removed, ...rest] = line.trimEnd().split(/\t/);
-
-    if (rest.length) {
-      // A binary file is reported as `-\t-\t<path>`, which parses to zero on both counts -
-      // which is true: it has no lines.
-      stats[unquote(rest.join('\t'))] = { added: parseInt(added, 10) || 0, removed: parseInt(removed, 10) || 0 };
-    }
-  });
-
-  return statusOut.split('\n')
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .map((line) => {
-      const [code, ...rest] = line.split(/\t/);
-      const path = unquote(rest.join('\t'));
-
-      let status = 'modified';
-
-      if (code.startsWith('A')) {
-        status = 'added';
-      } else if (code.startsWith('D')) {
-        status = 'deleted';
-      }
-
-      const { added = 0, removed = 0 } = stats[path] || {};
-
-      return {
-        path, status, added, removed
-      };
-    })
-    .filter((f) => !!f.path);
+  return answer?.files || [];
 }
 
 /**
@@ -2913,19 +2667,13 @@ function sinceSh(sha: string): string {
  * this change is", which is the question `changedFiles` already answers beside it.
  */
 export async function changedFilesSince(name: string, sha: string): Promise<ChangedFile[]> {
-  const out = await inPackage(name, [
-    sinceSh(sha),
-    INTENT_SH,
-    'git diff --name-status --no-renames "$BARN_SINCE" 2>/dev/null',
-    'echo "--numstat--"',
-    'git diff --numstat --no-renames "$BARN_SINCE" 2>/dev/null',
-  ].join(' ; '));
+  // The refusal is kept, and it is the point of this function. A reviewer's last look can name
+  // a commit a `git reset` has since taken out of the branch, and answering that with the whole
+  // change - or with nothing - answers a different question from the one the filter asked. The
+  // route says so with a 404 and a sentence; this puts the sentence in front of the screen.
+  const answer = await serviceFetch(`/v1/extensions/${ apiName(name) }/changes?since=${ apiName(sha) }`);
 
-  if (out.includes('BARN-NO-COMMIT')) {
-    throw new Error(`${ sha } is not a commit in ${ name } any more, so there is nothing to measure from`);
-  }
-
-  return parseChangedFiles(out);
+  return answer?.files || [];
 }
 
 /**
@@ -3162,24 +2910,14 @@ export interface ChangeProvenance {
 }
 
 export async function changeProvenance(name: string): Promise<ChangeProvenance> {
-  const out = await inPackage(name, [
-    `git log -1 --format='SHA:%h%nAUTHOR:%an%nWHEN:%cI%nSUBJECT:%s' 2>/dev/null`,
-    'echo "--edited--"',
-    // The newest mtime among the files git reports as changed, as an epoch second. `cut -c4-`
-    // drops porcelain's two status characters and the space after them.
-    'git status --porcelain --no-renames 2>/dev/null | cut -c4- | tr -d \'"\' | while read -r p ; do [ -f "$p" ] && stat -c %Y "$p" 2>/dev/null ; done | sort -n | tail -1',
-  ].join(' ; ')).catch(() => '');
-
-  const [logOut = '', editedOut = ''] = out.split('--edited--');
-  const field = (key: string) => (new RegExp(`^${ key }:(.*)$`, 'm').exec(logOut)?.[1] || '').trim();
-  const epoch = parseInt(editedOut.trim(), 10);
-
-  return {
-    edited: Number.isFinite(epoch) && epoch > 0 ? new Date(epoch * 1000).toISOString() : '',
+  const empty = {
+    edited: '',
     commit: {
-      sha: field('SHA'), author: field('AUTHOR'), when: field('WHEN'), subject: field('SUBJECT'),
+      sha: '', author: '', when: '', subject: '',
     },
   };
+
+  return serviceFetch(`/v1/extensions/${ apiName(name) }/provenance`).catch(() => empty);
 }
 
 /**
@@ -3585,18 +3323,9 @@ export interface AssistantTurn {
 
 /** The turns the pod recorded, newest first. What the workspace's activity stream can show. */
 export async function assistantTurns(name: string, limit = 25): Promise<AssistantTurn[]> {
-  const out = await inPackage(name, `node /seed/barn-provenance.mjs turns ${ limit } 2>/dev/null`).catch(() => '');
-  const found = /BARN-PROV:(.*)/.exec(out);
+  const answer = await serviceFetch(`/v1/extensions/${ apiName(name) }/turns?limit=${ limit }`).catch(() => null);
 
-  if (!found) {
-    return [];
-  }
-
-  try {
-    return JSON.parse(found[1]) as AssistantTurn[];
-  } catch {
-    return [];
-  }
+  return answer?.turns || [];
 }
 
 /**
@@ -5815,8 +5544,6 @@ const NO_MESSAGES: Conversation = {
   read: false, dir: '', session: '', version: '', mode: '', model: '', total: 0, messages: [],
 };
 
-const CONVERSATION_LINE = 'BARN-CONVERSATION:';
-
 /**
  * The conversation, as one ordered list, assembled in the pod.
  *
@@ -5831,40 +5558,31 @@ const CONVERSATION_LINE = 'BARN-CONVERSATION:';
 export async function conversationMessages(
   name: string, opts: { since?: string; limit?: number } = {},
 ): Promise<Conversation> {
-  const args = [
-    opts.since ? `--since ${ shellQuote(opts.since) }` : '',
-    `--limit ${ Math.max(1, Math.min(200, Math.floor(opts.limit || 60))) }`,
-  ].filter(Boolean).join(' ');
+  const query = new URLSearchParams({ limit: `${ Math.max(1, Math.min(200, Math.floor(opts.limit || 60))) }` });
 
-  const out = await inPackage(name, `node /seed/conversation.mjs ${ args }`).catch(() => '');
-  const at = out.indexOf(CONVERSATION_LINE);
-
-  if (at < 0) {
-    return NO_MESSAGES;
+  if (opts.since) {
+    query.set('since', opts.since);
   }
 
-  try {
-    return { ...NO_MESSAGES, ...JSON.parse(out.slice(at + CONVERSATION_LINE.length).split('\n')[0]) };
-  } catch {
-    return NO_MESSAGES;
-  }
+  const answer = await serviceFetch(`/v1/extensions/${ apiName(name) }/conversation?${ query }`).catch(() => null);
+
+  return answer ? { ...NO_MESSAGES, ...answer } : NO_MESSAGES;
 }
 
+/**
+ * What the assistant is showing right now.
+ *
+ * Every screen that says what the assistant is doing polls this, and each of them used to send
+ * the same paragraph of shell - a tmux capture, a `tr` to strip the pane to ASCII, a `sed`, a
+ * `grep` and a `tail` - and then argue about how many lines to ask for. The paragraph is one
+ * route now, and the only thing left here is how much of it this caller wants.
+ */
 export async function assistantOutput(name: string, lines = 20): Promise<string> {
-  const out = await inPackage(name, [
-    `if tmux has-session -t ${ ASSISTANT_SESSION } 2>/dev/null ; then`,
-    // The visible pane, not the scrollback, and only the foot of it.
-    //
-    // This used to reach 120 lines back with `-S -120`, which on a session that had not run for
-    // long meant the card showed claude's start-up banner - the release notes, the /clear, the
-    // model line - under a heading that says "Working". That is not what it is doing, it is what
-    // it said when it booted. What it is doing is at the bottom of the screen it is drawing.
-    `tmux capture-pane -p -t ${ ASSISTANT_SESSION } | tr -cd '\\11\\12\\15\\40-\\176'`,
-    `| sed -e 's/[[:space:]]*$//' | grep -v '^$' | tail -n ${ Math.max(4, Math.min(60, lines)) } ;`,
-    'fi',
-  ].join(' ')).catch(() => '');
+  const answer = await serviceFetch(
+    `/v1/extensions/${ apiName(name) }/pane?lines=${ Math.max(4, Math.min(60, lines)) }`,
+  ).catch(() => null);
 
-  return out;
+  return answer?.text || '';
 }
 
 export async function devServerLog(name: string, lines = 400): Promise<string> {
