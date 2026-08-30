@@ -157,7 +157,16 @@ MODE=${4:-claude}
 if [ "$MODE" = shell ]; then
   PANE="/bin/bash -l"
 else
-  PANE="/bin/bash /seed/claude-session.sh '$MC_QUEUE'"
+  # $2 is where this pane records which conversation is its own, and it is only wanted where
+  # panes share a working directory - the agent panel, whose sessions directory is beside the
+  # workspace. An extension's terminal has a directory to itself and passes nothing, which
+  # leaves claude-session.sh on --continue.
+  MC_CONVERSATION=""
+  case "$WORKDIR" in
+    */conversations) MC_CONVERSATION="$(dirname "$WORKDIR")/sessions/$SESSION.id" ;;
+  esac
+
+  PANE="/bin/bash /seed/claude-session.sh '$MC_QUEUE' '$MC_CONVERSATION'"
 fi
 
 if [ "$MODE" = start ]; then
@@ -176,9 +185,14 @@ fi
 # dev server dropped itself to. Everything in the pane has to be the node user
 # instead: claude refuses --dangerously-skip-permissions as root, and the files
 # it edits are the ones webpack is watching, which boot.sh made node's.
+# The pane's PATH has the home's own bin on the front of it, because that is where the claude
+# CLI now installs itself: natively, into whichever directory outlives this pod, so that it can
+# take an update and so that a restart does not reinstall it. See terminal-tools.sh.
+PANE_PATH="$HOME_DIR/.local/bin:$PATH"
+
 if [ "$(id -u)" = 0 ]; then
   exec setpriv --reuid=1000 --regid=1000 --init-groups \
-    env "HOME=$HOME_DIR" TERM=xterm-256color "$@"
+    env "HOME=$HOME_DIR" "PATH=$PANE_PATH" TERM=xterm-256color "$@"
 fi
 
-exec env "HOME=$HOME_DIR" TERM=xterm-256color "$@"
+exec env "HOME=$HOME_DIR" "PATH=$PANE_PATH" TERM=xterm-256color "$@"

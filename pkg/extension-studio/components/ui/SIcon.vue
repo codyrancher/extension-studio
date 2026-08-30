@@ -39,6 +39,7 @@ const FONT = {
   eye:          'icon-show',
   clock:        'icon-history',
   more:         'icon-actions',
+  edit:         'icon-edit',
   trash:        'icon-trash',
   upload:       'icon-upload',
   download:     'icon-download',
@@ -73,6 +74,13 @@ const SVG = {
   // the shape every browser's inspect tool uses, and the point of it is that it is already
   // familiar rather than that it is ours.
   target:  'M8 12.667a4.667 4.667 0 1 0 0-9.334 4.667 4.667 0 0 0 0 9.334Z M8 9.333A1.333 1.333 0 1 0 8 6.667a1.333 1.333 0 0 0 0 2.666Z M8 1.333V3.333 M8 12.667v2 M14.667 8h-2 M3.333 8h-2',
+  // Where a panel sits, drawn the way every browser's devtools draws the same choice: one
+  // frame, with a line showing which edge the panel has taken. They are here rather than in
+  // the panel that uses them because a name in this map is how the rest of this product asks
+  // for an icon, and a second icon vocabulary beside it is how the two drift.
+  dockLeft:   'M2 3h12v10H2V3Z M6.5 3v10',
+  dockBottom: 'M2 3h12v10H2V3Z M2 9.5h12',
+  dockRight:  'M2 3h12v10H2V3Z M9.5 3v10',
 };
 
 export default {

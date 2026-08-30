@@ -29,6 +29,97 @@
 import { createApp } from 'vue';
 import { isAdminUser } from '@shell/store/type-map';
 import AgentPanel from './components/AgentPanel.vue';
+import { readDrawerState } from './agent-drawer';
+
+/**
+ * Put the drawer back the way this browser left it.
+ *
+ * Only when it was open: a person who closed it gets nothing built, no store watched and no
+ * request made, which is every page load for everybody who does not use this.
+ *
+ * The wait is the awkward part and it is not avoidable. This runs while the bundle is being
+ * evaluated, which on a cold load is before Rancher has fetched the schemas `isAdminUser` reads,
+ * so asking now would answer "not an admin" for an admin and silently drop the drawer. Watching
+ * the store answers the moment the schemas land, and stops watching as soon as it has - a timer
+ * polling for the same thing would either be too slow to feel like a restore or still running an
+ * hour later.
+ */
+let stopWaitingForAdmin: (() => void) | null = null;
+let waitingForApp: any = null;
+
+/** How long to keep looking for the dashboard's app, and how often. See below for both. */
+const APP_POLL_MS = 200;
+const APP_WAIT_MS = 30000;
+
+function restoreDrawer(): void {
+  if (!readDrawerState().open) {
+    return;
+  }
+
+  whenAppExists((store) => {
+    if (isAdmin()) {
+      panelInstance();
+
+      return;
+    }
+
+    stopWaitingForAdmin = store.watch(
+      () => isAdminUser(store.getters),
+      (admin: boolean) => {
+        if (!admin) {
+          return;
+        }
+
+        stopWaitingForAdmin?.();
+        stopWaitingForAdmin = null;
+        // The panel reads the stored state itself when it mounts, so building it is the whole
+        // of reopening it - which keeps one owner for "was it open" rather than two.
+        panelInstance();
+      },
+    );
+  });
+}
+
+/**
+ * Wait for the dashboard's own Vue app, then hand over its store.
+ *
+ * A poll, and the reason it is one is worth stating because the first version of this had no
+ * wait at all and simply did nothing. A UIPlugin is evaluated during the dashboard's bootstrap,
+ * inside `extendApp`, which is *before* `vueApp.mount('#app')` - so at the moment this runs
+ * there is no `#app.__vue_app__` to read a store off, and asking once answers null on every cold
+ * load. The drawer restored perfectly when the bundle happened to be re-evaluated later, and
+ * never on a refresh, which is the case it exists for.
+ *
+ * It is a poll rather than an event because mounting is not one: Vue sets `__vue_app__` on the
+ * element and announces nothing. The deadline is what keeps it from being a leak - a page where
+ * the app never mounts is a broken page, not one to keep asking about.
+ */
+function whenAppExists(then: (store: any) => void): void {
+  const store = dashboardStore();
+
+  if (store) {
+    then(store);
+
+    return;
+  }
+
+  const deadline = Date.now() + APP_WAIT_MS;
+
+  waitingForApp = setInterval(() => {
+    const ready = dashboardStore();
+
+    if (!ready && Date.now() < deadline) {
+      return;
+    }
+
+    clearInterval(waitingForApp);
+    waitingForApp = null;
+
+    if (ready) {
+      then(ready);
+    }
+  }, APP_POLL_MS);
+}
 
 /**
  * `event.code`, not `event.key`.
@@ -55,8 +146,12 @@ let listening = false;
  * Null is a real answer and the gate below fails closed on it - on the login page, or before the
  * app has mounted, there is no user to be an admin.
  */
+function dashboardApp(): any {
+  return (document.querySelector('#app') as any)?.__vue_app__ || null;
+}
+
 function dashboardStore(): any {
-  return (document.querySelector('#app') as any)?.__vue_app__?.config?.globalProperties?.$store || null;
+  return dashboardApp()?.config?.globalProperties?.$store || null;
 }
 
 function isAdmin(): boolean {
@@ -95,14 +190,48 @@ function panelInstance(): any {
   document.body.appendChild(host);
 
   // Its own Vue app rather than a component slotted into the dashboard's, because there is no
-  // slot to put it in. The dashboard's store is handed to it so the panel can make the same
-  // admin check the handler above makes, from its own render.
+  // slot to put it in.
   const app = createApp(AgentPanel);
 
-  app.use(dashboardStore());
+  adoptDashboardContext(app);
   panel = app.mount(host);
 
   return panel;
+}
+
+/**
+ * Give this app the dashboard's own component context.
+ *
+ * The panel renders `@shell/components/Tabbed`, and a shell component expects to be inside the
+ * dashboard's app rather than beside it: `t()` is a global property the i18n plugin installs at
+ * boot, `v-clean-tooltip` is a directive installed at the same time, and Vuex reaches a
+ * component through a provide rather than through a prop. An app made with `createApp` has none
+ * of that, and the failures are at render time, in a drawer, on somebody else's page.
+ *
+ * Rebuilding it - installing the shell's plugins, components and directives into this app -
+ * would be a second copy of the dashboard's boot sequence running in front of a page that has
+ * already finished it, and it would need keeping in step with that sequence for ever. Copying
+ * the context that is already there cannot drift. The cost is `_context`, which is Vue's
+ * internal name for it.
+ *
+ * The global properties are copied as descriptors rather than as values, because `$route` is
+ * defined as a getter: assigning it would freeze whichever page the drawer was first opened on
+ * into every shell component inside it, for the life of the tab.
+ */
+function adoptDashboardContext(app: any): void {
+  const host = dashboardApp();
+
+  if (!host) {
+    return;
+  }
+
+  Object.assign(app._context.components, host._context.components);
+  Object.assign(app._context.directives, host._context.directives);
+  Object.assign(app._context.provides, host._context.provides);
+  Object.defineProperties(
+    app.config.globalProperties,
+    Object.getOwnPropertyDescriptors(host.config.globalProperties),
+  );
 }
 
 function onKeyDown(event: KeyboardEvent): void {
@@ -131,11 +260,58 @@ export function registerAgentOverlay(): () => void {
 
   listening = true;
   window.addEventListener('keydown', onKeyDown);
+  restoreDrawer();
 
   return () => {
+    stopWaitingForAdmin?.();
+
+    if (waitingForApp) {
+      clearInterval(waitingForApp);
+      waitingForApp = null;
+    }
+
     window.removeEventListener('keydown', onKeyDown);
     listening = false;
     panel = null;
     document.getElementById(HOST_ID)?.remove();
   };
+}
+
+/**
+ * Rebuild the overlay when the dev server replaces this module.
+ *
+ * The panel is its own Vue app, mounted once into `document.body` the first time somebody opens
+ * it. Vue's own hot reload replaces a component's definition wherever it is rendered, but this
+ * module is plain TypeScript: nothing accepts an update for it, so the listener registered at
+ * load and the app mounted from it both survive a recompile holding the previous code. The
+ * symptom is a change that is definitely compiled and definitely not on screen, and the usual
+ * conclusion is that the dev server is broken when it is doing exactly what it was asked.
+ *
+ * So: tear the overlay down before the replacement arrives, and register the new one after.
+ * Only in development - `import.meta.webpackHot` is undefined in a built bundle, which is why
+ * this is guarded rather than compiled out.
+ */
+const hot = (import.meta as any)?.webpackHot;
+
+if (hot) {
+  hot.accept();
+
+  hot.dispose(() => {
+    stopWaitingForAdmin?.();
+
+    if (waitingForApp) {
+      clearInterval(waitingForApp);
+      waitingForApp = null;
+    }
+
+    window.removeEventListener('keydown', onKeyDown);
+    listening = false;
+    panel = null;
+    document.getElementById(HOST_ID)?.remove();
+
+    // Whatever this panel had reserved of Rancher's layout goes back with it. The replacement
+    // sets it again from its own state; leaving it would strand a gap the new panel does not
+    // know it owns.
+    document.getElementById('mc-agent-reservation')?.remove();
+  });
 }

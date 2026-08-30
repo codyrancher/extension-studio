@@ -17,6 +17,33 @@ set -e
 
 LOCK=/tmp/terminal-tools.lock
 
+# Which home the tools are installed into and run with. HOME_DIR is passed by shell.sh, since
+# which directory outlives the pod depends on which kind of pod this is: /app for a dev server,
+# /workspace for the agent. The default is for the background run from boot.sh, which is a dev
+# server's.
+#
+# Read at the top rather than at the bottom, where it used to be, because the claude install is
+# now inside it and so is the question of whether there is anything to install.
+APP_HOME=${HOME_DIR:-/app/.home}
+CLAUDE_BIN="$APP_HOME/.local/bin/claude"
+
+# Run something as the node user, with the home and the PATH a pane will have.
+#
+# Every pane is that user - claude refuses --dangerously-skip-permissions as root, and the files
+# it edits are the ones webpack is watching - so anything installed into a home has to be
+# installed by the user who will run it. The exec subresource arrives as root; boot.sh calls
+# this before it drops.
+as_node() {
+  # TRUST_DIRS is forwarded here rather than by the one caller that sets it, because
+  # `VAR=x some_function` does not reliably export VAR to what the function then runs.
+  if [ "$(id -u)" = 0 ]; then
+    setpriv --reuid=1000 --regid=1000 --init-groups \
+      env "HOME=$APP_HOME" "PATH=$APP_HOME/.local/bin:$PATH" "TRUST_DIRS=${TRUST_DIRS:-}" sh -c "$1"
+  else
+    env "HOME=$APP_HOME" "PATH=$APP_HOME/.local/bin:$PATH" "TRUST_DIRS=${TRUST_DIRS:-}" sh -c "$1"
+  fi
+}
+
 # Is there anything to do at all?
 #
 # Asked before the lock is touched, and that ordering is the point. Everything the lock
@@ -26,7 +53,7 @@ LOCK=/tmp/terminal-tools.lock
 # block every tab after it.
 have_tools() {
   command -v tmux >/dev/null 2>&1 &&
-    command -v claude >/dev/null 2>&1 &&
+    [ -x "$CLAUDE_BIN" ] &&
     command -v kubectl >/dev/null 2>&1
 }
 
@@ -111,9 +138,33 @@ if ! command -v tmux >/dev/null 2>&1; then
   apt-get install -y -qq tmux </dev/null
 fi
 
-if ! command -v claude >/dev/null 2>&1; then
+if [ ! -x "$CLAUDE_BIN" ]; then
   echo "[tools] installing the claude cli (this takes a moment)"
-  npm install -g --silent @anthropic-ai/claude-code
+
+  # The native installer, into the pane's own durable home, and it is worth saying what that
+  # buys over the `npm install -g` it replaces. `claude doctor` in a pod used to report
+  # `npm-global` and a warning - "can't auto-update: npm global folder isn't writable" - because
+  # /usr/local/lib belongs to root and the pane does not, so the CLI in here could never take an
+  # update. The harness's own claude reports `native`, and now so does this. It also lands on
+  # the hostPath, so a pod restart no longer spends a minute reinstalling it.
+  #
+  # npm stays as the fallback rather than the default: it reaches a different host, so the two
+  # do not fail together, and a pane with a slightly older claude in it beats a pane with none.
+  as_node "curl -fsSL https://claude.ai/install.sh | bash -s latest" || true
+
+  if [ ! -x "$CLAUDE_BIN" ] && ! command -v claude >/dev/null 2>&1; then
+    echo "[tools] the native installer did not land; falling back to npm"
+    npm install -g --silent @anthropic-ai/claude-code
+  fi
+fi
+
+# A pod that was started before this change keeps its npm copy in the container filesystem until
+# it restarts, and `claude doctor` calls that a leftover - correctly, since two claudes on one
+# PATH is a coin toss about which one a pane gets. Only when the native one is actually there,
+# so a pod that fell back to npm above keeps the only claude it has.
+if [ -x "$CLAUDE_BIN" ] && [ "$(id -u)" = 0 ] && [ -e /usr/local/bin/claude ]; then
+  echo "[tools] removing the npm copy this pod installed before"
+  npm -g uninstall @anthropic-ai/claude-code >/dev/null 2>&1 || rm -f /usr/local/bin/claude
 fi
 
 # kubectl, so the pod's own ServiceAccount is usable from a terminal. It needs
@@ -133,21 +184,11 @@ fi
 # once the flags are set, so it is safe to run on every boot and every tab.
 #
 # As the node user: this writes into the home claude runs with, and a root-owned
-# .claude.json is one claude cannot then update.
-# HOME_DIR is passed by shell.sh, since which directory outlives the pod depends
-# on which kind of pod this is: /app for the dev server, /workspace for a
-# workspace. The default is for the background run from boot.sh, which is the
-# dev server's.
-APP_HOME=${HOME_DIR:-/app/.home}
-
+# .claude.json is one claude cannot then update. APP_HOME is set at the top of this file.
+#
 # TRUST_DIRS is the pane's own directory, passed by shell.sh, so the folder the
 # tab is about to open in is one claude already trusts rather than one it stops
 # and asks about.
-if [ "$(id -u)" = 0 ]; then
-  setpriv --reuid=1000 --regid=1000 --init-groups \
-    env "HOME=$APP_HOME" "TRUST_DIRS=${TRUST_DIRS:-}" node /seed/claude-defaults.mjs
-else
-  env "HOME=$APP_HOME" "TRUST_DIRS=${TRUST_DIRS:-}" node /seed/claude-defaults.mjs
-fi
+as_node "node /seed/claude-defaults.mjs"
 
 echo "[tools] ready"

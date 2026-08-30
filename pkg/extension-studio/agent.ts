@@ -200,9 +200,23 @@ export async function agentPod(): Promise<string | null> {
   return running?.metadata?.name || null;
 }
 
-/** Where one conversation's files live. One directory per session, because claude keys its history by directory. */
-function sessionDir(session: string): string {
-  return `${ AGENT_WORKSPACE }/sessions/${ session }`;
+/**
+ * Where every conversation runs.
+ *
+ * One directory for all of them, deliberately. claude keys its history by working directory, so
+ * a directory per conversation meant the resume picker in one tab could not see any of the
+ * others - which is what somebody hits the moment they want to pick a conversation up in a
+ * different pane, and it reads as the tabs not being the same place.
+ *
+ * What that costs is spelled out in claude-session.sh: sharing the directory means `--continue`
+ * would resume whichever conversation was touched last by any pane, so each pane now tracks the
+ * id of its own and resumes that instead.
+ *
+ * `sessions.sh` still keeps a directory per conversation under `sessions/`, but only for the
+ * name and the title. Nothing runs there.
+ */
+function sharedWorkdir(): string {
+  return `${ AGENT_WORKSPACE }/conversations`;
 }
 
 /**
@@ -216,10 +230,37 @@ function sessionDir(session: string): string {
 export function agentShellUrl(pod: string, session: string, mode = 'claude'): string {
   return execUrl(
     pod,
-    ['/bin/sh', '/seed/shell.sh', session, sessionDir(session), `${ AGENT_WORKSPACE }/.home`, mode],
+    ['/bin/sh', '/seed/shell.sh', session, sharedWorkdir(), `${ AGENT_WORKSPACE }/.home`, mode],
     true,
     AGENT_CONTAINER,
   );
+}
+
+/** One conversation: the name that addresses it, and the name a person reads. */
+export interface AgentSession {
+  /** Names the directory, the tmux session and the exec URL. Never changes. */
+  id: string;
+  /** What the tab says. Renamable, and kept in the pod beside the conversation. */
+  title: string;
+}
+
+/** One call to the pod's own account of its conversations. See pod/agent/sessions.sh. */
+async function sessionScript(args: string[], what: string): Promise<string> {
+  const pod = await agentPod();
+
+  if (!pod) {
+    throw new Error('The agent pod is not running yet, so there is nowhere to hold a conversation.');
+  }
+
+  // Short, because a person is waiting for each of these with a panel open. None of them is
+  // more than a mkdir or a directory listing.
+  const result = await podExecResult(pod, ['/bin/sh', '/seed/sessions.sh', ...args], 15000, AGENT_CONTAINER);
+
+  if (result.code !== 0) {
+    throw new Error(`Could not ${ what }: ${ result.stderr.trim() || result.status || `exit ${ result.code }` }`);
+  }
+
+  return result.stdout;
 }
 
 /**
@@ -227,42 +268,68 @@ export function agentShellUrl(pod: string, session: string, mode = 'claude'): st
  *
  * Asked of the pod rather than remembered in the browser, and that is the whole design of the
  * tab strip. A conversation outlives the tab that opened it, so a second browser tab, a reload,
- * or a different person's session all have to see the same list - and the only place that list
- * exists is tmux.
+ * or a different person's session all have to see the same list and the same names - and the
+ * only place either exists is the pod.
  *
- * An empty list is the honest answer for a pod that is still installing tmux, so this reports
- * nothing rather than throwing: the terminal itself already says when the pod is not up.
+ * An empty list is the honest answer for a pod that has just started, so a pod that is not
+ * running yet reports nothing rather than throwing: the terminal itself already says when there
+ * is no pod, and the panel would otherwise show an error over a pod that is merely booting.
  */
-export async function agentSessions(): Promise<string[]> {
-  const pod = await agentPod();
+export async function agentSessions(): Promise<AgentSession[]> {
+  const listing = await sessionScript(['list'], 'read the conversations in the agent pod').catch(() => '');
 
-  if (!pod) {
-    return [];
+  return listing.split('\n')
+    .map((line) => line.replace(/\r$/, ''))
+    .filter(Boolean)
+    .map((line) => {
+      const tab = line.indexOf('\t');
+      const id = tab === -1 ? line : line.slice(0, tab);
+
+      return { id, title: tab === -1 ? id : line.slice(tab + 1) };
+    })
+    .filter((session) => /^agent-\d+$/.test(session.id))
+    .sort((a, b) => Number(a.id.slice(6)) - Number(b.id.slice(6)));
+}
+
+/**
+ * Start another conversation, and let the pod choose its name.
+ *
+ * The name has to be allocated where the conversations are, not counted in the browser, and
+ * there are two separate reasons. Two browser tabs pressing + at the same moment both see the
+ * same list and would both pick the same next number. And a name whose directory still exists
+ * is not free even when no tmux session is using it: `tmux new-session -A` would attach to
+ * whatever is there, so + would reopen a finished conversation instead of starting one. The pod
+ * answers both with a mkdir. See the `new` verb in pod/agent/sessions.sh.
+ */
+export async function startAgentSession(): Promise<string> {
+  const id = (await sessionScript(['new'], 'start a conversation')).trim();
+
+  if (!/^agent-\d+$/.test(id)) {
+    throw new Error(`The agent pod answered "${ id }", which is not a conversation name.`);
   }
 
-  // Short, because this runs when a panel opens and a person is waiting for it. A pod still
-  // installing answers instantly with nothing, which is correct.
-  const result = await podExecResult(pod, ['/bin/sh', '/seed/sessions.sh'], 15000, AGENT_CONTAINER);
+  return id;
+}
 
-  return result.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+/**
+ * Give one conversation a name.
+ *
+ * In the pod, for the same reason the list is read from there: a name kept in localStorage
+ * would be this browser's name for it, and the person in the next tab would see the ordinal.
+ */
+export async function renameAgentSession(id: string, title: string): Promise<void> {
+  await sessionScript(['rename', id, title], `rename ${ id }`);
 }
 
 /**
  * End one conversation.
  *
- * Killing the tmux session rather than just dropping the socket, because the list above comes
- * from the pod: a close that left the session running would be a tab that reappeared on the next
- * refresh, which is a control that does nothing. Closing the panel is the thing that leaves
- * everything running, and that is the persistence this is all built on.
+ * The tmux session and the directory both, which is deliberate rather than incidental. The
+ * strip is the pod's list, so a close that left either behind would be a control that does
+ * nothing: the tab would come back on the next refresh, and the name would never be free again.
+ * The thing that leaves conversations running is closing the panel, or the browser, or
+ * reloading the page - none of which touch the pod.
  */
-export async function endAgentSession(session: string): Promise<void> {
-  const pod = await agentPod();
-
-  if (!pod) {
-    return;
-  }
-
-  // Through the same script the listing uses, because both have to run as the node user whose
-  // tmux server this is, and the exec subresource arrives as root.
-  await podExecResult(pod, ['/bin/sh', '/seed/sessions.sh', session], 15000, AGENT_CONTAINER);
+export async function endAgentSession(id: string): Promise<void> {
+  await sessionScript(['end', id], `end ${ id }`);
 }
