@@ -12,16 +12,38 @@ entries:
       catalog.cattle.io/ui-component: plugins
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
-    appVersion: 0.5.56
-    created: "2026-08-30T04:17:07.210865094Z"
+    appVersion: 0.5.57
+    created: "2026-09-01T21:54:57.007134167Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
-    digest: 37b81924fc9b974cb04e6a336c92be97b901aa35a40224a7bc42a6fe6daf177f
+    digest: 6f5b30640ad3282b77a8ea2e39f2fbf3bc4738fb33d0f2eb433095ed4dae24dc
     home: https://github.com/codyrancher/extension-studio
     icon: https://rancher.github.io/ui-internal-tools/ai/magic-closet/logo.svg
     name: extension-studio
     type: application
     urls:
-    - assets/extension-studio/extension-studio-0.5.56.tgz
+    - assets/extension-studio/extension-studio-0.5.57.tgz
+    version: 0.5.57
+  - annotations:
+      catalog.cattle.io/certified: rancher
+      catalog.cattle.io/display-name: Extension Studio
+      catalog.cattle.io/namespace: cattle-ui-plugin-system
+      catalog.cattle.io/os: linux
+      catalog.cattle.io/permits-os: linux, windows
+      catalog.cattle.io/rancher-version: '>= 2.10.0'
+      catalog.cattle.io/scope: management
+      catalog.cattle.io/ui-component: plugins
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
+    apiVersion: v2
+    appVersion: 0.5.56
+    created: "2026-08-30T04:17:28.310396544Z"
+    description: Author, preview and review Rancher UI extensions from inside Rancher
+    digest: ed1e0bfb76181ecb836a876de9d220f238556446af24f8a44f96070dc06bc1e2
+    home: https://github.com/codyrancher/extension-studio
+    icon: https://rancher.github.io/ui-internal-tools/ai/magic-closet/logo.svg
+    name: extension-studio
+    type: application
+    urls:
+    - https://github.com/codyrancher/extension-studio/releases/download/extension-studio-0.5.56/extension-studio-0.5.56.tgz
     version: 0.5.56
   - annotations:
       catalog.cattle.io/certified: rancher
@@ -287,4 +309,4 @@ entries:
     urls:
     - https://github.com/codyrancher/extension-studio/releases/download/extension-studio-0.5.23/extension-studio-0.5.23.tgz
     version: 0.5.23
-generated: "2026-08-30T04:17:07.210019364Z"
+generated: "2026-09-01T21:54:57.006622958Z"
