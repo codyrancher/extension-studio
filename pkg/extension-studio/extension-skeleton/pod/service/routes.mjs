@@ -147,7 +147,7 @@ export const ROUTES = [
     operationId: 'getExtension',
     parameters:  [NAME_PARAM],
     summary:     'One extension and its state.',
-    description: 'Its readiness, the pod serving it, where to point a browser at it, and what it was seeded from.',
+    description: 'Its readiness, the pod serving it, where to point a browser at it, what it was seeded from, and everything needed to open its source without probing for it: the container, the package directory inside the pod, what that package calls itself, and the path to the guide that pod carries. The last three routinely disagree with the extension\'s name - an extension created from another is a copy of that one\'s tree, so a new `apps-plus` is served out of `/app/pkg/base` by a package still called `base`, and if its tree has since been renamed it is `/app/pkg/apps-plus` again. The tree is read from the running pod so that a rename is reflected; it falls back to what the extension was seeded with when the pod is not up.',
     responses:   { 200: 'The extension.', 404: 'No Deployment by that name in this namespace.' },
   },
   {

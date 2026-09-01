@@ -681,6 +681,175 @@ check('and never for somebody the schemas never call an admin', () => {
 console.log('\nthe tab strip');
 
 const panelSource = fs.readFileSync(path.join(STUDIO, 'components', 'AgentPanel.vue'), 'utf8');
+
+// ---------------------------------------------------------------------------
+// The identity a pane runs as
+// ---------------------------------------------------------------------------
+//
+// The agent used to have only the pod's ServiceAccount, which Rancher refuses outright and
+// which is cluster-admin where it works. Every check here is about one property: what a pane
+// does, it does as the person who opened the panel.
+
+const { SEEDS } = await import(path.join(STUDIO, 'extension-seed.generated.ts'));
+const extensionSeed = SEEDS.base || {};
+const credentialSource = fs.readFileSync(path.join(STUDIO, 'agent-credential.ts'), 'utf8');
+const podCredential = seed['rancher-credential.sh'];
+const podShell = seed['shell.sh'];
+const sharedLogin = seed['claude-credentials.mjs'];
+
+check('the agent pod is seeded with the credential step, and an extension pod is not', () => {
+  assert.ok(podCredential, 'rancher-credential.sh is not in the agent seed');
+  assert.ok(!extensionSeed['rancher-credential.sh'], 'an extension pod was given the agent credential step');
+
+  // Which is why the call has to be guarded: shell.sh is shared with every extension pod.
+  assert.match(podShell, /\[ -f \/seed\/rancher-credential\.sh \]/);
+});
+
+check('the credential is read as the pod and used as the person', () => {
+  // The Secret is read with the ServiceAccount, because the file being written IS the
+  // credential kubectl would otherwise use to read its own replacement.
+  assert.match(podCredential, /KUBECONFIG=\/dev\/null kubectl/);
+  // And what it writes points at Rancher, not at the apiserver: the token is a Rancher one.
+  assert.match(podCredential, /server: \$RANCHER_URL\/k8s\/clusters\/local/);
+});
+
+check('neither file it writes is readable by anything else on the node', () => {
+  assert.match(podCredential, /chmod 600 "\$tmp"/);
+  // The mode is set before the rename, so the file is never briefly world-readable.
+  assert.match(podCredential, /chmod 600 "\$tmp"\s*\n\s*mv "\$tmp" "\$dest"/);
+});
+
+check('a pod with no credential yet still opens a terminal', () => {
+  assert.match(podCredential, /no Rancher credential yet/);
+  assert.match(podCredential, /exit 0/);
+  assert.match(podShell, /rancher-credential\.sh "\$HOME_DIR" \|\| true/);
+});
+
+check('the shared claude login stays a property of the pod', () => {
+  // It reads a Secret in dev-system, where the person who opened the panel may have no rights
+  // at all - so it must not pick up the kubeconfig the credential step just wrote.
+  assert.match(sharedLogin, /KUBECONFIG: '\/dev\/null'/);
+});
+
+check('the token is minted as the caller, and the old ones go after the new one lands', () => {
+  // Norman's /v3/token, because it is the only route that answers with the secret half.
+  assert.match(credentialSource, /rancherFetch\('\/v3\/token', \{\s*method: 'POST'/);
+  assert.match(credentialSource, /ttl:/);
+  // Order matters: a revoke that ran first would leave the agent with nothing if the write failed.
+  const write = credentialSource.indexOf('await writeSecret(minted)');
+  const revoke = credentialSource.indexOf('await revokeOthers(minted)');
+
+  assert.ok(write > -1 && revoke > write, 'tokens are revoked before the new one is stored');
+});
+
+check('stale tokens are swept, and only this person\'s', () => {
+  // Revoking just "the one the Secret used to hold" leaks: a mint whose write lost a race is a
+  // token nothing has a record of, and it would live out its TTL in the person's key list.
+  assert.match(credentialSource, /token\?\.description === TOKEN_DESCRIPTION/);
+  assert.match(credentialSource, /token\?\.id !== minted\.id/);
+  // An admin sees everybody's tokens, so an unscoped sweep would end a colleague's session.
+  assert.match(credentialSource, /token\?\.userId === minted\.userId/);
+});
+
+check('the credential is in place before any pane starts', () => {
+  // The pane reads the Secret on the way up, so a pane that started first would be the one
+  // with no identity.
+  const ensure = panelSource.indexOf('ensureAgentCredential()');
+  const sessions = panelSource.indexOf('await agentSessions()');
+
+  assert.ok(ensure > -1 && sessions > ensure, 'the conversations load before the credential is minted');
+  // And it is not fatal: an agent with no Rancher identity can still hold a conversation.
+  assert.match(panelSource, /ensureAgentCredential\(\)\.catch\(/);
+});
+
+check('the shared CLAUDE.md is refreshed, not frozen on the day the pod was made', () => {
+  // Conversations share one directory, so the file belongs to none of them: written once, it
+  // froze the guidance - which is how an agent went on reporting that the Studio API was closed
+  // to it hours after it had been given a credential that opens it.
+  assert.match(podShell, /\*\/conversations\) REFRESH_CLAUDE_MD=yes/);
+  // And a directory one conversation has to itself still keeps its own copy.
+  assert.match(podShell, /if \[ ! -f "\$WORKDIR\/CLAUDE\.md" \]; then\s*\n\s*REFRESH_CLAUDE_MD=yes/);
+});
+
+check('the extension trees are mounted, not reached for', () => {
+  const spec = agent.agentDeploymentBody().spec.template.spec;
+  const volume = spec.volumes.find((v) => v.name === 'extensions');
+  const mount = spec.containers[0].volumeMounts.find((v) => v.name === 'extensions');
+
+  assert.ok(volume, 'the agent pod does not mount the extension trees');
+
+  // The parent of every extension's /app, so an extension made after this pod started is simply
+  // there - a per-extension mount would mean restarting this pod, and ending every conversation
+  // in it, every time somebody created one.
+  assert.equal(volume.hostPath.path, '/var/lib/rancher/extension-studio');
+  assert.equal(mount.mountPath, '/workspace/extensions');
+
+  // Nested inside the workspace mount, which kubelet resolves by mounting in path order.
+  const workspace = spec.containers[0].volumeMounts.find((v) => v.name === 'workspace');
+
+  assert.ok(mount.mountPath.startsWith(`${ workspace.mountPath }/`));
+
+  // Writable. This pod could already write into any of those trees over the exec subresource,
+  // so read-only would buy nothing and cost the point of the mount.
+  assert.ok(!mount.readOnly);
+});
+
+check('the agent is told where the trees are and what not to do with them', () => {
+  const guide = seed['session-claude.md'];
+
+  assert.match(guide, /\/workspace\/extensions\/<name>-extension\/?\s+is that pod's \/app/);
+  // The one that would otherwise be found the expensive way.
+  assert.match(guide, /Do not grep it whole/);
+  assert.match(guide, /node_modules/);
+});
+
+check('the agent is pointed at what already knows how to edit an extension', () => {
+  const guide = seed['session-claude.md'];
+
+  // One call, rather than a round of probing per fact.
+  assert.match(guide, /\/v1\/extensions\/base/);
+  // The trap: an extension made from another is served out of the other one's directory.
+  assert.match(guide, /tree.{0,40}is not .{0,20}app\/pkg/);
+  assert.match(guide, /\/app\/pkg\/base/);
+  // And the pod's own guide, which is the thing that stops the conventions being re-derived.
+  assert.match(guide, /CLAUDE\.md/);
+  assert.match(guide, /vue-cli-service serve. is watching/);
+});
+
+check('the detail route reports the tree rather than leaving it to be guessed', async() => {
+  const { HANDLERS } = await import(path.join(POD, 'service', 'handlers.mjs'));
+
+  assert.ok(HANDLERS.getExtension, 'getExtension is not wired up');
+
+  const source = fs.readFileSync(path.join(POD, 'service', 'handlers.mjs'), 'utf8');
+
+  // Read from the running pod, not worked out from the name and not from the seed: a tree that
+  // has been renamed since it was created is an ordinary thing, and the seed cannot know.
+  assert.match(source, /async function packaging\(cred, pod, seed\)/);
+  assert.match(source, /ls -d \*\/ 2>\/dev\/null \| head -1/);
+  // With the seed as the fallback for a pod that is not up, which is the old behaviour.
+  assert.match(source, /\|\| seededDirectory\(seed\)/);
+  assert.match(source, /bits\[0\] === 'pkg'/);
+  assert.match(source, /tree:\s+`\/app\/pkg\/\$\{ directory \}`/);
+  assert.match(source, /guide: `\/app\/pkg\/\$\{ directory \}\/CLAUDE\.md`/);
+  // The container is a constant here and a guess anywhere else.
+  assert.match(source, /container: EXT_CONTAINER/);
+});
+
+check('what the agent is told about authenticating is what is true', () => {
+  const guide = seed['session-claude.md'];
+
+  assert.match(guide, /~\/\.kube\/config/);
+  assert.match(guide, /~\/\.rancher\/env/);
+  assert.match(guide, /EXTENSION_STUDIO_API/);
+  // The registry, which is the other half of "what can I reach".
+  assert.match(guide, /\/v1\/apis/);
+  // And the trap that costs an hour: the proxy eats the Authorization header.
+  assert.match(guide, /consumes\s*(?:#\s*)?\n?\s*(?:#\s*)?the Authorization header/);
+  // The old advice said the API was closed to it. It is not any more.
+  assert.doesNotMatch(guide, /Everything else on it is closed to you/);
+});
+
 const overlaySource = fs.readFileSync(path.join(STUDIO, 'agent-overlay.ts'), 'utf8');
 
 check('the row is Rancher\'s, down to the classes and the roles', () => {

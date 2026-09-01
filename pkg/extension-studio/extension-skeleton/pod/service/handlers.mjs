@@ -6,7 +6,8 @@
 // has an identity, and everything above it becomes a decision about permissions that Rancher
 // was already making correctly.
 import {
-  EXT_BASE, EXT_NS, extensionObject, extensionName, extensionUrl, normalizeExtensionName,
+  EXT_BASE, EXT_NS, EXT_CONTAINER, PATH_SEPARATOR,
+  extensionObject, extensionName, extensionUrl, normalizeExtensionName,
 } from './names.mjs';
 import { rancherFetch, ApiError } from './rancher.mjs';
 import { seedData } from './bodies.mjs';
@@ -14,6 +15,15 @@ import { runInstall, installState, runUninstall } from './install.mjs';
 import { openapiDocument } from './openapi.mjs';
 import { execPath, commandFrom, refuse, proxyExec } from './exec.mjs';
 import { runInPod, EXEC_TIMEOUT_MS } from './podexec.mjs';
+
+/**
+ * How long the two reads behind `tree` are allowed to take.
+ *
+ * Short, because this is a detail route somebody is waiting on and both commands are a
+ * directory listing and a `cat`. A pod too busy to answer that in five seconds falls back to
+ * what the seed says, which is the old behaviour and is right for a tree nobody has renamed.
+ */
+const PACKAGING_TIMEOUT_MS = 5000;
 import { inPackageCommand, shellQuote, ASSISTANT_SESSION } from './podscript.mjs';
 import {
   approvalScript, parseApproval, changedFilesScript, parseChangedFiles,
@@ -80,6 +90,68 @@ function summarise(deployment) {
   };
 }
 
+/**
+ * The package directory this extension is served out of, and what that package calls itself.
+ *
+ * Worth reporting at all because the answer is routinely not `/app/pkg/<extension>`, and that is
+ * the single fact every caller has had to go and find. An extension created from another is a
+ * copy of that one's tree, so a new `apps-plus` is served out of `/app/pkg/base` by a package
+ * whose package.json still says `base` - and if somebody has since renamed it, it is
+ * `/app/pkg/apps-plus` again. Both states are normal and neither is derivable from the name.
+ *
+ * Asked of the pod rather than worked out from the seed. Deriving it from the seed's own keys
+ * costs nothing and was what this did first, and it is wrong the moment the tree is renamed -
+ * which is an ordinary thing for that pod's own claude to be asked to do. A stale answer here is
+ * worse than a slow one: it sends an editor at a path that does not exist, and the seed cannot
+ * know, because a rename never touches it.
+ */
+async function packaging(cred, pod, seed) {
+  const live = pod && await runInPod(
+    cred, pod, ['/bin/sh', '-c', 'cd /app/pkg && ls -d */ 2>/dev/null | head -1'], PACKAGING_TIMEOUT_MS, EXT_CONTAINER,
+  ).catch(() => null);
+
+  const directory = (live?.stdout || '').trim().replace(/\/$/, '') || seededDirectory(seed);
+
+  if (!directory) {
+    return { tree: null, packageName: null, guide: null };
+  }
+
+  const manifest = pod && await runInPod(
+    cred, pod, ['/bin/sh', '-c', `cat /app/pkg/${ directory }/package.json`], PACKAGING_TIMEOUT_MS, EXT_CONTAINER,
+  ).catch(() => null);
+
+  return {
+    tree:        `/app/pkg/${ directory }`,
+    packageName: manifestName(manifest?.stdout) ?? manifestName(seed?.data?.[['pkg', directory, 'package.json'].join(PATH_SEPARATOR)]),
+    guide:       `/app/pkg/${ directory }/CLAUDE.md`,
+  };
+}
+
+/**
+ * The directory the seed was written with, for a pod that is not up.
+ *
+ * A seed key is the file's path with the separator swapped, so `pkg__base__package.json` is
+ * `pkg/base/package.json` and the directory is sitting in the middle of it. This is what the
+ * extension was created as; it is the fallback rather than the answer, for exactly the reason
+ * in the note above.
+ */
+function seededDirectory(seed) {
+  const parts = Object.keys(seed?.data || {})
+    .map((key) => key.split(PATH_SEPARATOR))
+    .find((bits) => bits[0] === 'pkg' && bits.length > 2);
+
+  return parts ? parts[1] : null;
+}
+
+/** A package.json's own name, or null for one that is missing or does not parse. */
+function manifestName(text) {
+  try {
+    return JSON.parse(text || '{}').name || null;
+  } catch {
+    return null;
+  }
+}
+
 async function getExtension({ cred, params }) {
   const name = params.name;
   const object = extensionObject(name);
@@ -90,6 +162,10 @@ async function getExtension({ cred, params }) {
   return ok({
     ...summarise(deployment),
     pod,
+    // Everything needed to open the tree, so that nothing has to be probed for. The container
+    // is a constant here and a guess anywhere else; the rest comes out of the seed.
+    container: EXT_CONTAINER,
+    ...await packaging(cred, pod, seed),
     // Null rather than absent when the ConfigMap is unreadable: "we did not find out" and "it
     // was seeded from nothing" are different facts and a caller can act on the difference.
     source: seed ? seed.annotations[SOURCE_ANNOTATION] || null : null,

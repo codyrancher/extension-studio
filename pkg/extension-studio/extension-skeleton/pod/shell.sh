@@ -113,22 +113,58 @@ if [ ! -d "$WORKDIR" ]; then
   fi
 fi
 
-# What claude reads before it is asked anything. A session in a directory of its
-# own would otherwise start knowing nothing about the cluster it is in and
-# re-derive it, badly, every time. Copied rather than linked so a session can
-# edit its own, and only when there is none, so an edited one is never
-# overwritten. The source tree has its own CLAUDE.md, so this is a no-op there.
-if [ ! -f "$WORKDIR/CLAUDE.md" ] && [ -f /seed/session-claude.md ]; then
-  cp /seed/session-claude.md "$WORKDIR/CLAUDE.md"
+# What claude reads before it is asked anything. A session in a directory of its own would
+# otherwise start knowing nothing about the cluster it is in and re-derive it, badly, every
+# time. Copied rather than linked so a session can edit its own.
+#
+# Whether an existing one may be replaced depends on whose it is, and the two cases are
+# genuinely different.
+#
+# A directory one conversation has to itself - an extension's tree, or a per-session directory -
+# holds that conversation's copy. Editing it is a thing somebody may have done deliberately, so
+# it is written once and left alone. The source tree has its own CLAUDE.md, so this is a no-op
+# there.
+#
+# The agent's conversations share one directory, and that changes the answer. Nobody owns the
+# file: it was written by whichever conversation happened to start first, and every conversation
+# since has read that copy. Writing it once meant the guidance froze on the day the pod was
+# created - which is exactly how an agent came to be told the Studio's API was closed to it,
+# hours after it had been given a credential that opens it. So there it is refreshed every time
+# a pane starts, because what it holds is the product's account of the pod rather than any one
+# conversation's notes.
+if [ -f /seed/session-claude.md ]; then
+  REFRESH_CLAUDE_MD=no
 
-  if [ "$(id -u)" = 0 ]; then
-    chown node:node "$WORKDIR/CLAUDE.md"
+  if [ ! -f "$WORKDIR/CLAUDE.md" ]; then
+    REFRESH_CLAUDE_MD=yes
+  else
+    case "$WORKDIR" in
+      */conversations) REFRESH_CLAUDE_MD=yes ;;
+    esac
   fi
+
+  if [ "$REFRESH_CLAUDE_MD" = yes ]; then
+    cp /seed/session-claude.md "$WORKDIR/CLAUDE.md"
+
+    if [ "$(id -u)" = 0 ]; then
+      chown node:node "$WORKDIR/CLAUDE.md"
+    fi
+  fi
+fi
+
+# The person's Rancher credential, if this pod is the one that has one.
+#
+# Only the agent pod is seeded with this script, so the guard is what keeps an extension's
+# terminal unchanged. It has to run before the claude login below, because that reads a Secret
+# with kubectl and this writes the kubeconfig kubectl will then use - see the note there.
+if [ -f /seed/rancher-credential.sh ]; then
+  /bin/sh /seed/rancher-credential.sh "$HOME_DIR" || true
 fi
 
 # The shared login, before anything that would use it. Run as the node user and
 # with the pane's HOME, because it writes into that user's ~/.claude and a
-# root-owned credentials file is one claude cannot then refresh.
+# root-owned credentials file is one claude cannot then refresh. It reads its Secret as the
+# pod rather than as whoever opened the panel; the reason is in claude-credentials.mjs.
 if [ "$(id -u)" = 0 ]; then
   setpriv --reuid=1000 --regid=1000 --init-groups \
     env "HOME=$HOME_DIR" node /seed/claude-credentials.mjs pull || true

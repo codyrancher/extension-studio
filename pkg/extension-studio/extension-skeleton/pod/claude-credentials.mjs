@@ -34,8 +34,21 @@ function say(message) {
   console.log(`[credentials] ${ message }`); // eslint-disable-line no-console
 }
 
+/**
+ * kubectl as this pod, never as whoever is watching it.
+ *
+ * `KUBECONFIG` naming nothing sends kubectl to the in-cluster config, which is the pod's own
+ * ServiceAccount. That is normally what it would pick anyway, and in the agent pod it is not:
+ * a pane there has a kubeconfig holding the Rancher credential of the person who opened the
+ * panel, and this Secret is in `dev-system`, where that person may have no rights at all. The
+ * shared claude login is a property of the pods, so it is read and written by the pods.
+ */
 function kubectl(args) {
-  return execFileSync('kubectl', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync('kubectl', args, {
+    encoding: 'utf8',
+    stdio:    ['ignore', 'pipe', 'pipe'],
+    env:      { ...process.env, KUBECONFIG: '/dev/null' },
+  });
 }
 
 function readLocal() {

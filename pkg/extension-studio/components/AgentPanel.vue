@@ -47,6 +47,7 @@ import SMenu from './ui/SMenu.vue';
 import {
   agentSessions, startAgentSession, renameAgentSession, endAgentSession,
 } from '../agent';
+import { ensureAgentCredential } from '../agent-credential';
 import {
   readDrawerState, writeDrawerState, PLACEMENTS, DEFAULT_PLACEMENT, MIN_SIZE, VIEWPORT_MARGIN,
 } from '../agent-drawer';
@@ -117,6 +118,8 @@ export default {
       /** The id being renamed, and the text in the box, or null when nothing is. */
       renaming: null,
       error:    '',
+      /** The Rancher user the pod is currently acting as, or '' when it has no identity. */
+      identity: '',
 
       placement: stored.placement,
       geometry:  { ...stored.geometry },
@@ -391,6 +394,17 @@ export default {
       this.error = '';
 
       try {
+        // Before the conversations, because starting a pane is what reads it: the pod writes
+        // this person's kubeconfig on the way up, and a pane that got there first would be the
+        // one running as nobody. It is not fatal - an agent with no Rancher identity can still
+        // hold a conversation, and saying so beats refusing to open the panel - so the failure
+        // is reported and the tabs load anyway.
+        this.identity = await ensureAgentCredential().catch((e) => {
+          this.error = `The agent has no Rancher identity: ${ e?.message || e }`;
+
+          return '';
+        });
+
         this.sessions = await agentSessions();
       } finally {
         this.loading = false;

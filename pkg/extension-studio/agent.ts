@@ -43,6 +43,29 @@ const AGENT_HOST_PATH = '/var/lib/rancher/extension-studio/agent';
 /** Where those conversations live inside the pod. Mirrors hostCachePath's role for /app. */
 const AGENT_WORKSPACE = '/workspace';
 
+/**
+ * The directory every extension's tree is already a child of, on the node.
+ *
+ * `hostCachePath` puts an extension's `/app` at `/var/lib/rancher/extension-studio/<name>-extension`,
+ * and this pod's own `/workspace` is `.../agent` beside them - so the trees are not somewhere
+ * that has to be reached, they are one directory up. Mounting the parent is the whole of it.
+ */
+const EXT_HOST_ROOT = AGENT_HOST_PATH.replace(/\/agent$/, '');
+
+/**
+ * Where those trees appear in this pod.
+ *
+ * Under `/workspace` rather than at the root, because `/workspace` is the durable half of this
+ * pod and this is the same node storage the rest of it is on - putting it anywhere else would
+ * suggest it is something different. A pane's own directory is `/workspace/conversations`, so
+ * an extension's source is one `cd` from where the agent already is.
+ *
+ * `<mount>/agent` is this pod's own `/workspace`, seen from outside. That is not a loop and it
+ * does not recurse: the nesting exists only inside this container, so the host directory it
+ * resolves to has no `extensions` of its own.
+ */
+const AGENT_EXT_MOUNT = `${ AGENT_WORKSPACE }/extensions`;
+
 /** The source this pod runs, taken out of the bundle it travels in. */
 export function agentSourceFiles(): Record<string, string> {
   return { ...AGENT_FILES };
@@ -120,6 +143,13 @@ export function agentDeploymentBody(): Record<string, unknown> {
             volumeMounts: [
               { name: 'seed', mountPath: '/seed' },
               { name: 'workspace', mountPath: AGENT_WORKSPACE },
+              // After the workspace mount, and nested inside it, which kubelet handles by
+              // mounting in path order. Writable rather than read-only: this pod could already
+              // write into any of those trees through the exec subresource, so read-only would
+              // buy no safety and cost the one thing that makes this worth having - editing a
+              // file with an editor instead of a shell command. What keeps two agents out of
+              // one tree is the rule in the CLAUDE.md, not the mount.
+              { name: 'extensions', mountPath: AGENT_EXT_MOUNT },
             ],
             // No probes. There is no port and nothing to ask; a pod with neither is Ready as
             // soon as it is Running, which for this one is the truth.
@@ -127,6 +157,11 @@ export function agentDeploymentBody(): Record<string, unknown> {
           volumes: [
             { name: 'seed', configMap: { name: AGENT_OBJECT } },
             { name: 'workspace', hostPath: { path: AGENT_HOST_PATH, type: 'DirectoryOrCreate' } },
+            // The parent rather than one entry per extension, so an extension created after this
+            // pod started is simply there. A per-extension mount would mean editing this
+            // Deployment - and restarting this pod, and ending every conversation in it - every
+            // time somebody made one.
+            { name: 'extensions', hostPath: { path: EXT_HOST_ROOT, type: 'DirectoryOrCreate' } },
           ],
         },
       },
