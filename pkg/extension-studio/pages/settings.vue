@@ -123,6 +123,39 @@ export default {
   },
 
   computed: {
+    /**
+     * The three calls Studio is made of, said once.
+     *
+     * Read off `STUDIO_NEEDS` rather than typed out, so the sentence in the banner and the rule
+     * the ticks are computed from cannot come apart. A role that could do two of these still
+     * cannot use Studio, which is why the list is the sentence rather than a summary of it.
+     */
+    needsSentence() {
+      const labels = STUDIO_NEEDS.map((need) => need.label);
+
+      return `${ labels.slice(0, -1).join(', ') } and ${ labels[labels.length - 1] }`;
+    },
+    /**
+     * The custom row's answer, which has one state the fixed rows do not: nothing chosen yet.
+     *
+     * That is not "no", and it must not be drawn as one - the row is a question with no subject
+     * until a role is picked.
+     */
+    customAnswer() {
+      if (this.customLoading) {
+        return {
+          state: 'reading', tone: 'unknown', icon: 'info', label: 'Reading'
+        };
+      }
+
+      if (!this.customReading) {
+        return {
+          state: 'unasked', tone: 'unknown', icon: 'info', label: 'Not asked'
+        };
+      }
+
+      return this.answerFor(this.customReading.reading);
+    },
 
 
     /**
@@ -293,6 +326,28 @@ export default {
   },
 
   methods: {
+    /**
+     * The same reading as a glyph and a word, for the left of the row.
+     *
+     * Three states, and the third is the one that has to stay separate: "nobody could read this
+     * role's rules" is not "this role is short of something". It gets its own glyph and its own
+     * word so an unread role cannot be misread as a refused one.
+     */
+    answerFor(reading) {
+      if (!reading) {
+        return {
+          state: 'unread', tone: 'unknown', icon: 'info', label: 'Not read'
+        };
+      }
+
+      return reading.capable ?
+        {
+          state: 'yes', tone: 'yes', icon: 'check', label: 'Can use Studio'
+        } :
+        {
+          state: 'no', tone: 'no', icon: 'warning', label: 'Cannot use Studio'
+        };
+    },
     async load() {
       this.loading = true;
 
@@ -362,38 +417,6 @@ export default {
     },
 
     // ---------------------------------------------------------------- sign-off
-
-    /**
-     * Write one cell, now.
-     *
-     * No Save button anywhere on this page means the click is the write, so a failure has to be
-     * visible: the value goes back to what the cluster still holds and the growl says why.
-     */
-    async setLevel(destination, column, value) {
-      if (this.fixedAt(destination, column) !== undefined || this.valueFor(destination, column) === value) {
-        return;
-      }
-
-      const previous = this.policy[destination.id][column];
-
-      this.policy[destination.id][column] = value;
-      this.writing = `${ destination.id }.${ column }`;
-
-      try {
-        await writeStudioSettings((current) => ({
-          ...current,
-          policy: {
-            ...current.policy,
-            [destination.id]: { ...current.policy[destination.id], [column]: value },
-          },
-        }));
-      } catch (e) {
-        this.policy[destination.id][column] = previous;
-        toastError(this.$store, `That setting was not written: ${ e?.message || e }`);
-      } finally {
-        this.writing = '';
-      }
-    },
 
     // ------------------------------------------------------------------ github
 
@@ -476,34 +499,6 @@ export default {
       const flavour = provider === 'k3s' ? 'K3s' : (provider === 'rke2' ? 'RKE2' : 'Kubernetes');
 
       return { name: 'local', version: semver ? `${ flavour } ${ semver }` : '' };
-    },
-
-    /**
-     * Bounce one dev server by deleting its pod, which is what a Deployment makes a restart.
-     *
-     * The tree and node_modules are on the node rather than in the pod (see hostCachePath), so
-     * this costs the compile rather than the install.
-     */
-    async restartDevServer(server) {
-      if (!server.pod || this.restarting) {
-        return;
-      }
-
-      this.restarting = server.name;
-
-      try {
-        await rancherFetch(`${ EXT_BASE }/v1/pods/${ EXT_NS }/${ server.pod }`, { method: 'DELETE' });
-        toastSuccess(this.$store, `Restarting the dev server for ${ server.name }. It takes a minute or two to serve again.`);
-
-        // Long enough for the apiserver to have replaced the pod, so the row shows the new one
-        // starting rather than the old one still up.
-        await new Promise((resolve) => setTimeout(resolve, 2500));
-        await this.readDevServers();
-      } catch (e) {
-        toastError(this.$store, `That dev server was not restarted: ${ e?.message || e }`);
-      } finally {
-        this.restarting = '';
-      }
     },
 
     // ------------------------------------------------------------------ access
