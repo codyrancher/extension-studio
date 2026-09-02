@@ -23,9 +23,10 @@ import Socket, {
   EVENT_CONNECT_ERROR,
 } from '@shell/utils/socket';
 import {
-  extensionPod, extensionShellUrl, writePodImage, DEFAULT_EXTENSION
+  extensionPod, extensionShellUrl, writeImageToPod, DEFAULT_EXTENSION
 } from '../extensions';
 import { agentPod, agentShellUrl } from '../agent';
+import PodFileViewer from './PodFileViewer';
 
 // The dashboard's own build pulls this in globally; an extension's does not, so
 // without it a built extension renders the terminal unstyled.
@@ -46,6 +47,16 @@ const POD_POLL_MS = 3000;
 // restart, and dotted so it stays out of the extension's own source tree and out of the file
 // browser that lists it.
 const IMAGE_DIR = '/app/.images';
+
+// The agent pod has no /app: its writable tree - and the one its own shell starts in - is
+// /workspace, owned by the same uid the exec drops to.
+const AGENT_IMAGE_DIR = '/workspace/.images';
+
+const URL_RE = /\bhttps?:\/\/[^\s"'`<>()[\]]+/g;
+// A path has to contain a separator, so a bare word, a flag, or a sentence is never a link. The
+// optional :line:col suffix is stripped off the opened path but kept in the underlined text,
+// because that is how an agent prints a location and how a person expects to click it.
+const PATH_RE = /(?:^|[\s"'`(<[=])((?:~|\.{1,2})?\/[\w.@+\-]+(?:\/[\w.@+\-]+)*\/?)(:\d+(?::\d+)?)?/g;
 
 // The row a phone keyboard is missing. Termux, Blink and iSH all ship one for
 // the same reason: without arrows there is no way to go back and fix a typo,
@@ -94,6 +105,8 @@ function ctrlByteFor(key) {
 
 export default {
   name: 'PodTerminal',
+
+  components: { PodFileViewer },
 
   props: {
     // Which tmux session to attach to. One pane, one session; it is a prop so a
@@ -153,6 +166,9 @@ export default {
       KEY_BAR,
       // 'waiting' (no pod yet) | 'connecting' | 'open' | 'closed'
       state:        'waiting',
+      // The path a clicked link opened, and the pod to read it from.
+      viewerPath:   '',
+      viewerPod:    '',
       // Set while an image is on its way into the pod, and if it failed to get there.
       pasting:      false,
       imageError:   '',
@@ -359,6 +375,11 @@ export default {
 
       this.terminal = terminal;
 
+      // Paths and URLs the session prints become links. xterm's own provider API is used rather
+      // than an overlay: it already knows where each cell is, and it keeps working through a
+      // resize, a reflow and the scrollback.
+      terminal.registerLinkProvider({ provideLinks: (row, callback) => callback(this.linksOn(row, terminal)) });
+
       // The pane is resizable (the editor's divider) and the window is too, so
       // the size is watched rather than taken once.
       this.resizeObserver = new ResizeObserver(() => this.fit());
@@ -471,30 +492,103 @@ export default {
      * Only images are taken. A paste carrying text is xterm's business and passing it here
      * would break ordinary copy and paste, which is the thing a terminal is asked to do most.
      */
+    /**
+     * The links on one row: every URL, and every path that looks like a path.
+     *
+     * A URL opens in a tab. A path opens in the viewer, which reads it out of the pod the
+     * session is attached to - so it works for anything the session can see, not only files
+     * that happen to be exposed somewhere.
+     */
+    linksOn(row, terminal) {
+      const line = terminal.buffer.active.getLine(row - 1);
+
+      if (!line) {
+        return undefined;
+      }
+
+      const text = line.translateToString(true);
+      const links = [];
+
+      URL_RE.lastIndex = 0;
+      for (let hit = URL_RE.exec(text); hit; hit = URL_RE.exec(text)) {
+        const start = hit.index;
+
+        links.push({
+          range: {
+            start: { x: start + 1, y: row }, end: { x: start + hit[0].length, y: row },
+          },
+          text:     hit[0],
+          activate: () => window.open(hit[0], '_blank', 'noopener'),
+        });
+      }
+
+      PATH_RE.lastIndex = 0;
+      for (let hit = PATH_RE.exec(text); hit; hit = PATH_RE.exec(text)) {
+        const path = hit[1];
+        const start = hit.index + hit[0].indexOf(path);
+        const whole = path + (hit[2] || '');
+
+        // A path inside a URL already matched above; underlining it twice makes the second half
+        // of a link open something that does not exist.
+        if (links.some((link) => start + 1 >= link.range.start.x && start + 1 <= link.range.end.x)) {
+          continue;
+        }
+
+        links.push({
+          range: {
+            start: { x: start + 1, y: row }, end: { x: start + whole.length, y: row },
+          },
+          text:     whole,
+          activate: () => this.openPath(path),
+        });
+      }
+
+      return links.length ? links : undefined;
+    },
+
+    /** Open a path from this session's own pod. */
+    async openPath(path) {
+      const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
+
+      if (!pod) {
+        return;
+      }
+
+      this.viewerPod = pod;
+      this.viewerPath = path;
+    },
+
     async onImages(event, source) {
       const files = [...(source?.files || [])].filter((file) => file.type.startsWith('image/'));
 
-      // Not in the agent pod. Getting an image in there means a route that writes into a pod
-      // that is not an extension, and that is a piece of the service rather than a line here -
-      // so the paste falls through to xterm, which is what it did before this prop existed,
-      // rather than reporting a failure the person cannot act on.
-      if (!files.length || this.target === 'agent') {
+      if (!files.length) {
         return;
       }
 
       event.preventDefault();
       this.imageError = '';
 
+      // The same pod the session is attached to, resolved the same way the socket resolves it,
+      // so an image lands in the filesystem the shell on screen is actually looking at.
+      const isAgent = this.target === 'agent';
+      const pod = isAgent ? await agentPod() : await extensionPod(this.extension);
+
+      if (!pod) {
+        this.imageError = 'no running pod to write the image to';
+
+        return;
+      }
+
       for (const file of files) {
         // Named for when it arrived rather than what the clipboard called it: a pasted
         // screenshot is usually called `image.png` every single time.
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         const extension = (file.type.split('/')[1] || 'png').replace(/[^a-z0-9]/g, '');
-        const path = `${ IMAGE_DIR }/${ stamp }.${ extension }`;
+        const path = `${ isAgent ? AGENT_IMAGE_DIR : IMAGE_DIR }/${ stamp }.${ extension }`;
 
         try {
           this.pasting = true;
-          await writePodImage(this.extension, path, await file.arrayBuffer());
+          await writeImageToPod(pod, path, await file.arrayBuffer(), isAgent ? 'the agent' : this.extension);
           // A trailing space, so a second image or a sentence after it does not run together
           // with the path.
           this.send(STDIN + base64Encode(`${ path } `));

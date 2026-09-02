@@ -4659,6 +4659,17 @@ export async function writePodImage(name: string, path: string, data: ArrayBuffe
     throw new Error(`${ name } has no running pod to write to`);
   }
 
+  return writeImageToPod(pod, path, data, name);
+}
+
+/**
+ * The same write, addressed by pod rather than by extension.
+ *
+ * The agent pod is not an extension and has no entry in the extension list, so a terminal
+ * attached to it could not paste an image at all - the paste fell through to xterm and the
+ * person got nothing. It is the same exec and the same chunking; only finding the pod differs.
+ */
+export async function writeImageToPod(pod: string, path: string, data: ArrayBuffer, label = 'the pod'): Promise<void> {
   const bytes = new Uint8Array(data);
   let binary = '';
 
@@ -4687,8 +4698,63 @@ export async function writePodImage(name: string, path: string, data: ArrayBuffe
   ));
 
   if (!parseInt(out.trim(), 10)) {
-    throw new Error(`the image did not land in ${ name }`);
+    throw new Error(`the image did not land in ${ label }`);
   }
+}
+
+/**
+ * Reading what a terminal is talking about, out of the pod it is attached to.
+ *
+ * An agent prints paths constantly - the screenshot it just took, the file it edited, the
+ * directory it wrote a report into - and following one used to mean leaving the Studio. There is
+ * no file service in front of these pods, so this goes the way everything else here goes: an
+ * exec, and base64 for anything that is not plain ASCII.
+ */
+export interface PodPath {
+  kind: 'dir' | 'file' | 'none';
+  size: number;
+}
+
+/** How large a file this will pull through an exec. Beyond it, offer nothing rather than hang. */
+const MAX_READ_BYTES = 4 * 1024 * 1024;
+
+export async function statPodPath(pod: string, path: string): Promise<PodPath> {
+  const quoted = shellQuote(path);
+  const out = await podExecOnce(pod, asPodUser(
+    `if [ -d ${ quoted } ]; then echo dir; elif [ -f ${ quoted } ]; then echo file; else echo none; fi; wc -c < ${ quoted } 2>/dev/null || echo 0`
+  ));
+  const [kind, size] = out.trim().split(/\s+/);
+
+  return { kind: (kind as PodPath['kind']) || 'none', size: parseInt(size, 10) || 0 };
+}
+
+/** One directory, directories first - the order a file manager uses. */
+export async function listPodDir(pod: string, path: string): Promise<{ name: string; dir: boolean }[]> {
+  const out = await podExecOnce(pod, asPodUser(`ls -1Ap ${ shellQuote(path) } 2>/dev/null`));
+
+  return out.split('\n')
+    .map((line) => line.trim())
+    .filter((line) => !!line && line !== './' && line !== '../')
+    .map((line) => ({ name: line.replace(/\/$/, ''), dir: line.endsWith('/') }))
+    .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+}
+
+/** A file's bytes, base64 as they come off the exec, for an <img src> or a decode to text. */
+export async function readPodFileBase64(pod: string, path: string): Promise<string> {
+  const { kind, size } = await statPodPath(pod, path);
+
+  if (kind !== 'file') {
+    throw new Error(kind === 'dir' ? 'that is a directory' : 'no such file in this pod');
+  }
+
+  if (size > MAX_READ_BYTES) {
+    throw new Error(`too large to open here (${ Math.round(size / 1024 / 1024) }MB)`);
+  }
+
+  // -w0 keeps it one line; busybox base64 has no -w, hence the tr for the wrapped case.
+  return (await podExecOnce(pod, asPodUser(
+    `base64 -w0 ${ shellQuote(path) } 2>/dev/null || base64 ${ shellQuote(path) } | tr -d '\\n'`
+  ))).trim();
 }
 
 /** Single-quote for `sh`, the only form that needs no other escaping inside it. */
