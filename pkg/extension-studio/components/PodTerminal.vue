@@ -317,6 +317,14 @@ export default {
           return true;
         }
 
+        // Ctrl/Cmd+V is read off the clipboard directly. xterm handles the keystroke itself and
+        // no `paste` event follows it, so the DOM listener below never sees a screenshot pasted
+        // the ordinary way - which is the way everybody pastes one. Text is left alone: this
+        // only claims the keystroke when the clipboard actually holds an image.
+        if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === 'v') {
+          this.pasteFromClipboard();
+        }
+
         // Ctrl armed from the key bar applies to the next character typed:
         // there is no chord on a touch screen.
         if (this.ctrlArmed) {
@@ -546,6 +554,33 @@ export default {
       return links.length ? links : undefined;
     },
 
+    /**
+     * The clipboard, when the keystroke never becomes a paste event.
+     *
+     * Reading it needs clipboard-read permission; if that is refused there is nothing to do but
+     * let xterm handle the keystroke as it always did, which is what happens - the clipboard read
+     * throws and this returns having done nothing.
+     */
+    async pasteFromClipboard() {
+      try {
+        const items = await navigator.clipboard.read();
+
+        for (const item of items) {
+          const type = item.types.find((t) => t.startsWith('image/'));
+
+          if (!type) {
+            continue;
+          }
+
+          const blob = await item.getType(type);
+
+          await this.onImages({ preventDefault: () => {} }, { files: [new File([blob], 'clipboard', { type })] });
+
+          return;
+        }
+      } catch { /* no permission, or nothing on the clipboard this can use */ }
+    },
+
     /** Open a path from this session's own pod. */
     async openPath(path) {
       const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
@@ -694,6 +729,12 @@ export default {
     >
       {{ imageError || 'Putting the image in the pod' }}
     </div>
+    <PodFileViewer
+      v-if="viewerPath"
+      :pod="viewerPod"
+      :path="viewerPath"
+      @close="viewerPath = ''"
+    />
     <div
       v-if="state !== 'open'"
       class="mc-terminal__status"
