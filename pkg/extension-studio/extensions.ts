@@ -1712,8 +1712,10 @@ async function execResult(path: string, body: Record<string, unknown>): Promise<
  * Anything that WRITES must not use this. Use `podExecStrict` / `inPackageStrict`, which turn
  * the exit code this now reads into a refusal, so a write that did not happen says so.
  */
-export async function podExecOnce(pod: string, command: string[]): Promise<string> {
-  return (await podExecResult(pod, command)).stdout;
+export async function podExecOnce(
+  pod: string, command: string[], timeoutMs?: number, container?: string,
+): Promise<string> {
+  return (await podExecResult(pod, command, timeoutMs ?? EXEC_TIMEOUT_MS, container)).stdout;
 }
 
 /**
@@ -4755,8 +4757,8 @@ export async function readPodFileBase64(pod: string, path: string, container?: s
 
   // -w0 keeps it one line; busybox base64 has no -w, hence the tr for the wrapped case.
   return (await podExecOnce(pod, asPodUser(
-    `base64 -w0 ${ shellQuote(path) } 2>/dev/null || base64 ${ shellQuote(path) } | tr -d '\\n'`
-  ))).trim();
+    `{ base64 -w0 ${ shellQuote(path) } 2>/dev/null || base64 ${ shellQuote(path) } | tr -d '\\n'; }; echo`
+  ), undefined, container)).trim();
 }
 
 /** Single-quote for `sh`, the only form that needs no other escaping inside it. */

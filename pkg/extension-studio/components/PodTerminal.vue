@@ -23,7 +23,7 @@ import Socket, {
   EVENT_CONNECT_ERROR,
 } from '@shell/utils/socket';
 import {
-  extensionPod, extensionShellUrl, writeImageToPod, DEFAULT_EXTENSION
+  extensionPod, extensionShellUrl, writeImageToPod, readPodFileBase64, DEFAULT_EXTENSION
 } from '../extensions';
 import { agentPod, agentShellUrl, AGENT_CONTAINER } from '../agent';
 import PodFileViewer from './PodFileViewer';
@@ -57,6 +57,14 @@ const URL_RE = /\bhttps?:\/\/[^\s"'`<>()[\]]+/g;
 // optional :line:col suffix is stripped off the opened path but kept in the underlined text,
 // because that is how an agent prints a location and how a person expects to click it.
 const PATH_RE = /(?:^|[\s"'`(<[=])((?:~|\.{1,2})?\/[\w.@+\-]+(?:\/[\w.@+\-]+)*\/?)(:\d+(?::\d+)?)?/g;
+// What a slash between words is not: a date, a fraction, and the few English constructions
+// that use one. Without this every "and/or" in a sentence lights up as a file.
+const NOT_A_PATH = /^(?:\d+\/\d+(?:\/\d+)?|(?:and|or|either|his|her|its|s?he|yes|no|on|off|true|false|w|n|km|mi)\/[a-z]{1,3})$/i;
+// Trailing punctuation belongs to the sentence the path sits in, not to the name.
+const TRAILING = /[.,;:!?)\]}'"`]+$/;
+// A path that points at an image. Anything under the paste directory counts, and so does any
+// path ending in an image extension - an agent prints both.
+const IMAGE_PATH_RE = /(?:[\w./@+-]*\/)?[\w.@+-]+\.(?:png|jpe?g|gif|webp|bmp)\b/gi;
 
 // The row a phone keyboard is missing. Termux, Blink and iSH all ship one for
 // the same reason: without arrows there is no way to go back and fix a typo,
@@ -169,6 +177,12 @@ export default {
       // The path a clicked link opened, and the pod to read it from.
       viewerPath:   '',
       viewerPod:    '',
+      // The thumbnail layer, the frame it is waiting on, and the images that turned out not to
+      // be readable - asking for those again on every repaint would be a request per frame.
+      thumbLayer:   null,
+      thumbFrame:   0,
+      thumbSrc:     {},
+      thumbMissing: {},
       // Set while an image is on its way into the pod, and if it failed to get there.
       pasting:      false,
       imageError:   '',
@@ -388,10 +402,15 @@ export default {
 
       this.terminal = terminal;
 
-      // Paths and URLs the session prints become links. xterm's own provider API is used rather
-      // than an overlay: it already knows where each cell is, and it keeps working through a
-      // resize, a reflow and the scrollback.
-      terminal.registerLinkProvider({ provideLinks: (row, callback) => callback(this.linksOn(row, terminal)) });
+      // Paths and URLs the session prints become links. xterm's own provider is what the
+      // harness terminal uses and it activates fine with tmux mouse reporting on - an overlay
+      // of anchors over the screen does not, because it takes the clicks that focus the
+      // terminal and typing stops working.
+      terminal.registerLinkProvider({ provideLinks: (row, callback) => callback(this.linksFor(row, terminal)) });
+
+      // Every repaint can move the text, so the thumbnails are re-placed after it.
+      terminal.onRender(() => this.scheduleThumbs());
+      terminal.onScroll(() => this.scheduleThumbs());
 
       // The pane is resizable (the editor's divider) and the window is too, so
       // the size is watched rather than taken once.
@@ -506,13 +525,12 @@ export default {
      * would break ordinary copy and paste, which is the thing a terminal is asked to do most.
      */
     /**
-     * The links on one row: every URL, and every path that looks like a path.
+     * The links on one row: every URL, and every path that looks like one on purpose.
      *
-     * A URL opens in a tab. A path opens in the viewer, which reads it out of the pod the
-     * session is attached to - so it works for anything the session can see, not only files
-     * that happen to be exposed somewhere.
+     * A URL opens in a tab. A path opens in the viewer, which reads it out of the pod this
+     * session is attached to, so it works for anything the session can see.
      */
-    linksOn(row, terminal) {
+    linksFor(row, terminal) {
       const line = terminal.buffer.active.getLine(row - 1);
 
       if (!line) {
@@ -521,76 +539,181 @@ export default {
 
       const text = line.translateToString(true);
       const links = [];
+      const taken = (index, len) => links.some((l) => index + 1 <= l.range.end.x && l.range.start.x <= index + len);
 
       URL_RE.lastIndex = 0;
       for (let hit = URL_RE.exec(text); hit; hit = URL_RE.exec(text)) {
-        const start = hit.index;
+        const raw = hit[0].replace(TRAILING, '');
 
         links.push({
-          range: {
-            start: { x: start + 1, y: row }, end: { x: start + hit[0].length, y: row },
-          },
-          text:     hit[0],
-          activate: () => window.open(hit[0], '_blank', 'noopener'),
+          range:       { start: { x: hit.index + 1, y: row }, end: { x: hit.index + raw.length, y: row } },
+          text:        raw,
+          decorations: { pointerCursor: true, underline: true },
+          activate:    (_event, t) => window.open(t, '_blank', 'noopener'),
         });
       }
 
       PATH_RE.lastIndex = 0;
       for (let hit = PATH_RE.exec(text); hit; hit = PATH_RE.exec(text)) {
-        const path = hit[1];
-        const start = hit.index + hit[0].indexOf(path);
-        const whole = path + (hit[2] || '');
+        const raw = (hit[1] || '').replace(TRAILING, '');
+        const index = hit.index + hit[0].indexOf(hit[1] || '');
 
-        // A path inside a URL already matched above; underlining it twice makes the second half
-        // of a link open something that does not exist.
-        if (links.some((link) => start + 1 >= link.range.start.x && start + 1 <= link.range.end.x)) {
+        if (raw.length < 3 || NOT_A_PATH.test(raw) || taken(index, raw.length)) {
+          continue;
+        }
+
+        // A relative path has to look like one: a file with an extension, or deep enough that
+        // it cannot be a sentence with a slash in it.
+        const rooted = /^[~/.]/.test(raw);
+        const hasExt = /\.[A-Za-z0-9]{1,8}$/.test(raw);
+        const depth = (raw.match(/\//g) || []).length;
+
+        if (!rooted && !hasExt && depth < 2) {
           continue;
         }
 
         links.push({
-          range: {
-            start: { x: start + 1, y: row }, end: { x: start + whole.length, y: row },
-          },
-          text:     whole,
-          activate: () => this.openPath(path),
+          range:       { start: { x: index + 1, y: row }, end: { x: index + raw.length, y: row } },
+          text:        raw,
+          decorations: { pointerCursor: true, underline: true },
+          // The line reference an agent appends (file.ts:253) is not part of the name.
+          activate:    (_event, t) => this.openPath(t.replace(/:\d+(?::\d+)?$/, '')),
         });
       }
 
       return links.length ? links : undefined;
     },
 
-    /**
-     * The clipboard, when the keystroke never becomes a paste event.
-     *
-     * Reading it needs clipboard-read permission; if that is refused there is nothing to do but
-     * let xterm handle the keystroke as it always did, which is what happens - the clipboard read
-     * throws and this returns having done nothing.
-     */
-    async pasteFromClipboard() {
+    /** Coalesce the repaints xterm fires in bursts into one placement per frame. */
+    scheduleThumbs() {
+      if (this.thumbFrame) {
+        return;
+      }
+
+      this.thumbFrame = requestAnimationFrame(() => {
+        this.thumbFrame = 0;
+        this.drawThumbs();
+      });
+    },
+
+    /** One cell in CSS pixels, so an overlay lines up with the glyphs under it. */
+    cellSize() {
+      const dims = this.terminal?._core?._renderService?.dimensions?.css?.cell;
+
+      if (dims?.width && dims?.height) {
+        return { w: dims.width, h: dims.height };
+      }
+
+      const screen = this.terminal?.element?.querySelector('.xterm-screen');
+
+      if (!screen || !this.terminal?.cols || !this.terminal?.rows) {
+        return null;
+      }
+
+      return { w: screen.clientWidth / this.terminal.cols, h: screen.clientHeight / this.terminal.rows };
+    },
+
+    /** The image bytes for a path, fetched once and kept - a repaint must not re-read the pod. */
+    async thumbFor(path) {
+      if (this.thumbSrc[path] || this.thumbMissing[path]) {
+        return;
+      }
+
+      // Claimed before the await, so a burst of repaints starts one read rather than twenty.
+      this.thumbSrc = { ...this.thumbSrc, [path]: '' };
+
       try {
-        const items = await navigator.clipboard.read();
+        const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
+        const base64 = await readPodFileBase64(pod, path, this.podContainer);
+        const ext = (path.split('.').pop() || 'png').toLowerCase();
 
-        for (const item of items) {
-          const type = item.types.find((t) => t.startsWith('image/'));
-
-          if (!type) {
-            continue;
-          }
-
-          const blob = await item.getType(type);
-
-          await this.onImages({ preventDefault: () => {} }, { files: [new File([blob], 'clipboard', { type })] });
-
-          return;
-        }
-      } catch { /* no permission, or nothing on the clipboard this can use */ }
+        this.thumbSrc = { ...this.thumbSrc, [path]: `data:image/${ ext === 'jpg' ? 'jpeg' : ext };base64,${ base64 }` };
+        this.scheduleThumbs();
+      } catch {
+        this.thumbMissing = { ...this.thumbMissing, [path]: true };
+      }
     },
 
     /**
-     * Which container in that pod. Every exec here defaults to the extension pod's container,
-     * and the agent's is named differently - without this the exec goes to a container that is
-     * not there, and the write "succeeds" having written nothing.
+     * Draw an image over each image path on screen.
+     *
+     * The chip covers exactly the cells the path occupies, opaque, so the text underneath is
+     * hidden rather than showing through - and it is only ever as wide as the path, so anything
+     * typed after it stays where the terminal put it.
      */
+    drawThumbs() {
+      const screen = this.terminal?.element?.querySelector('.xterm-screen');
+      const cell = this.cellSize();
+
+      if (!screen || !cell) {
+        return;
+      }
+
+      if (!this.thumbLayer || this.thumbLayer.parentElement !== screen) {
+        this.thumbLayer = document.createElement('div');
+        this.thumbLayer.className = 'mc-terminal__thumbs';
+        screen.appendChild(this.thumbLayer);
+      }
+
+      const buf = this.terminal.buffer.active;
+      const frag = document.createDocumentFragment();
+
+      for (let row = 0; row < this.terminal.rows; row++) {
+        const line = buf.getLine(buf.viewportY + row);
+
+        if (!line) {
+          continue;
+        }
+
+        const text = line.translateToString(true);
+
+        if (!text.includes('.')) {
+          continue;
+        }
+
+        IMAGE_PATH_RE.lastIndex = 0;
+        for (let hit = IMAGE_PATH_RE.exec(text); hit; hit = IMAGE_PATH_RE.exec(text)) {
+          const path = hit[0];
+
+          if (this.thumbMissing[path]) {
+            continue;
+          }
+
+          const src = this.thumbSrc[path];
+
+          if (src === undefined) {
+            this.thumbFor(path);
+            continue;
+          }
+
+          if (!src) {
+            continue;
+          }
+
+          const chip = document.createElement('div');
+
+          chip.className = 'mc-terminal__thumb';
+          chip.style.left = `${ hit.index * cell.w }px`;
+          chip.style.top = `${ row * cell.h }px`;
+          chip.style.width = `${ path.length * cell.w }px`;
+          chip.style.height = `${ cell.h }px`;
+          chip.title = path;
+
+          const img = document.createElement('img');
+
+          img.src = src;
+          chip.appendChild(img);
+          chip.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            this.openPath(path);
+          });
+          frag.appendChild(chip);
+        }
+      }
+
+      this.thumbLayer.replaceChildren(frag);
+    },
 
     /** Open a path from this session's own pod. */
     async openPath(path) {
@@ -742,13 +865,18 @@ export default {
     >
       {{ imageError || 'Putting the image in the pod' }}
     </div>
-    <PodFileViewer
-      v-if="viewerPath"
-      :pod="viewerPod"
-      :path="viewerPath"
-      :container="podContainer"
-      @close="viewerPath = ''"
-    />
+    <!-- Teleported, because the viewer is position: fixed and the panel this terminal sits in
+         is animated with a transform - which makes a fixed child position against that panel
+         instead of the viewport, so the modal opens somewhere nobody can see. -->
+    <Teleport to="body">
+      <PodFileViewer
+        v-if="viewerPath"
+        :pod="viewerPod"
+        :path="viewerPath"
+        :container="podContainer"
+        @close="viewerPath = ''"
+      />
+    </Teleport>
     <div
       v-if="state !== 'open'"
       class="mc-terminal__status"
@@ -767,6 +895,33 @@ export default {
 </template>
 
 <style lang="scss">
+.mc-terminal__thumbs {
+  position: absolute;
+  inset: 0;
+  // The rows underneath keep their clicks, their selection and their wheel events.
+  pointer-events: none;
+  z-index: 5;
+}
+
+// Covers exactly the cells the path occupies, opaque, so the text under it is hidden. The image
+// itself is allowed to overflow upward - a thumbnail one row tall would show nothing.
+.mc-terminal__thumb {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+  cursor: pointer;
+  overflow: visible;
+  background: var(--terminal-bg, #141419);
+}
+
+.mc-terminal__thumb img {
+  max-height: 44px;
+  max-width: 100%;
+  border: 1px solid var(--border, #444);
+  border-radius: 2px;
+  background: #000;
+}
 
 /* The on-screen key row: thumb-sized targets, scrolling sideways rather than
    wrapping, and out of the terminal's way. */
