@@ -30,7 +30,7 @@ export const AGENT_OBJECT = 'extension-studio-agent';
  * load-bearing, because a terminal names the container in its exec URL. It is named here, once,
  * and both the Deployment that creates it and the two callers below read it from here.
  */
-const AGENT_CONTAINER = 'agent';
+export const AGENT_CONTAINER = 'agent';
 
 /**
  * Where the node keeps this pod's conversations and its claude login between restarts.

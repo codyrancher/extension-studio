@@ -25,7 +25,7 @@ import Socket, {
 import {
   extensionPod, extensionShellUrl, writeImageToPod, DEFAULT_EXTENSION
 } from '../extensions';
-import { agentPod, agentShellUrl } from '../agent';
+import { agentPod, agentShellUrl, AGENT_CONTAINER } from '../agent';
 import PodFileViewer from './PodFileViewer';
 
 // The dashboard's own build pulls this in globally; an extension's does not, so
@@ -190,6 +190,11 @@ export default {
   },
 
   computed: {
+    /** The container these execs enter: the agent pod names its differently. */
+    podContainer() {
+      return this.target === 'agent' ? AGENT_CONTAINER : undefined;
+    },
+
     statusText() {
       return {
         waiting:    this.target === 'agent' ? 'Waiting for the agent pod' : 'Waiting for the dev server pod',
@@ -581,6 +586,12 @@ export default {
       } catch { /* no permission, or nothing on the clipboard this can use */ }
     },
 
+    /**
+     * Which container in that pod. Every exec here defaults to the extension pod's container,
+     * and the agent's is named differently - without this the exec goes to a container that is
+     * not there, and the write "succeeds" having written nothing.
+     */
+
     /** Open a path from this session's own pod. */
     async openPath(path) {
       const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
@@ -623,7 +634,9 @@ export default {
 
         try {
           this.pasting = true;
-          await writeImageToPod(pod, path, await file.arrayBuffer(), isAgent ? 'the agent' : this.extension);
+          await writeImageToPod(
+            pod, path, await file.arrayBuffer(), isAgent ? 'the agent' : this.extension, this.podContainer,
+          );
           // A trailing space, so a second image or a sentence after it does not run together
           // with the path.
           this.send(STDIN + base64Encode(`${ path } `));
@@ -733,6 +746,7 @@ export default {
       v-if="viewerPath"
       :pod="viewerPod"
       :path="viewerPath"
+      :container="podContainer"
       @close="viewerPath = ''"
     />
     <div

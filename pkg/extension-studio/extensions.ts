@@ -4669,7 +4669,9 @@ export async function writePodImage(name: string, path: string, data: ArrayBuffe
  * attached to it could not paste an image at all - the paste fell through to xterm and the
  * person got nothing. It is the same exec and the same chunking; only finding the pod differs.
  */
-export async function writeImageToPod(pod: string, path: string, data: ArrayBuffer, label = 'the pod'): Promise<void> {
+export async function writeImageToPod(
+  pod: string, path: string, data: ArrayBuffer, label = 'the pod', container?: string,
+): Promise<void> {
   const bytes = new Uint8Array(data);
   let binary = '';
 
@@ -4683,19 +4685,19 @@ export async function writeImageToPod(pod: string, path: string, data: ArrayBuff
   const quoted = shellQuote(path);
   const stage = `${ quoted }.b64`;
 
-  await podExecOnce(pod, asPodUser(`mkdir -p "$(dirname ${ quoted })" && : > ${ stage }`));
+  await podExecOnce(pod, asPodUser(`mkdir -p "$(dirname ${ quoted })" && : > ${ stage }`), undefined, container);
 
   for (let i = 0; i < encoded.length; i += IMAGE_CHUNK) {
     const chunk = encoded.slice(i, i + IMAGE_CHUNK);
 
     // printf %s rather than echo: the payload is base64, which cannot contain a quote or a
     // backslash, so this is safe, and echo would interpret escapes on some shells.
-    await podExecOnce(pod, asPodUser(`printf %s '${ chunk }' >> ${ stage }`));
+    await podExecOnce(pod, asPodUser(`printf %s '${ chunk }' >> ${ stage }`), undefined, container);
   }
 
   const out = await podExecOnce(pod, asPodUser(
     `base64 -d ${ stage } > ${ quoted } && rm -f ${ stage } && wc -c < ${ quoted }`
-  ));
+  ), undefined, container);
 
   if (!parseInt(out.trim(), 10)) {
     throw new Error(`the image did not land in ${ label }`);
@@ -4718,19 +4720,19 @@ export interface PodPath {
 /** How large a file this will pull through an exec. Beyond it, offer nothing rather than hang. */
 const MAX_READ_BYTES = 4 * 1024 * 1024;
 
-export async function statPodPath(pod: string, path: string): Promise<PodPath> {
+export async function statPodPath(pod: string, path: string, container?: string): Promise<PodPath> {
   const quoted = shellQuote(path);
   const out = await podExecOnce(pod, asPodUser(
     `if [ -d ${ quoted } ]; then echo dir; elif [ -f ${ quoted } ]; then echo file; else echo none; fi; wc -c < ${ quoted } 2>/dev/null || echo 0`
-  ));
+  ), undefined, container);
   const [kind, size] = out.trim().split(/\s+/);
 
   return { kind: (kind as PodPath['kind']) || 'none', size: parseInt(size, 10) || 0 };
 }
 
 /** One directory, directories first - the order a file manager uses. */
-export async function listPodDir(pod: string, path: string): Promise<{ name: string; dir: boolean }[]> {
-  const out = await podExecOnce(pod, asPodUser(`ls -1Ap ${ shellQuote(path) } 2>/dev/null`));
+export async function listPodDir(pod: string, path: string, container?: string): Promise<{ name: string; dir: boolean }[]> {
+  const out = await podExecOnce(pod, asPodUser(`ls -1Ap ${ shellQuote(path) } 2>/dev/null`), undefined, container);
 
   return out.split('\n')
     .map((line) => line.trim())
@@ -4740,8 +4742,8 @@ export async function listPodDir(pod: string, path: string): Promise<{ name: str
 }
 
 /** A file's bytes, base64 as they come off the exec, for an <img src> or a decode to text. */
-export async function readPodFileBase64(pod: string, path: string): Promise<string> {
-  const { kind, size } = await statPodPath(pod, path);
+export async function readPodFileBase64(pod: string, path: string, container?: string): Promise<string> {
+  const { kind, size } = await statPodPath(pod, path, container);
 
   if (kind !== 'file') {
     throw new Error(kind === 'dir' ? 'that is a directory' : 'no such file in this pod');

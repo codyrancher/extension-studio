@@ -25,6 +25,9 @@ export default {
   props: {
     pod:  { type: String, required: true },
     path: { type: String, required: true },
+    // Which container to read from. Every exec defaults to the extension pod's, and the agent
+    // pod names its own differently.
+    container: { type: String, default: undefined },
   },
 
   emits: ['close'],
@@ -86,7 +89,7 @@ export default {
       this.zoom = false;
 
       try {
-        const stat = await statPodPath(this.pod, this.current);
+        const stat = await statPodPath(this.pod, this.current, this.container);
 
         this.kind = stat.kind;
         this.size = stat.size;
@@ -94,9 +97,9 @@ export default {
         if (stat.kind === 'none') {
           this.error = 'not readable from this pod';
         } else if (stat.kind === 'dir') {
-          this.entries = await listPodDir(this.pod, this.current);
+          this.entries = await listPodDir(this.pod, this.current, this.container);
         } else {
-          const base64 = await readPodFileBase64(this.pod, this.current);
+          const base64 = await readPodFileBase64(this.pod, this.current, this.container);
 
           if (this.isImage || this.isVideo || this.isAudio || this.isPdf) {
             this.dataUrl = `data:${ MIME[this.extension] || 'application/octet-stream' };base64,${ base64 }`;
