@@ -12,17 +12,17 @@ entries:
       catalog.cattle.io/ui-component: plugins
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
-    appVersion: 0.5.60
-    created: "2026-09-02T19:02:43.938775225Z"
+    appVersion: 0.5.61
+    created: "2026-09-02T19:37:00.235453396Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
-    digest: 631a857c63e7dfea1754c3b7148703b47a67dbaef2fde5c3f7d89a885a4b5412
+    digest: 331e183cf1c0878275b2ed04335ea4a82bf8a443453bee109b488f6e042f5ed8
     home: https://github.com/codyrancher/extension-studio
     icon: https://rancher.github.io/ui-internal-tools/ai/magic-closet/logo.svg
     name: extension-studio
     type: application
     urls:
-    - assets/extension-studio/extension-studio-0.5.60.tgz
-    version: 0.5.60
+    - assets/extension-studio/extension-studio-0.5.61.tgz
+    version: 0.5.61
   - annotations:
       catalog.cattle.io/certified: rancher
       catalog.cattle.io/display-name: Extension Studio
@@ -375,4 +375,4 @@ entries:
     urls:
     - https://github.com/codyrancher/extension-studio/releases/download/extension-studio-0.5.23/extension-studio-0.5.23.tgz
     version: 0.5.23
-generated: "2026-09-02T19:02:43.938358337Z"
+generated: "2026-09-02T19:37:00.235037142Z"
