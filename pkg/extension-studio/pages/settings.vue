@@ -1,10 +1,13 @@
 <script>
-// Studio settings (Figma frame 21:739): connection, sign-off policy, the assistant's permission
-// level, where previews run, who can get in, and what leaves this Rancher for the model.
+// Studio settings: the GitHub connection, and who can use Studio.
 //
-// The design's own caption is "in one place", which is a requirement rather than a description:
-// the dialog that used to be the Studio's settings is now a credential prompt and nothing else
-// (components/EditorSettingsModal.vue), so nothing but this page edits a setting.
+// It used to carry four more cards - a sign-off matrix, the assistant's permission level, where
+// previews run, and what is sent to the model. They are gone, and the reason is the same for
+// all four: they described things this product does not decide. The matrix drew rows whose
+// controls were fixed or dead, the permission level was reported rather than set, the preview
+// runs where the pod is, and the model card documented a redaction nothing implements. A
+// settings page that reassures you about a control nobody wrote is worse than no page at all,
+// so what is left is the two that write something real.
 //
 // Two rules this page is written to, and both of them cost features:
 //
@@ -14,9 +17,7 @@
 //      floor.
 //
 //   2. Where the product does not do what the design promises, the page says what the product
-//      does. The model card in particular reads worse than the design draws it, deliberately:
-//      the design promises redaction that nothing implements, and a settings page that
-//      reassures you about a control nobody wrote is worse than no page at all.
+//      does.
 //
 // What is persisted, and where:
 //
@@ -24,12 +25,14 @@
 //     read back into a page). A pod can read it, and `githubIdentity()` uses that to spend it
 //     against GitHub and hand back the answer - the login, the scopes and the expiry - so this
 //     page can state them without the token itself ever coming back into the browser.
-//   - everything else this page can set: ConfigMap `barn-studio-settings` in namespace `barn`,
-//     one JSON key, the same shape review.ts uses for its own record.
+//   - the custom role this page can grant: ConfigMap `barn-studio-settings` in namespace `barn`.
 //
-// Neither of those is read or written here. Both go through `studio-settings.ts`, which is the
-// one code path for them, so the dialog that asks for a credential mid-flow and this page
-// cannot end up writing the same objects two different ways.
+// The publish policy that used to be edited here still exists and still gates a push; it now
+// runs on its defaults (`DEFAULT_POLICY`), which is what the matrix was fixed at anyway.
+//
+// Neither object is read or written here directly. Both go through `studio-settings.ts`, which
+// is the one code path for them, so the dialog that asks for a credential mid-flow and this
+// page cannot end up writing the same objects two different ways.
 import {
   SButton, SBanner, SCard, SChip, SIcon, SField
 } from '../components/ui';
@@ -38,7 +41,7 @@ import {
   EXT_NS, extensionObject, listExtensions, githubIdentity, assistantLogin, SETTINGS_SECRET
 } from '../extensions';
 import {
-  LEVELS, DEFAULT_POLICY, SETTINGS_OBJECT, STUDIO_NEEDS, TokenRejected, asSentence, githubErrorText,
+  DEFAULT_POLICY, SETTINGS_OBJECT, STUDIO_NEEDS, TokenRejected, asSentence, githubErrorText,
   readStudioSettings, writeStudioSettings, connectGithub, disconnectGithub, githubConnected, detectPermission,
   connectionSummary, tokenRejected, readRole
 } from '../studio-settings';
@@ -51,125 +54,6 @@ import { toastError, toastSuccess } from '../toast';
 // The same cluster every other object in this product lives in. Written out rather than
 // imported because `extensions.ts` does not export it, and review.ts already does the same.
 const EXT_BASE = '/k8s/clusters/local';
-
-/**
- * The four destinations the design draws, mapped onto the ones this product actually has.
- *
- * Two of them are real: the pod's dev server, and the two things `PublishModal` offers. Two are
- * not, and are drawn with their controls dead and the reason stated - an OCI push and a catalog
- * listing are not things Studio can do, so a control that configured them would be configuring
- * nothing.
- *
- * Three shapes of cell, and which one a column gets is a statement about what happens rather
- * than a style:
- *
- *   `locked`  the whole row is a fixed reading, both columns (dev preview, catalog).
- *   `cells`   one column is fixed and the other is not. The repository row's code review is
- *             the only one: `distributionGate()` refuses the distribution until a code
- *             sign-off is on the packet whatever this page holds, so a weaker value there
- *             could only ever be recorded and ignored.
- *   neither   settable, written on the click.
- *
- * A row may also `omit` a level, which is narrower than locking a cell and is here for one
- * case: the developer load is ungated by design, so "Required" on that row is a value nothing
- * can obey. It used to be offered and admitted, in the publish dialog, that it was being
- * ignored - which is a control that lies with a footnote. The two levels left are both real:
- * "Off" shows nothing and "Notified" puts the sign-offs on the row in the publish dialog.
- */
-const DESTINATIONS = [
-  {
-    id:     'dev-preview',
-    label:  'Your dev preview',
-    icon:   'monitor',
-    tag:    'always',
-    note:   'Hot reload while you work. Nobody else can load it.',
-    tone:   'muted',
-    locked: { code: 'off', outcome: 'off' },
-    reason: 'The preview is the extension pod\'s own dev server: a save is on the page before anything could ask a question about it. There is nothing here to gate, so this is not a setting.',
-  },
-  {
-    id:       'dev-load',
-    label:    'Developer load into this Rancher',
-    icon:     'server',
-    note:     'Studio\'s "This Rancher" publish: it builds in the pod and points this Rancher at the result. Reversible with "Remove local install".',
-    editable: true,
-    omit:     ['required'],
-    reason:   'Off and Notified, and no Required, because a developer load reaches only this Rancher and is ungated by design - it is the half of the flow the review system deliberately never interrupts, so nothing can be made to hold it up and a third segment here would be a setting with no effect. The two that are here do something: Notified puts the sign-offs and an advisory chip on this destination in the publish dialog, and Off leaves it bare.',
-  },
-  {
-    id:    'repo',
-    label: 'Push to a repository',
-    icon:  'github',
-    tag:   'The gate',
-    note:  'The moment it becomes installable by anyone who adds the repository. Studio pushes to GitHub; it cannot push an OCI artifact, so the design\'s OCI row is this one.',
-    gate:  true,
-    // Code review is the one cell on this page fixed at Required because Required is what
-    // happens, rather than because there is nothing behind it. It used to be settable, and
-    // that was a control with no effect: "Off" went into the ConfigMap and
-    // `distributionGate()` carried on demanding a code sign-off anyway.
-    cells: {
-      code: {
-        value:  'required',
-        reason: 'Code review is fixed at Required here, and it is the one thing on this page that is fixed because it is enforced: distributionGate() refuses the distribution until a code sign-off covering the current packet is on record, whatever this page says. Outcome sign-off is left settable the way the design draws it - the gate takes that one as required too, and the publish dialog names any stored value it is not obeying.',
-      },
-    },
-    editable: true,
-  },
-  {
-    id:     'catalog',
-    label:  'List in the SUSE catalog',
-    icon:   'lock',
-    tag:    'Org policy',
-    note:   'Anyone at any customer can find and install it.',
-    tone:   'muted',
-    locked: { code: 'required', outcome: 'required' },
-    reason: 'Studio has no catalog destination, so there is nothing this Rancher could set. Left here because the design lists it and because its absence is worth seeing.',
-  },
-];
-
-/**
- * The three permission levels, in the design's order.
- *
- * Which of them is true is not decided here: `detectPermission` reads the pod's own start-up
- * script and says which one that script produces. None of them can be chosen (see the card).
- */
-const PERMISSION_LEVELS = [
-  {
-    id:    'ask-every-edit',
-    label: 'Ask before every file edit',
-    note:  'Slowest, safest. You approve each write. Best while you are learning what Studio does.',
-  },
-  {
-    id:    'edit-freely',
-    label: 'Edit files freely, ask before running commands',
-    note:  'The assistant writes and rewrites extension files on its own, but stops before anything that touches the cluster.',
-  },
-  {
-    id:    'never-ask',
-    label: 'Do not ask at all',
-    admin: true,
-    note:  'The assistant edits files and runs build commands without stopping.',
-  },
-];
-
-/** "4h 12m", from an ISO timestamp. Empty for anything that is not a time. */
-function uptimeSince(iso) {
-  const started = Date.parse(iso || '');
-
-  if (!started) {
-    return '';
-  }
-
-  const mins = Math.max(0, Math.floor((Date.now() - started) / 60000));
-  const hours = Math.floor(mins / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days) {
-    return `${ days }d ${ hours % 24 }h`;
-  }
-
-  return hours ? `${ hours }h ${ mins % 60 }m` : `${ mins }m`;
-}
 
 export default {
   name: 'BarnSettings',
@@ -223,7 +107,6 @@ export default {
 
       // Where previews run.
       cluster:    { name: 'local', version: '' },
-      devServers: [],
       restarting: '',
 
       // Who can use Studio. `templates` and `bindings` are the two lists every row is read
@@ -240,13 +123,7 @@ export default {
   },
 
   computed: {
-    destinations() {
-      return DESTINATIONS;
-    },
 
-    permissionLevels() {
-      return PERMISSION_LEVELS;
-    },
 
     /**
      * Whether the assistant has a credential to work with, said the way the workspace says it.
@@ -335,41 +212,6 @@ export default {
      */
     pageActions() {
       return STUDIO_PAGE_ACTIONS.filter((each) => each.action !== STUDIO_ACTION_SETTINGS);
-    },
-
-    /**
-     * The three calls Studio is made of, said once.
-     *
-     * Read off `STUDIO_NEEDS` rather than typed out, so the sentence in the banner and the rule
-     * the ticks are computed from cannot come apart. A role that could do two of these still
-     * cannot use Studio, which is why the list is the sentence rather than a summary of it.
-     */
-    needsSentence() {
-      const labels = STUDIO_NEEDS.map((need) => need.label);
-
-      return `${ labels.slice(0, -1).join(', ') } and ${ labels[labels.length - 1] }`;
-    },
-
-    /**
-     * The custom row's answer, which has one state the fixed rows do not: nothing chosen yet.
-     *
-     * That is not "no", and it must not be drawn as one - the row is a question with no subject
-     * until a role is picked.
-     */
-    customAnswer() {
-      if (this.customLoading) {
-        return {
-          state: 'reading', tone: 'unknown', icon: 'info', label: 'Reading'
-        };
-      }
-
-      if (!this.customReading) {
-        return {
-          state: 'unasked', tone: 'unknown', icon: 'info', label: 'Not asked'
-        };
-      }
-
-      return this.answerFor(this.customReading.reading);
     },
 
     settingsSecret() {
@@ -483,75 +325,9 @@ export default {
       // this browser - the pods, Rancher's role bindings, and GitHub by way of a pod - and none
       // of them is worth making the card wait.
       await Promise.all([
-        this.readDevServers().then(() => this.readAssistantLogins()),
         this.readAccess(),
         this.readIdentity(),
-        this.reconcileFixedCells(),
       ]);
-    },
-
-    /**
-     * Put the stored record back in step with what this page will now let anybody set.
-     *
-     * Two ways it can drift, and both are the same failure. The repository row's code review
-     * used to be settable and is now fixed at Required, because Required is what
-     * `distributionGate()` does. The developer load's two cells used to offer Required and now
-     * do not, because nothing obeys it there. Either way a value stored while it was on offer
-     * would sit in the ConfigMap disagreeing with what this page draws, and the publish dialog
-     * reads the ConfigMap rather than the page - so the two surfaces would say different things
-     * about the same cell, which is the exact failure the "one place" rule exists to stop.
-     *
-     * A dropped level falls back to the strongest one still offered, so "Required" becomes
-     * "Notified" rather than "Off": what somebody meant by it was closer to being told than to
-     * not caring. Writes only when they actually differ, and never for a row the policy does
-     * not hold at all.
-     */
-    async reconcileFixedCells() {
-      const wrong = [];
-
-      DESTINATIONS.forEach((destination) => {
-        if (destination.locked || !this.policy[destination.id]) {
-          return;
-        }
-
-        Object.entries(destination.cells || {}).forEach(([column, cell]) => {
-          if (this.policy[destination.id][column] !== cell.value) {
-            wrong.push([destination.id, column, cell.value]);
-          }
-        });
-
-        ['code', 'outcome'].forEach((column) => {
-          if (destination.cells?.[column]) {
-            return;
-          }
-
-          const offered = this.levelsFor(destination, column);
-
-          if (!offered.some((level) => level.value === this.policy[destination.id][column])) {
-            wrong.push([destination.id, column, offered[offered.length - 1].value]);
-          }
-        });
-      });
-
-      if (!wrong.length) {
-        return;
-      }
-
-      wrong.forEach(([id, column, value]) => {
-        this.policy[id][column] = value;
-      });
-
-      // Housekeeping rather than something the reader did, so a failure is not worth a growl:
-      // the page still draws the fixed value, which is still what the gate enforces.
-      await writeStudioSettings((current) => {
-        const policy = { ...current.policy };
-
-        wrong.forEach(([id, column, value]) => {
-          policy[id] = { ...policy[id], [column]: value };
-        });
-
-        return { ...current, policy };
-      }).catch(() => null);
     },
 
     /**
@@ -586,53 +362,6 @@ export default {
     },
 
     // ---------------------------------------------------------------- sign-off
-
-    /**
-     * The value a cell is fixed at, or `undefined` when it is the user's to set.
-     *
-     * Two ways a cell can be fixed and they mean the same thing to the control: the whole row
-     * is a reading (`locked`), or this one column is (`cells`).
-     */
-    fixedAt(destination, column) {
-      if (destination.locked) {
-        return destination.locked[column];
-      }
-
-      return destination.cells?.[column]?.value;
-    },
-
-    valueFor(destination, column) {
-      const fixed = this.fixedAt(destination, column);
-
-      return fixed === undefined ? this.policy[destination.id]?.[column] : fixed;
-    },
-
-    /**
-     * The segments one cell offers.
-     *
-     * All three for a cell that is a reading, because a reading has to be able to draw whatever
-     * it is reading - the catalog row is fixed at Required and hiding Required would leave it
-     * showing nothing. For a settable cell, only the levels the row can actually honour.
-     */
-    levelsFor(destination, column) {
-      if (this.fixedAt(destination, column) !== undefined || !destination.omit) {
-        return LEVELS;
-      }
-
-      return LEVELS.filter((level) => !destination.omit.includes(level.value));
-    },
-
-    /**
-     * The small print under a row: why the row is a reading, plus why any one cell in it is.
-     *
-     * Joined rather than rendered per cell because the cells sit in the grid's two right-hand
-     * columns, which are 220px of segmented control with nowhere to put a sentence.
-     */
-    rowReason(destination) {
-      const cells = Object.values(destination.cells || {}).map((cell) => cell.reason);
-
-      return [destination.reason, ...cells].filter(Boolean).join(' ');
-    },
 
     /**
      * Write one cell, now.
@@ -731,20 +460,6 @@ export default {
       }
     },
 
-    /**
-     * Clicking away from a pasted token stores it too, because a page with no Save button that
-     * quietly drops what you typed is the worst of both.
-     *
-     * Length-guarded, and only on blur: a half-typed token stored while GitHub happens to be
-     * unreachable would be recorded as the credential with nothing to say it is wrong. Enter is
-     * explicit and is not guarded.
-     */
-    storeOnBlur() {
-      if (this.token.trim().length >= 20) {
-        this.storeToken();
-      }
-    },
-
     reconnect() {
       this.showToken = true;
       this.tokenError = '';
@@ -761,52 +476,6 @@ export default {
       const flavour = provider === 'k3s' ? 'K3s' : (provider === 'rke2' ? 'RKE2' : 'Kubernetes');
 
       return { name: 'local', version: semver ? `${ flavour } ${ semver }` : '' };
-    },
-
-    /**
-     * Every extension's dev server, from the pods rather than from a list this page keeps.
-     *
-     * One row each, because "the dev server" is one per extension in this product and a single
-     * row would have to pick one and be wrong about the others.
-     */
-    async readDevServers() {
-      const [extensions, pods] = await Promise.all([
-        listExtensions().catch(() => []),
-        rancherFetch(`${ EXT_BASE }/v1/pods/${ EXT_NS }`).catch(() => null),
-      ]);
-
-      const running = (pods?.data || []).filter((pod) => !pod.metadata?.deletionTimestamp);
-
-      this.devServers = extensions.map((extension) => {
-        const object = extensionObject(extension.name);
-        const pod = running.find((p) => p.metadata?.labels?.app === object);
-        const container = (pod?.status?.containerStatuses || [])[0];
-        const startedAt = container?.state?.running?.startedAt || pod?.status?.startTime || '';
-
-        return {
-          name:   extension.name,
-          pod:    pod?.metadata?.name || '',
-          ready:  extension.ready,
-          phase:  pod?.status?.phase || '',
-          uptime: uptimeSince(startedAt),
-        };
-      });
-    },
-
-    /**
-     * Whether the claude in each extension's pod has a credential, one exec each.
-     *
-     * After `readDevServers` rather than beside it, so it asks the pods that list found rather
-     * than listing them a second time. Each answer is allowed to fail on its own: one pod that
-     * will not exec must not turn the whole row into "cannot tell".
-     */
-    async readAssistantLogins() {
-      this.assistants = await Promise.all(this.devServers.map(async(server) => ({
-        name:  server.name,
-        login: await assistantLogin(server.name).catch(() => ({ read: false, signedIn: false, account: '' })),
-      })));
-
-      this.assistantsRead = true;
     },
 
     /**
@@ -986,29 +655,6 @@ export default {
     },
 
     /**
-     * The same reading as a glyph and a word, for the left of the row.
-     *
-     * Three states, and the third is the one that has to stay separate: "nobody could read this
-     * role's rules" is not "this role is short of something". It gets its own glyph and its own
-     * word so an unread role cannot be misread as a refused one.
-     */
-    answerFor(reading) {
-      if (!reading) {
-        return {
-          state: 'unread', tone: 'unknown', icon: 'info', label: 'Not read'
-        };
-      }
-
-      return reading.capable ?
-        {
-          state: 'yes', tone: 'yes', icon: 'check', label: 'Can use Studio'
-        } :
-        {
-          state: 'no', tone: 'no', icon: 'warning', label: 'Cannot use Studio'
-        };
-    },
-
-    /**
      * Rancher's own page for the role behind a row.
      *
      * The one real action this card has. Studio cannot grant or revoke - see the banner - but
@@ -1138,109 +784,6 @@ export default {
     <div class="settings__body">
       <SBanner v-if="error" type="error" :message="error" />
 
-      <!-- What needs sign-off (58:1056) -->
-      <SCard title="What needs sign-off" data-testid="settings-signoff">
-        <div class="settings__section">
-          <p class="settings__note">
-            Everything before the push to a repository is iteration, and Studio never interrupts
-            it. The gate is the moment the extension becomes installable by somebody else.
-          </p>
-
-          <SBanner type="warning" data-testid="settings-signoff-enforcement">
-            The publish dialog reads these values and shows each destination what it is being
-            held to, but no value here decides whether a publish happens. Both boundaries are
-            fixed in code: a developer load reaches only this Rancher and is ungated, and the
-            push to a repository is refused until two different people have signed both
-            questions against the change being pushed. So this matrix records what you mean by
-            it, the two rows below say where that is all it does, and the publish dialog names
-            any stored value it is not obeying. Written to ConfigMap
-            <code>{{ settingsObject }}</code> in namespace <code>{{ ns }}</code>.
-          </SBanner>
-
-          <div class="settings__matrix">
-            <div class="settings__matrix-head">
-              <span class="settings__matrix-dest" />
-              <span class="settings__matrix-col">
-                <SIcon name="code" :size="12" />Code review
-              </span>
-              <span class="settings__matrix-col">
-                <SIcon name="eye" :size="12" />Outcome sign-off
-              </span>
-            </div>
-
-            <div
-              v-for="destination in destinations"
-              :key="destination.id"
-              class="settings__dest"
-              :class="[
-                `settings__dest--${ destination.tone || 'plain' }`,
-                { 'settings__dest--gate': destination.gate },
-              ]"
-              :data-testid="`settings-dest-${ destination.id }`"
-            >
-              <div class="settings__dest-text">
-                <div class="settings__dest-title">
-                  <SIcon :name="destination.locked ? 'lock' : destination.icon" :size="13" />
-                  <span class="settings__dest-label">{{ destination.label }}</span>
-                  <SChip
-                    v-if="destination.tag"
-                    :tone="destination.gate ? 'success' : 'default'"
-                    :label="destination.tag"
-                  />
-                </div>
-                <p class="settings__dest-note">
-                  {{ destination.note }}
-                </p>
-                <p
-                  v-if="rowReason(destination)"
-                  class="settings__dest-reason"
-                  :data-testid="`settings-dest-${ destination.id }-reason`"
-                >
-                  {{ rowReason(destination) }}
-                </p>
-              </div>
-
-              <div
-                v-for="column in ['code', 'outcome']"
-                :key="column"
-                class="settings__seg"
-                role="radiogroup"
-                :aria-label="`${ destination.label }: ${ column === 'code' ? 'code review' : 'outcome sign-off' }`"
-              >
-                <button
-                  v-for="level in levelsFor(destination, column)"
-                  :key="level.value"
-                  type="button"
-                  role="radio"
-                  class="settings__seg-btn"
-                  :class="{
-                    'settings__seg-btn--on': valueFor(destination, column) === level.value,
-                    'settings__seg-btn--locked': fixedAt(destination, column) !== undefined,
-                  }"
-                  :aria-checked="valueFor(destination, column) === level.value"
-                  :disabled="fixedAt(destination, column) !== undefined || writing === `${ destination.id }.${ column }`"
-                  :data-testid="`settings-signoff-${ destination.id }-${ column }-${ level.value }`"
-                  @click="setLevel(destination, column, level.value)"
-                >{{ level.label }}</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings__aside" data-testid="settings-iteration-note">
-            <p class="settings__aside-title">
-              Nobody reviews the same extension forty times
-            </p>
-            <p class="settings__aside-body">
-              While you build, changes accumulate against the last published version. There is no
-              per-change approval, no notification, and nothing to click. At the push, the whole
-              run is collapsed into one diff against that version - forty prompts become the three
-              files that actually differ. "Notified" means the person who asked gets the criteria
-              checked against the build; it never blocks the push.
-            </p>
-          </div>
-        </div>
-      </SCard>
-
       <!-- GitHub connection (21:825) -->
       <SCard title="GitHub connection" icon="github" data-testid="settings-github">
         <div class="settings__section">
@@ -1351,156 +894,6 @@ export default {
               Secret for this Rancher's Studio and everybody using it uses the same credential.
             </p>
           </template>
-        </div>
-      </SCard>
-
-      <!-- What the assistant may do without asking (21:847) -->
-      <SCard title="What the assistant may do without asking" icon="sparkle" data-testid="settings-permission">
-        <div class="settings__section">
-          <!--
-            Before the levels, because it is the prior question: a level says what the assistant
-            may do without asking, and this says whether it can do anything at all. It is also
-            the row that makes this page and the workspace's session strip agree - they read the
-            same thing from the same pods, and until now only the strip said so. The GitHub card
-            above is a different credential and stays a different card.
-          -->
-          <div class="settings__row" data-testid="settings-assistant-session">
-            <span class="settings__dot" :class="`settings__dot--${ assistantState.tone }`" />
-
-            <div class="settings__row-text">
-              <p class="settings__row-head" data-testid="settings-assistant-login">
-                {{ assistantState.label }}
-              </p>
-              <p class="settings__row-note">
-                {{ assistantState.detail }}
-              </p>
-            </div>
-          </div>
-
-          <SBanner type="warning" data-testid="settings-permission-fixed">
-            Not settable, and not per user. {{ permission.detail }} The flag is one line of
-            <code>claude-session.sh</code> in the extension's seed ConfigMap, and Studio rewrites
-            that ConfigMap from the copy compiled into this bundle every time a page loads it, so
-            a level chosen here would be undone within seconds and the pod would carry on at the
-            level the bundle ships. It is per pod rather than per user as well: everybody with a
-            terminal in that pod is at the same level, and a change would reach them when their
-            session next started rather than on their next message. So these three are drawn as
-            what they are - a reading of the level in force, not a choice.
-          </SBanner>
-
-          <div
-            v-for="level in permissionLevels"
-            :key="level.id"
-            class="settings__option"
-            :class="{ 'settings__option--on': permission.level === level.id }"
-            :data-testid="`settings-permission-${ level.id }`"
-          >
-            <input
-              type="radio"
-              class="settings__radio"
-              name="barn-assistant-permission"
-              disabled
-              :checked="permission.level === level.id"
-              :aria-label="level.label"
-            >
-
-            <div class="settings__option-text">
-              <p class="settings__option-head">
-                {{ level.label }}
-                <SChip v-if="level.admin" tone="warning" label="Admins only, not enforced" />
-                <SChip v-if="permission.level === level.id" tone="success" label="In force" />
-              </p>
-              <p class="settings__option-note">
-                {{ level.note }}
-                <template v-if="level.id === 'never-ask'">
-                  The design marks this one admins only and adds "still cannot publish". Neither
-                  holds here: nothing restricts who may open a terminal, and the pod's
-                  ServiceAccount is bound to cluster-admin.
-                </template>
-              </p>
-            </div>
-          </div>
-        </div>
-      </SCard>
-
-      <!-- Where previews run (21:877) -->
-      <SCard title="Where previews run" icon="monitor" data-testid="settings-preview">
-        <div class="settings__section">
-          <p class="settings__note">
-            Unpublished extensions only ever load on this cluster. A preview is served by the
-            extension's own pod in namespace <code>{{ ns }}</code>, reached through this cluster's
-            API proxy, so nothing outside this Rancher can load it.
-          </p>
-
-          <div class="settings__control" data-testid="settings-preview-cluster">
-            <div class="settings__control-text">
-              <span class="settings__control-label">Preview cluster</span>
-              <span class="settings__control-value">
-                {{ cluster.name }}<template v-if="cluster.version"> - {{ cluster.version }}</template>
-              </span>
-            </div>
-            <SIcon name="lock" :size="13" />
-          </div>
-          <p class="settings__hint" data-testid="settings-preview-cluster-hint">
-            Not a choice, which is why it is a lock rather than the design's chevron: Studio
-            creates every pod in the <code>local</code> cluster, named once in
-            <code>extensions.ts</code> rather than read from a setting, so a picker here would
-            have nothing to write to and choosing a different cluster would not move a preview.
-          </p>
-
-          <div v-if="devServers.length" class="settings__servers">
-            <div
-              v-for="server in devServers"
-              :key="server.name"
-              class="settings__row"
-              :data-testid="`settings-devserver-${ server.name }`"
-            >
-              <span
-                class="settings__dot"
-                :class="server.ready ? 'settings__dot--on' : (server.pod ? 'settings__dot--warn' : 'settings__dot--off')"
-              />
-
-              <div class="settings__row-text">
-                <p class="settings__row-head">
-                  {{ server.name }}
-                </p>
-                <p class="settings__row-note">
-                  <template v-if="server.ready">
-                    Dev server running
-                  </template>
-                  <template v-else-if="server.pod">
-                    Pod {{ server.phase.toLowerCase() }}, not serving yet
-                  </template>
-                  <template v-else>
-                    No pod
-                  </template>
-                  <template v-if="server.uptime">
-                    &middot; uptime {{ server.uptime }}
-                  </template>
-                </p>
-              </div>
-
-              <SButton
-                variant="ghost"
-                icon="refresh"
-                :disabled="!server.pod"
-                :loading="restarting === server.name"
-                :data-testid="`settings-devserver-${ server.name }-restart`"
-                @click="restartDevServer(server)"
-              >
-                Restart
-              </SButton>
-            </div>
-          </div>
-          <p v-else-if="!loading" class="settings__hint">
-            No extension pods in namespace <code>{{ ns }}</code>.
-          </p>
-
-          <p v-if="devServers.length" class="settings__hint">
-            Restart deletes the pod and lets the Deployment make a new one. The tree and
-            node_modules are on the node, so it costs the compile rather than the install - but
-            it does end any terminal session running in that pod.
-          </p>
         </div>
       </SCard>
 
@@ -1665,62 +1058,6 @@ export default {
         </div>
       </SCard>
 
-      <!-- What is sent to the model (21:925) -->
-      <SCard title="What is sent to the model" icon="sparkle" data-testid="settings-model">
-        <div class="settings__section">
-          <p class="settings__note">
-            Shown here so you can answer this question without asking the platform team. These
-            rows are what this build does, which is not what the design promises: the design has
-            two of them redacted and Studio redacts nothing.
-          </p>
-
-          <div class="settings__row settings__row--tight" data-testid="settings-model-source">
-            <SIcon name="check" :size="14" class="settings__model-icon settings__model-icon--sent" />
-            <div class="settings__row-text">
-              <p class="settings__row-head">
-                Your message and the extension source files
-              </p>
-              <p class="settings__row-note">
-                Everything under the extension folder in the pod, plus whatever the assistant opens
-                while it works. claude runs in the pod, so the conversation goes to Anthropic's API.
-              </p>
-            </div>
-          </div>
-
-          <div class="settings__row settings__row--tight" data-testid="settings-model-shapes">
-            <SIcon name="warning" :size="14" class="settings__model-icon settings__model-icon--warn" />
-            <div class="settings__row-text">
-              <p class="settings__row-head">
-                The names, shapes and values of cluster resources
-              </p>
-              <p class="settings__row-note">
-                The design promises kinds, fields and counts with the values redacted. Studio does
-                not redact: the pod's ServiceAccount is bound to cluster-admin, so anything the
-                assistant reads from this cluster - values included - can end up in a request.
-              </p>
-            </div>
-          </div>
-
-          <div class="settings__row settings__row--tight" data-testid="settings-model-secrets">
-            <SIcon name="warning" :size="14" class="settings__model-icon settings__model-icon--warn" />
-            <div class="settings__row-text">
-              <p class="settings__row-head">
-                Secrets, kubeconfigs and credentials
-              </p>
-              <p class="settings__row-note">
-                The design promises two things: redaction on the way out, and a scan again before
-                publish. The scan is real, the redaction is not. Nothing redacts - the GitHub token
-                above sits in a Secret the pod's ServiceAccount can read, so a credential the
-                assistant opens goes to the model as it is written. The publish dialog does scan:
-                before a publish it reads the added lines of the diff for tokens, keys and
-                kubeconfig client credentials and names the file and line it found one on. That is
-                a warning at the end and not a block, and it reads the diff rather than anything
-                already sent.
-              </p>
-            </div>
-          </div>
-        </div>
-      </SCard>
     </div>
   </div>
 </template>

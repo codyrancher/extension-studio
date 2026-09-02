@@ -47,6 +47,51 @@ const POD_POLL_MS = 3000;
 // browser that lists it.
 const IMAGE_DIR = '/app/.images';
 
+// The row a phone keyboard is missing. Termux, Blink and iSH all ship one for
+// the same reason: without arrows there is no way to go back and fix a typo,
+// and without Esc there is no way out of a menu.
+const KEY_BAR = [
+  { label: 'Esc', seq: '\x1b' },
+  { label: 'Tab', seq: '\t' },
+  {
+    label: '\u2190', seq: '\x1b[D', title: 'Left'
+  },
+  {
+    label: '\u2192', seq: '\x1b[C', title: 'Right'
+  },
+  {
+    label: '\u2191', seq: '\x1b[A', title: 'Up / previous'
+  },
+  {
+    label: '\u2193', seq: '\x1b[B', title: 'Down / next'
+  },
+  {
+    label: '\u21e4', seq: '\x01', title: 'Start of line (Ctrl+A)'
+  },
+  {
+    label: '\u21e5', seq: '\x05', title: 'End of line (Ctrl+E)'
+  },
+  {
+    label: '\u232b', seq: '\x17', title: 'Delete the word before the cursor (Ctrl+W)'
+  },
+  {
+    label: '\u21b5', seq: '\r', title: 'Enter'
+  },
+];
+
+/**
+ * The control code for a letter, so an armed Ctrl can be applied to it.
+ */
+function ctrlByteFor(key) {
+  if (key.length !== 1) {
+    return null;
+  }
+
+  const code = key.toUpperCase().charCodeAt(0);
+
+  return code >= 64 && code <= 95 ? String.fromCharCode(code - 64) : null;
+}
+
 export default {
   name: 'PodTerminal',
 
@@ -105,6 +150,7 @@ export default {
 
   data() {
     return {
+      KEY_BAR,
       // 'waiting' (no pod yet) | 'connecting' | 'open' | 'closed'
       state:        'waiting',
       // Set while an image is on its way into the pod, and if it failed to get there.
@@ -119,6 +165,11 @@ export default {
       resizeObserver: null,
       podPollTimer: null,
       unmounted:    false,
+      // Touch only: the keys a phone keyboard does not have, which are most of
+      // what a TUI is driven with.
+      showKeyBar:   false,
+      ctrlArmed:    false,
+      dprTimer:     null,
     };
   },
 
@@ -140,6 +191,7 @@ export default {
   beforeUnmount() {
     this.unmounted = true;
     clearTimeout(this.podPollTimer);
+    clearInterval(this.dprTimer);
     this.resizeObserver?.disconnect();
     // Only this end goes away. The tmux session in the pod keeps running, which
     // is the whole point of it: reopening the editor reattaches to it.
@@ -148,6 +200,52 @@ export default {
   },
 
   methods: {
+    /**
+     * Type something at the prompt on the user's behalf, then put them back
+     * where they were: focused, and at the bottom of the scrollback.
+     */
+    sendKeys(data) {
+      this.send(STDIN + base64Encode(data));
+      this.terminal?.scrollToBottom();
+      this.terminal?.focus();
+    },
+
+    tapKey(seq) {
+      this.sendKeys(seq);
+      this.ctrlArmed = false;
+    },
+
+    // Sticky rather than held: a touch screen has no chords, so Ctrl applies to
+    // whatever is typed next.
+    armCtrl() {
+      this.ctrlArmed = !this.ctrlArmed;
+      this.terminal?.focus();
+    },
+
+    /**
+     * Is the canvas drawing at the display's resolution? Its backing store has
+     * to be its CSS size times the device pixel ratio; anything else is the
+     * browser rescaling a bitmap, which is what soft glyphs actually are.
+     */
+    canvasScaleWrong() {
+      const canvas = this.$refs.xterm?.querySelector('canvas.xterm-text-layer');
+
+      if (!canvas) {
+        return false;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+
+      if (rect.width < 20 || rect.height < 20) {
+        return false;
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+
+      return Math.abs((canvas.width / rect.width) - dpr) > 0.05
+        || Math.abs((canvas.height / rect.height) - dpr) > 0.05;
+    },
+
     async setupTerminal() {
       const style = getComputedStyle(document.body);
       const color = (name) => style.getPropertyValue(name).trim() || undefined;
@@ -197,6 +295,57 @@ export default {
 
       terminal.open(this.$refs.xterm);
       terminal.onData((input) => this.send(STDIN + base64Encode(input)));
+
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type !== 'keydown') {
+          return true;
+        }
+
+        // Ctrl armed from the key bar applies to the next character typed:
+        // there is no chord on a touch screen.
+        if (this.ctrlArmed) {
+          const byte = ctrlByteFor(event.key);
+
+          if (byte) {
+            event.preventDefault();
+            this.ctrlArmed = false;
+            this.sendKeys(byte);
+
+            return false;
+          }
+        }
+
+        // Shift+Enter inserts a newline instead of submitting, so a list can be
+        // typed into the assistant's composer.
+        if (event.key === 'Enter' && event.shiftKey) {
+          event.preventDefault();
+          this.sendKeys('\x1b\r');
+
+          return false;
+        }
+
+        return true;
+      });
+
+      // A phone has no arrows, Esc, Tab or Ctrl, and those are how a TUI is
+      // driven. Every mobile terminal grows this row for the same reason.
+      this.showKeyBar = window.matchMedia?.('(pointer: coarse)').matches || false;
+
+      // The canvas renderer sizes its backing store by devicePixelRatio when it
+      // lays out. Change the ratio afterwards - browser zoom, or a window moved
+      // to a display with a different scale - and it keeps drawing at the old
+      // resolution, which the browser then rescales: the terminal goes soft
+      // while everything around it stays sharp. Some of those changes arrive
+      // with no event to hang this off, so it is a slow check rather than a
+      // listener.
+      this.dprTimer = setInterval(() => {
+        if (document.hidden || !this.canvasScaleWrong()) {
+          return;
+        }
+
+        this.terminal?.clearTextureAtlas?.();
+        this.fit();
+      }, 2000);
 
       // An image pasted or dropped on the pane becomes a file in the pod, and its path is
       // typed at the prompt. That is the whole trick: claude reads an image from a path, so
@@ -417,6 +566,29 @@ export default {
       ref="xterm"
       class="mc-terminal__xterm"
     />
+    <!-- Touch only: the keys a phone keyboard does not have. -->
+    <div
+      v-if="showKeyBar"
+      class="mc-terminal__keys"
+    >
+      <button
+        class="mc-terminal__key"
+        :class="{ 'mc-terminal__key--armed': ctrlArmed }"
+        title="Ctrl - applies to the next key you type"
+        @click="armCtrl"
+      >
+        Ctrl
+      </button>
+      <button
+        v-for="key in KEY_BAR"
+        :key="key.label"
+        class="mc-terminal__key"
+        :title="key.title || key.label"
+        @click="tapKey(key.seq)"
+      >
+        {{ key.label }}
+      </button>
+    </div>
     <!--
       A pasted image takes a second or two to get into the pod, and until the path appears at
       the prompt nothing else says anything happened.
@@ -446,6 +618,46 @@ export default {
 </template>
 
 <style lang="scss">
+
+/* The on-screen key row: thumb-sized targets, scrolling sideways rather than
+   wrapping, and out of the terminal's way. */
+.mc-terminal__keys {
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--nav-bg);
+  border-top: 1px solid var(--border);
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+}
+
+.mc-terminal__keys::-webkit-scrollbar {
+  display: none;
+}
+
+.mc-terminal__key {
+  flex: none;
+  min-width: 40px;
+  height: 36px;
+  padding: 0 8px;
+  background: var(--body-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--body-text);
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* An armed Ctrl reads as held: the next key typed is the one it applies to. */
+.mc-terminal__key--armed {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
 // Not scoped: @font-face is document-level, and the font has to be declared
 // before xterm measures a character or it measures the fallback.
 //
