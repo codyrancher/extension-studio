@@ -221,10 +221,22 @@ export default {
   async mounted() {
     await this.setupTerminal();
     this.connectWhenPodIsUp();
+
+    // A socket that dropped while nobody was looking is the common case: a laptop sleeps, a tab
+    // sits in the background for an hour, the pod restarts. Coming back to the tab is exactly
+    // when somebody wants the session, so that is when it is reattached - rather than leaving
+    // them to notice the dead pane and press a button.
+    this.onRefocus = () => this.reconnectIfDropped();
+    window.addEventListener('focus', this.onRefocus);
+    document.addEventListener('visibilitychange', this.onRefocus);
+    this.$refs.xterm?.addEventListener('focusin', this.onRefocus);
   },
 
   beforeUnmount() {
     this.unmounted = true;
+    window.removeEventListener('focus', this.onRefocus);
+    document.removeEventListener('visibilitychange', this.onRefocus);
+    this.$refs.xterm?.removeEventListener('focusin', this.onRefocus);
     clearTimeout(this.podPollTimer);
     clearInterval(this.dprTimer);
     this.resizeObserver?.disconnect();
@@ -511,6 +523,22 @@ export default {
 
     // Reconnecting is reattaching: tmux still has the session, so this picks up
     // where it left off rather than starting anything.
+    /**
+     * Reattach, but only if this end is actually dead.
+     *
+     * Focus fires for every click into the pane and every tab switch, and tearing down a healthy
+     * socket on each of those would drop the session it is meant to protect. `waiting` is a pod
+     * that has not come up yet and `connecting` is already on its way, so neither is ours to
+     * restart either.
+     */
+    reconnectIfDropped() {
+      if (this.unmounted || document.hidden || this.state !== 'closed') {
+        return;
+      }
+
+      this.reconnect();
+    },
+
     async reconnect() {
       await this.socket?.disconnect();
       this.socket = null;
@@ -518,12 +546,6 @@ export default {
       this.connectWhenPodIsUp();
     },
 
-    /**
-     * Images out of a paste or a drop, into the pod, as a path at the prompt.
-     *
-     * Only images are taken. A paste carrying text is xterm's business and passing it here
-     * would break ordinary copy and paste, which is the thing a terminal is asked to do most.
-     */
     /**
      * The links on one row: every URL, and every path that looks like one on purpose.
      *

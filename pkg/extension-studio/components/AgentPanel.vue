@@ -110,6 +110,9 @@ export default {
       /** [{ id, title }], as the pod reports them. */
       sessions: [],
       active:   '',
+      // Whether the tab remembered from the last visit has been restored yet. Until it has, it
+      // outranks whatever this page load happened to select.
+      restoredTab: false,
       // Which of them have ever been on top. A terminal is mounted on first visit and then kept
       // (an inactive panel is hidden with v-show), so coming back to a conversation is instant
       // and its scrollback is intact, while one nobody has opened here holds no socket at all.
@@ -269,9 +272,14 @@ export default {
     },
 
     remember() {
+      // Never write an empty tab over a remembered one. Opening the panel remembers before it
+      // refreshes, and on a fresh page load there is no active tab yet - so the id from the last
+      // visit was erased a moment before the code that restores it went looking for it.
+      const stored = readDrawerState();
+
       writeDrawerState({
         open:      this.open,
-        active:    this.active,
+        active:    this.active || stored.active,
         placement: this.placement,
         geometry:  this.geometry,
       });
@@ -416,8 +424,17 @@ export default {
         return;
       }
 
-      const wanted = [this.active, readDrawerState().active]
-        .find((id) => id && this.sessions.some((session) => session.id === id));
+      // The remembered tab wins until it has been honoured once. Preferring `this.active`
+      // first meant an early refresh - one that ran before the session list arrived, so nothing
+      // matched and the first tab was chosen - then wrote that choice back over the remembered
+      // one, and a reload always came back on the first conversation.
+      const stored = readDrawerState().active;
+      const order = this.restoredTab ? [this.active, stored] : [stored, this.active];
+      const wanted = order.find((id) => id && this.sessions.some((session) => session.id === id));
+
+      if (wanted) {
+        this.restoredTab = true;
+      }
 
       this.select(wanted || this.sessions[0].id);
     },
