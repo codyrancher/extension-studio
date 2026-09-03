@@ -12,8 +12,30 @@ entries:
       catalog.cattle.io/ui-component: plugins
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
+    appVersion: 0.5.76
+    created: "2026-09-03T21:53:13.366127217Z"
+    description: Author, preview and review Rancher UI extensions from inside Rancher
+    digest: 4e7128d17427b464b8b5302cadc7b289168732f4cc2a6c57373be64e01ff4992
+    home: https://github.com/codyrancher/extension-studio
+    icon: https://rancher.github.io/ui-internal-tools/ai/magic-closet/logo.svg
+    name: extension-studio
+    type: application
+    urls:
+    - assets/extension-studio/extension-studio-0.5.76.tgz
+    version: 0.5.76
+  - annotations:
+      catalog.cattle.io/certified: rancher
+      catalog.cattle.io/display-name: Extension Studio
+      catalog.cattle.io/namespace: cattle-ui-plugin-system
+      catalog.cattle.io/os: linux
+      catalog.cattle.io/permits-os: linux, windows
+      catalog.cattle.io/rancher-version: '>= 2.10.0'
+      catalog.cattle.io/scope: management
+      catalog.cattle.io/ui-component: plugins
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
+    apiVersion: v2
     appVersion: 0.5.75
-    created: "2026-09-03T21:48:19.840108577Z"
+    created: "2026-09-03T21:53:13.365861191Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 4080f02862d5136e0980be9b5e54a8da7207d55c11ec564d8d80d191e4987571
     home: https://github.com/codyrancher/extension-studio
@@ -35,7 +57,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.74
-    created: "2026-09-03T21:48:19.839816011Z"
+    created: "2026-09-03T21:53:13.36562813Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 4c85b545bc00f75a9cff49a4b68458e90307c0a43cc8080e1a5abf2898e43b4e
     home: https://github.com/codyrancher/extension-studio
@@ -57,7 +79,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.73
-    created: "2026-09-03T21:48:19.839451719Z"
+    created: "2026-09-03T21:53:13.365401495Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: b0b6d15114d5a1f305a53897d52217c013dd47bdae75bcce87a8df98540e8a5b
     home: https://github.com/codyrancher/extension-studio
@@ -79,7 +101,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.72
-    created: "2026-09-03T21:48:19.839069127Z"
+    created: "2026-09-03T21:53:13.365168434Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: bb910da85e096c69e0ff0ef16188880077e5c39c736e4291c54e188c03bc4b3f
     home: https://github.com/codyrancher/extension-studio
@@ -101,7 +123,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.71
-    created: "2026-09-03T21:48:19.838695406Z"
+    created: "2026-09-03T21:53:13.364942357Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: f9318e20647f942f5b2c198553dd6feb51debbf11872ae422f0b880daa873e4e
     home: https://github.com/codyrancher/extension-studio
@@ -123,7 +145,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.70
-    created: "2026-09-03T21:48:19.838194783Z"
+    created: "2026-09-03T21:53:13.364681849Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 936ddc1b893b9118c23bd2ebae9edf1d984d7a1f32b31a587c4c4ef91cbe936d
     home: https://github.com/codyrancher/extension-studio
@@ -145,7 +167,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.69
-    created: "2026-09-03T21:48:19.83766322Z"
+    created: "2026-09-03T21:53:13.364375524Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: df5aaaedeae56ac04d56ac0b3204a0db45c80593bc2b760bbb4ab18f1467d77f
     home: https://github.com/codyrancher/extension-studio
@@ -167,7 +189,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.68
-    created: "2026-09-03T21:48:19.837088845Z"
+    created: "2026-09-03T21:53:13.364131149Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: a3e171030c7c02daea8477b0b8d27679d0734bb80f831be059f3a3efa4cb2d26
     home: https://github.com/codyrancher/extension-studio
@@ -189,7 +211,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.67
-    created: "2026-09-03T21:48:19.83665499Z"
+    created: "2026-09-03T21:53:13.36384913Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: a478fb0e5012eaad5f9807a33e10df23e157a5778211f0e2b37059701a38d4c2
     home: https://github.com/codyrancher/extension-studio
@@ -211,7 +233,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.66
-    created: "2026-09-03T21:48:19.834913914Z"
+    created: "2026-09-03T21:53:13.36321043Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: a3bd496d468cea0355757d288f42294b45f3e20287994892b70a0c5fa55a4b6f
     home: https://github.com/codyrancher/extension-studio
@@ -233,7 +255,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.65
-    created: "2026-09-03T21:48:19.83435211Z"
+    created: "2026-09-03T21:53:13.362796969Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 37023b565a9e4ec145d693353d967f752023f57c32ed0a2b554ed6bb8eacfffc
     home: https://github.com/codyrancher/extension-studio
@@ -255,7 +277,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.64
-    created: "2026-09-03T21:48:19.833698325Z"
+    created: "2026-09-03T21:53:13.362560346Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 10272e43d05c6b4bcc2dc3d15b86fad2a15bc29b4367b404eb7add7441a06703
     home: https://github.com/codyrancher/extension-studio
@@ -277,7 +299,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.63
-    created: "2026-09-03T21:48:19.832466253Z"
+    created: "2026-09-03T21:53:13.362346492Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: d29b76616f71708516b62f40b37b5721b6624d5777d20d6434c29a3631e1883b
     home: https://github.com/codyrancher/extension-studio
@@ -299,7 +321,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.61
-    created: "2026-09-03T21:48:19.832115509Z"
+    created: "2026-09-03T21:53:13.362081164Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 331e183cf1c0878275b2ed04335ea4a82bf8a443453bee109b488f6e042f5ed8
     home: https://github.com/codyrancher/extension-studio
@@ -321,7 +343,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.60
-    created: "2026-09-03T21:48:19.831720626Z"
+    created: "2026-09-03T21:53:13.361859767Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 631a857c63e7dfea1754c3b7148703b47a67dbaef2fde5c3f7d89a885a4b5412
     home: https://github.com/codyrancher/extension-studio
@@ -343,7 +365,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.59
-    created: "2026-09-03T21:48:19.83131806Z"
+    created: "2026-09-03T21:53:13.361657925Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 86a9134462ebee383cee2cfa474e887c5f7556f6a0c3a7c98be748aadd0c4740
     home: https://github.com/codyrancher/extension-studio
@@ -365,7 +387,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.58
-    created: "2026-09-03T21:48:19.830822955Z"
+    created: "2026-09-03T21:53:13.361457969Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 19833c85ecb03c87815fe4d475fd93a1dbdea0a602f16799ef00fa37909bafc6
     home: https://github.com/codyrancher/extension-studio
@@ -387,7 +409,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.57
-    created: "2026-09-03T21:48:19.830490091Z"
+    created: "2026-09-03T21:53:13.361252915Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 6f5b30640ad3282b77a8ea2e39f2fbf3bc4738fb33d0f2eb433095ed4dae24dc
     home: https://github.com/codyrancher/extension-studio
@@ -409,7 +431,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.56
-    created: "2026-09-03T21:48:19.830121468Z"
+    created: "2026-09-03T21:53:13.361044089Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 37b81924fc9b974cb04e6a336c92be97b901aa35a40224a7bc42a6fe6daf177f
     home: https://github.com/codyrancher/extension-studio
@@ -431,7 +453,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.44
-    created: "2026-09-03T21:48:19.829753962Z"
+    created: "2026-09-03T21:53:13.360857613Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 0784881b81b82923fc67ec2a4047989b67aac07fe77d2825525f25ff27d65235
     home: https://github.com/codyrancher/extension-studio
@@ -453,7 +475,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.42
-    created: "2026-09-03T21:48:19.829368787Z"
+    created: "2026-09-03T21:53:13.360663873Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 2d35614ea651aa2595637c12c0b694d862a5e180bd095c66a5fc2c69896cfd78
     home: https://github.com/codyrancher/extension-studio
@@ -475,7 +497,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.41
-    created: "2026-09-03T21:48:19.828924177Z"
+    created: "2026-09-03T21:53:13.360408672Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: b410658b4377e9010dcb65562a1afef6699380760ef29cda8263cb5209e2392e
     home: https://github.com/codyrancher/extension-studio
@@ -497,7 +519,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.40
-    created: "2026-09-03T21:48:19.828504849Z"
+    created: "2026-09-03T21:53:13.360226037Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: d8e992eadac2f9544bcb727eb2d0c7c8b975f386ab5574c48eac1fa93918b72e
     home: https://github.com/codyrancher/extension-studio
@@ -519,7 +541,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.37
-    created: "2026-09-03T21:48:19.828190004Z"
+    created: "2026-09-03T21:53:13.360034043Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 5bde8f099db2f48dcc75b0bd2b30cad4d2e54c7ff4215f97e2a0788c686b8327
     home: https://github.com/codyrancher/extension-studio
@@ -541,7 +563,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.35
-    created: "2026-09-03T21:48:19.827803223Z"
+    created: "2026-09-03T21:53:13.359833109Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: e60947034a521ecc1dd4ad39d427f4fbf44c04f9d7f7259e133547256e3fe620
     home: https://github.com/codyrancher/extension-studio
@@ -563,7 +585,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.32
-    created: "2026-09-03T21:48:19.827459393Z"
+    created: "2026-09-03T21:53:13.359635528Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 4d838313fb7c1cb25bbbde39fb2b8b7ba343eb9780d250ccfaf8d3a42831483a
     home: https://github.com/codyrancher/extension-studio
@@ -585,7 +607,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.30
-    created: "2026-09-03T21:48:19.827104669Z"
+    created: "2026-09-03T21:53:13.359420975Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 9d7f78839155a26c825e0b297b095829f070776b22a1bf5f495f5c98ed79e808
     home: https://github.com/codyrancher/extension-studio
@@ -607,7 +629,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.26
-    created: "2026-09-03T21:48:19.826755951Z"
+    created: "2026-09-03T21:53:13.359205305Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: eef99ba4367c192cafe76ff280146a6c5311ddf3ef713d947e0da7452bf54f00
     home: https://github.com/codyrancher/extension-studio
@@ -629,7 +651,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.25
-    created: "2026-09-03T21:48:19.826350452Z"
+    created: "2026-09-03T21:53:13.359007793Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 6fff2eb2e7d8be2f82188b180f77bace3c6270f4096c5324c0cbc9ebce552094
     home: https://github.com/codyrancher/extension-studio
@@ -651,7 +673,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.24
-    created: "2026-09-03T21:48:19.825935594Z"
+    created: "2026-09-03T21:53:13.358782904Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 58739143c8b11b84141bd89dce072e66a0da42de074e05d8335ac4843d9eb958
     home: https://github.com/codyrancher/extension-studio
@@ -673,7 +695,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.23
-    created: "2026-09-03T21:48:19.825579822Z"
+    created: "2026-09-03T21:53:13.358555291Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 2759382f7906fc17198f3b1f49164bfac7bf126012c9f40aa88f1c98fee5e26e
     home: https://github.com/codyrancher/extension-studio
@@ -695,7 +717,7 @@ entries:
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
     appVersion: 0.5.22
-    created: "2026-09-03T21:48:19.825151974Z"
+    created: "2026-09-03T21:53:13.358314827Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
     digest: 4b043f3ef03176c5caffb1150893bc70598253c20913b8d9c8a1c484bb867d0f
     home: https://github.com/codyrancher/barn
@@ -705,4 +727,4 @@ entries:
     urls:
     - assets/extension-studio/extension-studio-0.5.22.tgz
     version: 0.5.22
-generated: "2026-09-03T21:48:19.824321909Z"
+generated: "2026-09-03T21:53:13.357940337Z"
