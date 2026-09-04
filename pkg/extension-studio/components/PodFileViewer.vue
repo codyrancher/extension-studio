@@ -35,7 +35,10 @@ export default {
   data() {
     return {
       current: this.path, kind: '', size: 0, entries: [], text: '', dataUrl: '',
-      loading: true, error: '', zoom: false,
+      loading: true, error: '',
+      // Zoom is a scale about a point, not a two-state toggle: the whole reason to open a
+      // screenshot from a terminal is to read the small print in one corner of it.
+      scale: 1, panX: 0, panY: 0, dragging: false, dragX: 0, dragY: 0,
     };
   },
 
@@ -86,9 +89,12 @@ export default {
       this.entries = [];
       this.text = '';
       this.dataUrl = '';
-      this.zoom = false;
 
       try {
+        this.scale = 1;
+        this.panX = 0;
+        this.panY = 0;
+
         const stat = await statPodPath(this.pod, this.current, this.container);
 
         this.kind = stat.kind;
@@ -114,6 +120,55 @@ export default {
       } finally {
         this.loading = false;
       }
+    },
+
+    /** Wheel zooms about the pointer, so the thing under the cursor stays under it. */
+    onWheel(event) {
+      event.preventDefault();
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const px = event.clientX - rect.left - (rect.width / 2) - this.panX;
+      const py = event.clientY - rect.top - (rect.height / 2) - this.panY;
+      const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const next = Math.min(12, Math.max(0.2, this.scale * factor));
+      const ratio = next / this.scale;
+
+      // Keep the point under the cursor fixed: shift the pan by how far that point moved.
+      this.panX -= px * (ratio - 1);
+      this.panY -= py * (ratio - 1);
+      this.scale = next;
+    },
+
+    onDragStart(event) {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      this.dragging = true;
+      this.dragX = event.clientX;
+      this.dragY = event.clientY;
+    },
+
+    onDragMove(event) {
+      if (!this.dragging) {
+        return;
+      }
+
+      this.panX += event.clientX - this.dragX;
+      this.panY += event.clientY - this.dragY;
+      this.dragX = event.clientX;
+      this.dragY = event.clientY;
+    },
+
+    onDragEnd() {
+      this.dragging = false;
+    },
+
+    resetView() {
+      this.scale = 1;
+      this.panX = 0;
+      this.panY = 0;
     },
 
     open(entry) {
@@ -142,6 +197,10 @@ export default {
           v-if="kind === 'file'"
           class="text-muted"
         >{{ sizeDisplay }}</span>
+        <span
+          v-if="isImage"
+          class="text-muted pfv__hint"
+        >scroll to zoom &middot; drag to pan &middot; double-click to reset &middot; {{ Math.round(scale * 100) }}%</span>
         <button
           class="btn role-tertiary btn-sm pfv__close"
           @click="$emit('close')"
@@ -182,13 +241,24 @@ export default {
           </li>
         </ul>
 
-        <img
+        <div
           v-else-if="isImage"
-          :src="dataUrl"
-          :class="{ 'pfv__img--zoom': zoom }"
-          class="pfv__img"
-          @click="zoom = !zoom"
+          class="pfv__stage"
+          :class="{ 'pfv__stage--dragging': dragging }"
+          @wheel="onWheel"
+          @mousedown="onDragStart"
+          @mousemove="onDragMove"
+          @mouseup="onDragEnd"
+          @mouseleave="onDragEnd"
+          @dblclick="resetView"
         >
+          <img
+            :src="dataUrl"
+            class="pfv__img"
+            :style="{ transform: `translate(${ panX }px, ${ panY }px) scale(${ scale })` }"
+            draggable="false"
+          >
+        </div>
         <video
           v-else-if="isVideo"
           :src="dataUrl"
@@ -276,18 +346,35 @@ export default {
   font-family: var(--font-family-mono);
 }
 
+// The stage clips; the image inside it is what moves and scales, so panning never grows the
+// modal or scrolls the page behind it.
+.pfv__stage {
+  position: relative;
+  overflow: hidden;
+  height: 72vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  user-select: none;
+}
+
+.pfv__stage--dragging {
+  cursor: grabbing;
+}
+
 .pfv__img {
   max-width: 100%;
   max-height: 72vh;
-  cursor: zoom-in;
+  transform-origin: center center;
+  will-change: transform;
+  // No transition: a wheel zoom that animates lags behind the pointer it is meant to track.
+  pointer-events: none;
 }
 
-// Zoomed, the image is shown at its own size and the body scrolls to it, which is the whole
-// point of opening a screenshot from a terminal - reading the small print in it.
-.pfv__img--zoom {
-  max-width: none;
-  max-height: none;
-  cursor: zoom-out;
+.pfv__hint {
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .pfv__media {

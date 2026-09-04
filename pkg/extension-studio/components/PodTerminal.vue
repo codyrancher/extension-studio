@@ -64,7 +64,193 @@ const NOT_A_PATH = /^(?:\d+\/\d+(?:\/\d+)?|(?:and|or|either|his|her|its|s?he|yes
 const TRAILING = /[.,;:!?)\]}'"`]+$/;
 // A path that points at an image. Anything under the paste directory counts, and so does any
 // path ending in an image extension - an agent prints both.
-const IMAGE_PATH_RE = /(?:[\w./@+-]*\/)?[\w.@+-]+\.(?:png|jpe?g|gif|webp|bmp)\b/gi;
+// Round to the display's own pixel grid, so DOM text drawn over the canvas rasterizes on whole
+// device pixels rather than halfway across one - which is what makes an overlay look soft next
+// to the crisp canvas under it.
+function snapPx(v) {
+  const dpr = window.devicePixelRatio || 1;
+
+  return Math.round(v * dpr) / dpr;
+}
+
+// A box border in the last column belongs to the TUI's frame, not to the sentence: collapsing it
+// inward would visibly bend the composer's box, so it is left where the terminal drew it.
+// A grid smaller than this is a measurement taken before the box was laid out, not a real size.
+const MIN_COLS = 20;
+const MIN_ROWS = 5;
+
+// A phone at 13px gets about twenty columns - far too narrow for a TUI that assumes eighty. Nine
+// gets it to a usable width without becoming unreadable. Matched live rather than measured once,
+// so rotating the phone or resizing a window re-fits.
+const MOBILE_TERMINAL = '(max-width: 760px)';
+const mobileQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_TERMINAL) : null;
+
+function terminalFontSize() {
+  return mobileQuery?.matches ? 9 : 13;
+}
+
+// How far one wheel notch scrolls tmux's scrollback on a touch drag.
+const TOUCH_LINE_PX = 24;
+
+const BOX_EDGE = /[\u2502\u2503\u2551\u258f\u2595|]/;
+
+
+
+
+
+
+
+// Anchored at the separator that starts a path. Without that anchor the leading character class
+// swallows whatever is glued to the left of it - a TUI's own prompt glyph, or a word somebody
+// typed - and the result is a path that does not exist, read once, and given up on for good.
+/** The 256-colour palette, so a re-rendered run keeps the colour the terminal gave it. */
+function paletteColor(i) {
+  const ansi = [
+    '#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5',
+    '#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#e5e5e5',
+  ];
+
+  if (i < 16) {
+    return ansi[i];
+  }
+
+  if (i < 232) {
+    const n = i - 16;
+    const lvl = (v) => (v ? (v * 40) + 55 : 0);
+
+    return `rgb(${ lvl(Math.floor(n / 36) % 6) },${ lvl(Math.floor(n / 6) % 6) },${ lvl(n % 6) })`;
+  }
+
+  const g = ((i - 232) * 10) + 8;
+
+  return `rgb(${ g },${ g },${ g })`;
+}
+
+function rgbHex(v) {
+  return `#${ (v & 0xffffff).toString(16).padStart(6, '0') }`;
+}
+
+function fgOf(c) {
+  if (c.isFgDefault()) {
+    return '';
+  }
+
+  return c.isFgRGB() ? rgbHex(c.getFgColor()) : (c.isFgPalette() ? paletteColor(c.getFgColor()) : '');
+}
+
+function bgOf(c) {
+  if (c.isBgDefault()) {
+    return '';
+  }
+
+  return c.isBgRGB() ? rgbHex(c.getBgColor()) : (c.isBgPalette() ? paletteColor(c.getBgColor()) : '');
+}
+
+/**
+ * Paint cells [from, to) as spans, one per run of identical styling.
+ *
+ * This is what closes the gap the image leaves: the tail of the line is drawn here, right after
+ * the image, rather than left where the terminal put it - the terminal cannot reflow, so the
+ * text that followed the path would otherwise sit stranded where the path used to end.
+ */
+function appendRuns(el, line, from, to, cellBuf, theme) {
+  let run = '';
+  let sig = null;
+  let style = {};
+  let runStart = from;
+  const flush = (upto) => {
+    if (!run) {
+      runStart = upto;
+
+      return;
+    }
+
+    const span = document.createElement('span');
+
+    span.textContent = run;
+    if (style.fg) {
+      span.style.color = style.fg;
+    }
+    if (style.bg) {
+      span.style.background = style.bg;
+    }
+    if (style.bold) {
+      span.style.fontWeight = 'bold';
+    }
+    if (style.dim) {
+      span.style.opacity = '0.6';
+    }
+    if (style.italic) {
+      span.style.fontStyle = 'italic';
+    }
+    if (style.underline) {
+      span.style.textDecoration = 'underline';
+    }
+    // Buffer columns, not characters: the caret is placed by counting these.
+    span.dataset.cols = String(upto - runStart);
+    el.appendChild(span);
+    run = '';
+    runStart = upto;
+  };
+
+  for (let x = from; x < to; x++) {
+    const c = cellBuf ? line.getCell(x, cellBuf) && cellBuf : line.getCell(x);
+
+    if (!c || c.getWidth() === 0) {
+      continue;
+    }
+
+    const next = {
+      fg:        c.isInverse() ? theme.background : fgOf(c),
+      bg:        c.isInverse() ? theme.foreground : bgOf(c),
+      bold:      c.isBold() ? '1' : '',
+      dim:       c.isDim() ? '1' : '',
+      italic:    c.isItalic() ? '1' : '',
+      underline: c.isUnderline() ? '1' : '',
+    };
+    const nextSig = Object.values(next).join('|');
+
+    if (nextSig !== sig) {
+      flush(x);
+      sig = nextSig;
+      style = next;
+    }
+
+    run += c.getChars() || ' ';
+  }
+
+  flush(to);
+}
+
+/**
+ * Where the caret belongs in a collapsed line, and how wide it should be.
+ *
+ * Walk the overlay's children counting the buffer columns each stands for. A column inside the
+ * image gets the image's whole box: those columns are a picture now, and a thin bar sliding
+ * through it in fractions of a pixel would just look stuck.
+ */
+function caretBox(el, start, col, cellW) {
+  let acc = start;
+
+  for (const child of Array.from(el.children)) {
+    const cols = Number(child.dataset.cols || 0);
+
+    if (col < acc + cols) {
+      return child.tagName === 'IMG'
+        ? { x: child.offsetLeft, w: child.offsetWidth }
+        : { x: child.offsetLeft + ((col - acc) * cellW), w: cellW };
+    }
+
+    acc += cols;
+  }
+
+  const last = el.lastElementChild;
+  const contentEnd = last ? last.offsetLeft + last.offsetWidth : 0;
+
+  return { x: contentEnd + (Math.max(0, col - acc) * cellW), w: cellW };
+}
+
+const IMAGE_PATH_RE = /(?:~|\.{1,2})?\/[\w.@+/-]*\.(?:png|jpe?g|gif|webp|bmp)\b/gi;
 
 // The row a phone keyboard is missing. Termux, Blink and iSH all ship one for
 // the same reason: without arrows there is no way to go back and fix a typo,
@@ -183,6 +369,20 @@ export default {
       thumbFrame:   0,
       thumbSrc:     {},
       thumbMissing: {},
+      // Overlays are kept per replaced span rather than rebuilt each frame, and the caret is the
+      // stand-in drawn when a thumbnail has collapsed the cursor's own line.
+      thumbImgs:    {},
+      // The signature of the overlays currently in the DOM, so an unchanged screen is left alone.
+      thumbSig:     '',
+      advanceCache: {},
+      caretEl:      null,
+      // Sizing: the coalescing frame, the settle timer, how much of the viewport the on-screen
+      // keyboard covers, and where a touch drag started.
+      fitFrame:     0,
+      settleTimer:  null,
+      kbInset:      0,
+      touchY:       0,
+      touchAcc:     0,
       // Set while an image is on its way into the pod, and if it failed to get there.
       pasting:      false,
       imageError:   '',
@@ -219,6 +419,12 @@ export default {
   },
 
   async mounted() {
+    // A handle for looking at what this pane believes: which images it has read, which it gave
+    // up on, what the grid is. Cheap, and the alternative is guessing from the outside.
+    if (this.$el) {
+      this.$el.__mcTerm = this;
+    }
+
     await this.setupTerminal();
     this.connectWhenPodIsUp();
 
@@ -226,7 +432,20 @@ export default {
     // sits in the background for an hour, the pod restarts. Coming back to the tab is exactly
     // when somebody wants the session, so that is when it is reattached - rather than leaving
     // them to notice the dead pane and press a button.
-    this.onRefocus = () => this.reconnectIfDropped();
+    this.onRefocus = () => {
+      this.reconnectIfDropped();
+      // Coming back to the tab is also when a stale grid shows itself, so re-measure.
+      this.settleFits();
+    };
+    this.onViewport = () => this.onViewportResize();
+    this.onFontQuery = () => this.onFontSizeQuery();
+    window.visualViewport?.addEventListener('resize', this.onViewport);
+    window.visualViewport?.addEventListener('scroll', this.onViewport);
+    mobileQuery?.addEventListener?.('change', this.onFontQuery);
+    this.$refs.xterm?.addEventListener('touchstart', this.onTouchStartBound = (e) => this.onTouchStart(e), { passive: true });
+    this.$refs.xterm?.addEventListener('touchmove', this.onTouchMoveBound = (e) => this.onTouchMove(e), { passive: false });
+    // The layout is not settled the moment this mounts: measure again once it is.
+    this.settleFits();
     window.addEventListener('focus', this.onRefocus);
     document.addEventListener('visibilitychange', this.onRefocus);
     this.$refs.xterm?.addEventListener('focusin', this.onRefocus);
@@ -234,6 +453,13 @@ export default {
 
   beforeUnmount() {
     this.unmounted = true;
+    clearTimeout(this.settleTimer);
+    cancelAnimationFrame(this.fitFrame);
+    window.visualViewport?.removeEventListener('resize', this.onViewport);
+    window.visualViewport?.removeEventListener('scroll', this.onViewport);
+    mobileQuery?.removeEventListener?.('change', this.onFontQuery);
+    this.$refs.xterm?.removeEventListener('touchstart', this.onTouchStartBound);
+    this.$refs.xterm?.removeEventListener('touchmove', this.onTouchMoveBound);
     window.removeEventListener('focus', this.onRefocus);
     document.removeEventListener('visibilitychange', this.onRefocus);
     this.$refs.xterm?.removeEventListener('focusin', this.onRefocus);
@@ -306,7 +532,7 @@ export default {
       const terminal = new xterm.Terminal({
         allowProposedApi: true,
         cursorBlink:      true,
-        fontSize:         13,
+        fontSize:         terminalFontSize(),
         // Harness Terminal is bundled with the extension (assets/fonts). The
         // rest of the list is what a browser has anyway, for the moment before
         // the webfont loads and for the case where it failed to.
@@ -408,7 +634,11 @@ export default {
       // sees text, which is why this listens on the element rather than through the terminal.
       const pane = this.$refs.xterm;
 
-      pane.addEventListener('paste', (event) => this.onImages(event, event.clipboardData));
+      // Capture, not bubble. xterm's paste handler lives on the textarea inside this element and
+      // calls stopPropagation, so a listener here never sees a real Ctrl+V - only the synthetic
+      // events a test dispatches at this element directly, which is exactly how this looked
+      // tested and was not. Capture runs on the way down, ahead of xterm.
+      pane.addEventListener('paste', (event) => this.onImages(event, event.clipboardData), true);
       pane.addEventListener('dragover', (event) => event.preventDefault());
       pane.addEventListener('drop', (event) => this.onImages(event, event.dataTransfer));
 
@@ -426,7 +656,7 @@ export default {
 
       // The pane is resizable (the editor's divider) and the window is too, so
       // the size is watched rather than taken once.
-      this.resizeObserver = new ResizeObserver(() => this.fit());
+      this.resizeObserver = new ResizeObserver(() => this.scheduleFit());
       this.resizeObserver.observe(this.$refs.xterm);
       this.fit();
     },
@@ -657,11 +887,13 @@ export default {
     },
 
     /**
-     * Draw an image over each image path on screen.
+     * Draw each image path as the image, in as many whole cells as the image actually needs.
      *
-     * The chip covers exactly the cells the path occupies, opaque, so the text underneath is
-     * hidden rather than showing through - and it is only ever as wide as the path, so anything
-     * typed after it stays where the terminal put it.
+     * The image is scaled to the line's height, its width rounded up to a whole number of cells
+     * and the picture centred across them - two and a half cells wide becomes three. The rest of
+     * the path's columns are collapsed away: the tail of the line is re-rendered immediately
+     * after the image, in the colours the terminal gave it, so forty-seven columns of filename
+     * become three cells of picture and the line closes up behind it.
      */
     drawThumbs() {
       const screen = this.terminal?.element?.querySelector('.xterm-screen');
@@ -675,10 +907,16 @@ export default {
         this.thumbLayer = document.createElement('div');
         this.thumbLayer.className = 'mc-terminal__thumbs';
         screen.appendChild(this.thumbLayer);
+        this.thumbSig = '';
       }
 
       const buf = this.terminal.buffer.active;
-      const frag = document.createDocumentFragment();
+      const theme = {
+        background: this.terminal.options.theme?.background || '#141419',
+        foreground: this.terminal.options.theme?.foreground || '#eee',
+      };
+      const cellBuf = buf.getNullCell?.();
+      const wanted = [];
 
       for (let row = 0; row < this.terminal.rows; row++) {
         const line = buf.getLine(buf.viewportY + row);
@@ -689,9 +927,11 @@ export default {
 
         const text = line.translateToString(true);
 
-        if (!text.includes('.')) {
+        if (!text.includes('/')) {
           continue;
         }
+
+        const hits = [];
 
         IMAGE_PATH_RE.lastIndex = 0;
         for (let hit = IMAGE_PATH_RE.exec(text); hit; hit = IMAGE_PATH_RE.exec(text)) {
@@ -705,48 +945,255 @@ export default {
 
           if (src === undefined) {
             this.thumbFor(path);
-            continue;
+          } else if (src) {
+            hits.push({ name: path, index: hit.index, src });
           }
-
-          if (!src) {
-            continue;
-          }
-
-          const chip = document.createElement('div');
-
-          chip.className = 'mc-terminal__thumb';
-          chip.style.left = `${ hit.index * cell.w }px`;
-          chip.style.top = `${ row * cell.h }px`;
-          chip.style.width = `${ path.length * cell.w }px`;
-          chip.style.height = `${ cell.h }px`;
-          chip.title = path;
-
-          const img = document.createElement('img');
-
-          img.src = src;
-          chip.appendChild(img);
-          chip.addEventListener('click', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            this.openPath(path);
-          });
-          frag.appendChild(chip);
         }
+
+        if (!hits.length) {
+          continue;
+        }
+
+        let end = text.length;
+
+        if (end && BOX_EDGE.test(text[end - 1])) {
+          end -= 1;
+        }
+
+        while (end > 0 && text[end - 1] === ' ') {
+          end -= 1;
+        }
+
+        const start = hits[0].index;
+
+        if (end <= start) {
+          continue;
+        }
+
+        // Out to the pane's edge, so the cell being typed into is inside the overlay. A
+        // box-drawing character is a split layout's border and is left where it is.
+        while (end < this.terminal.cols && !BOX_EDGE.test(text[end] ?? ' ')) {
+          end += 1;
+        }
+
+        wanted.push({
+          row, start, end, line, hits, key: `${ row }:${ start }:${ text.slice(start, end) }`,
+        });
       }
 
-      this.thumbLayer.replaceChildren(frag);
+      // Touch the DOM only when the overlays actually change: rebuilding every frame tears the
+      // image out from under a click that spans a repaint, and something always repaints.
+      const sig = wanted.map((w) => w.key).join('|');
+      const rebuild = sig !== this.thumbSig || this.thumbLayer.childElementCount !== wanted.length;
+
+      if (rebuild) {
+        this.thumbSig = sig;
+        this.thumbLayer.replaceChildren();
+        this.caretEl = null;
+      }
+
+      let caretRow = null;
+
+      wanted.forEach((w, i) => {
+        let el = rebuild ? null : this.thumbLayer.children[i];
+
+        if (!el) {
+          el = document.createElement('div');
+          el.className = 'mc-terminal__thumb';
+          const font = String(this.terminal.options.fontFamily);
+          const size = this.terminal.options.fontSize;
+
+          el.style.fontFamily = font;
+          el.style.fontSize = `${ size }px`;
+          // Put the text back on the terminal's grid: see charAdvance.
+          el.style.letterSpacing = `${ cell.w - this.charAdvance(font, size) }px`;
+
+          let cursor = w.start;
+
+          for (const hit of w.hits) {
+            if (hit.index >= w.end) {
+              break;
+            }
+
+            if (hit.index < cursor) {
+              continue;
+            }
+
+            if (hit.index > cursor) {
+              appendRuns(el, w.line, cursor, hit.index, cellBuf, theme);
+            }
+
+            el.appendChild(this.thumbImage(hit, cell));
+            cursor = hit.index + hit.name.length;
+          }
+
+          if (cursor < w.end) {
+            appendRuns(el, w.line, cursor, w.end, cellBuf, theme);
+          }
+
+          this.thumbLayer.appendChild(el);
+        } else {
+          // Sizes depend on the image's natural aspect, which arrives after the first draw.
+          [...el.children].forEach((k) => {
+            if (k.tagName === 'IMG') {
+              this.sizeThumb(k, cell);
+            }
+          });
+        }
+
+        el.style.left = `${ snapPx(w.start * cell.w) }px`;
+        el.style.top = `${ snapPx(w.row * cell.h) }px`;
+        el.style.width = `${ snapPx((w.end - w.start) * cell.w) }px`;
+        el.style.height = `${ snapPx(cell.h) }px`;
+        el.style.lineHeight = `${ snapPx(cell.h) }px`;
+
+        if (buf.viewportY === buf.baseY && w.row === buf.cursorY && buf.cursorX >= w.start) {
+          caretRow = {
+            el, start: w.start, row: w.row,
+          };
+        }
+      });
+
+      this.drawCaret(caretRow, buf.cursorX, cell);
     },
 
-    /** Open a path from this session's own pod. */
-    async openPath(path) {
-      const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
+    /**
+     * xterm draws its caret at the cursor's real column, which on a collapsed line is far to the
+     * right of the text being typed. Hide it there and draw one here instead; every other line
+     * keeps the terminal's own.
+     */
+    drawCaret(hit, col, cell) {
+      const host = this.terminal?.element;
 
-      if (!pod) {
+      if (!hit || !this.thumbLayer) {
+        this.caretEl?.remove();
+        this.caretEl = null;
+        host?.classList.remove('mc-thumb-caret-on');
+
         return;
       }
 
-      this.viewerPod = pod;
-      this.viewerPath = path;
+      if (!this.caretEl || this.caretEl.parentElement !== this.thumbLayer) {
+        this.caretEl = document.createElement('div');
+        this.caretEl.className = 'mc-terminal__caret';
+        this.thumbLayer.appendChild(this.caretEl);
+      }
+
+      const box = caretBox(hit.el, hit.start, col, cell.w);
+
+      this.caretEl.style.left = `${ snapPx((hit.start * cell.w) + box.x) }px`;
+      this.caretEl.style.top = `${ snapPx(hit.row * cell.h) }px`;
+      this.caretEl.style.width = `${ snapPx(box.w) }px`;
+      this.caretEl.style.height = `${ snapPx(cell.h) }px`;
+      // Unfocused, xterm outlines the cell rather than filling it. Match that, or the terminal
+      // looks focused when it is not. A caret sitting on the image is always an outline: filled,
+      // it would hide the picture it is meant to be pointing at.
+      this.caretEl.classList.toggle('hollow', box.w > cell.w || !host?.classList.contains('focus'));
+      host?.classList.add('mc-thumb-caret-on');
+    },
+
+    /**
+     * How far one character advances in the DOM, for the terminal's own font and size.
+     *
+     * It is not the cell width. xterm paints each glyph at an exact multiple of the cell on a
+     * canvas, while the DOM advances by whatever the font says - here 7.6px against a 7px cell -
+     * and the two disagree a little more with every character. Two hundred columns of re-rendered
+     * tail put the text a hundred and seventy pixels right of the grid, which is the caret
+     * falling steadily further behind what is being typed. Measured once per font and size, and
+     * corrected with letter-spacing below.
+     */
+    charAdvance(font, size) {
+      const key = `${ font }|${ size }`;
+
+      if (this.advanceCache[key]) {
+        return this.advanceCache[key];
+      }
+
+      const probe = document.createElement('span');
+
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;';
+      probe.style.fontFamily = font;
+      probe.style.fontSize = `${ size }px`;
+      probe.textContent = 'M'.repeat(100);
+      (this.thumbLayer || document.body).appendChild(probe);
+
+      const advance = probe.getBoundingClientRect().width / 100;
+
+      probe.remove();
+
+      if (advance > 0) {
+        this.advanceCache = { ...this.advanceCache, [key]: advance };
+      }
+
+      return advance || size * 0.6;
+    },
+
+    /** The image's box: its own aspect at one line tall, rounded up to whole cells. */
+    sizeThumb(img, cell) {
+      const aspect = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1;
+      const cols = Math.max(1, Math.ceil((cell.h * aspect) / cell.w));
+
+      img.style.width = `${ snapPx(cols * cell.w) }px`;
+      img.style.height = `${ snapPx(cell.h) }px`;
+    },
+
+    /** One <img> per path, kept, so a repaint never re-decodes it or interrupts a click on it. */
+    thumbImage(hit, cell) {
+      let img = this.thumbImgs[hit.name];
+
+      if (!img) {
+        img = document.createElement('img');
+        img.src = hit.src;
+        img.alt = hit.name;
+        img.title = `${ hit.name } - click to view`;
+        // Until it loads the image measures zero wide, and the caret is placed by walking these
+        // children's widths, so re-place once there is a real width.
+        img.addEventListener('load', () => this.scheduleThumbs());
+        img.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this.openPath(hit.name);
+        });
+        this.thumbImgs[hit.name] = img;
+      }
+
+      // The buffer columns this image stands for - the whole path - which is what the caret
+      // counts. How wide it is drawn is a separate question, answered by sizeThumb.
+      img.dataset.cols = String(hit.name.length);
+      this.sizeThumb(img, cell);
+
+      return img;
+    },
+
+    /**
+     * The clipboard, for when the keystroke never becomes a paste event this can see.
+     *
+     * Reading it needs permission the browser may refuse; saying so beats the silence that made
+     * a refused read look like nothing had happened at all.
+     */
+    async pasteFromClipboard() {
+      try {
+        const items = await navigator.clipboard.read();
+
+        for (const item of items) {
+          const type = item.types.find((t) => t.startsWith('image/'));
+
+          if (!type) {
+            continue;
+          }
+
+          const blob = await item.getType(type);
+
+          await this.onImages({ preventDefault: () => {} }, { files: [new File([blob], 'clipboard', { type })] });
+
+          return;
+        }
+      } catch (e) {
+        this.imageError = `could not read the clipboard: ${ e.message || e }`;
+        setTimeout(() => {
+          this.imageError = '';
+        }, 6000);
+      }
     },
 
     async onImages(event, source) {
@@ -827,21 +1274,176 @@ export default {
     },
 
     fit() {
-      if (!this.fitAddon || !this.$refs.xterm?.clientWidth) {
+      // Measuring a box that is not laid out yet is how the grid ends up a sliver and stays
+      // there: fit() commits an 11x5 grid quite happily, and nothing measures again until
+      // something forces a resize. Skip until there is a real box.
+      const box = this.$refs.xterm?.getBoundingClientRect();
+
+      if (!this.fitAddon || !box || box.width < 40 || box.height < 20) {
         return;
       }
 
-      this.fitAddon.fit();
+      try {
+        this.fitAddon.fit();
+        this.sendResize();
+      } catch { /* a fit against a box mid-layout */ }
+    },
 
-      if (this.state !== 'open') {
+    sendResize() {
+      if (this.state !== 'open' || !this.terminal) {
         return;
       }
 
-      const { cols, rows } = this.fitAddon.proposeDimensions() || {};
+      const { cols, rows } = this.terminal;
 
-      if (cols && rows) {
-        this.send(RESIZE + base64Encode(JSON.stringify({ Width: Math.floor(cols), Height: Math.floor(rows) })));
+      // A grid this small is a bad measurement, and telling tmux about it makes it repaint the
+      // pane at that size - which is the state somebody then has to resize the window to escape.
+      if (!cols || !rows || cols < MIN_COLS || rows < MIN_ROWS) {
+        return;
       }
+
+      this.send(RESIZE + base64Encode(JSON.stringify({ Width: Math.floor(cols), Height: Math.floor(rows) })));
+    },
+
+    /**
+     * Re-fitting alone does not repair a bad paint.
+     *
+     * FitAddon.fit() only resizes when the computed grid DIFFERS from what the terminal already
+     * has, so a terminal that measured its box while the font or the canvas was not ready keeps
+     * its wrong-looking output for ever: every later fit is a no-op. That is why the fix has
+     * always been to resize the window by hand.
+     *
+     * So this does three things a fit cannot: re-measure the character cell, drop the glyph
+     * cache, and repaint every row.
+     */
+    revive() {
+      if (!this.terminal) {
+        return;
+      }
+
+      try {
+        this.terminal.clearTextureAtlas?.();
+      } catch { /* older xterm */ }
+      try {
+        this.terminal._core?._charSizeService?.measure?.();
+      } catch { /* private, and allowed to move */ }
+
+      const box = this.$refs.xterm?.getBoundingClientRect();
+      const dims = box && box.width >= 40 && box.height >= 20 ? this.fitAddon?.proposeDimensions() : null;
+
+      if (dims && Number.isFinite(dims.cols) && Number.isFinite(dims.rows) && dims.cols >= MIN_COLS && dims.rows >= MIN_ROWS) {
+        try {
+          if (dims.cols !== this.terminal.cols || dims.rows !== this.terminal.rows) {
+            this.terminal.resize(dims.cols, dims.rows);
+          } else {
+            // The numbers already match, so resize() would decline. Bounce by a column and back:
+            // that is a real relayout, which re-sizes the renderer's canvas as well as the grid,
+            // and is exactly what dragging the window edge did by hand.
+            this.terminal.resize(Math.max(MIN_COLS, dims.cols - 1), dims.rows);
+            this.terminal.resize(dims.cols, dims.rows);
+          }
+
+          this.sendResize();
+        } catch { /* ignore */ }
+      }
+
+      try {
+        this.terminal.refresh(0, this.terminal.rows - 1);
+      } catch { /* ignore */ }
+
+      this.scheduleThumbs();
+    },
+
+    /** Coalesce the several triggers into one pass per frame. */
+    scheduleFit(hard = false) {
+      if (this.fitFrame) {
+        return;
+      }
+
+      this.fitFrame = requestAnimationFrame(() => {
+        this.fitFrame = 0;
+
+        if (hard) {
+          this.revive();
+        } else {
+          this.fit();
+        }
+      });
+    },
+
+    /**
+     * Becoming visible is not one moment: the element is inserted, the flex layout settles, the
+     * font resolves, and the first frame paints - each a chance to measure too early. One revive
+     * once the layout has had a frame or two, rather than a burst of them, which is four chances
+     * to be right and four visible flashes.
+     */
+    settleFits() {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = setTimeout(() => this.scheduleFit(true), 150);
+    },
+
+    /** The phone keyboard must never bury the line being typed. */
+    onViewportResize() {
+      const vv = window.visualViewport;
+      const el = this.$refs.xterm;
+
+      if (!vv || !el) {
+        return;
+      }
+
+      const covered = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+
+      // Ignore the small continuous changes a scroll produces; only a keyboard opening or
+      // closing is worth a refit.
+      if (Math.abs(covered - this.kbInset) < 24) {
+        return;
+      }
+
+      this.kbInset = covered;
+      el.style.setProperty('--kb-inset', `${ covered }px`);
+      this.scheduleFit();
+      requestAnimationFrame(() => this.terminal?.scrollToBottom());
+    },
+
+    onFontSizeQuery() {
+      if (!this.terminal) {
+        return;
+      }
+
+      this.terminal.options.fontSize = terminalFontSize();
+      this.scheduleFit(true);
+    },
+
+    // tmux owns the scrollback - the xterm viewport only holds the current screen - so a touch
+    // drag is turned into wheel notches for tmux rather than a scroll of an empty viewport.
+    onTouchStart(event) {
+      this.touchY = event.touches[0]?.clientY ?? 0;
+      this.touchAcc = 0;
+    },
+
+    onTouchMove(event) {
+      const y = event.touches[0]?.clientY ?? 0;
+      const dy = y - this.touchY;
+
+      this.touchY = y;
+      this.touchAcc += dy;
+
+      const lines = Math.trunc(this.touchAcc / TOUCH_LINE_PX);
+
+      if (!lines) {
+        return;
+      }
+
+      this.touchAcc -= lines * TOUCH_LINE_PX;
+      event.preventDefault();
+      this.wheel(Math.abs(lines), lines > 0);
+    },
+
+    /** Wheel notches, as tmux expects them. */
+    wheel(lines, up) {
+      const seq = up ? '\x1b[A' : '\x1b[B';
+
+      this.sendKeys(seq.repeat(Math.min(lines, 10)));
     },
   },
 };
@@ -922,41 +1524,57 @@ export default {
   inset: 0;
   // The rows underneath keep their clicks, their selection and their wheel events.
   pointer-events: none;
+  overflow: hidden;
   z-index: 5;
 }
 
-// Covers exactly the cells the path occupies, opaque, so the text under it is hidden. The image
-// itself is allowed to overflow upward - a thumbnail one row tall would show nothing.
+// Covers the cells from the filename to the end of the line, opaque, with the thumbnail and the
+// rest of the sentence re-rendered inside it. Re-rendering is what closes the hole: the terminal
+// cannot reflow, so text that followed the name would otherwise stay where the name used to end.
 .mc-terminal__thumb {
   position: absolute;
   display: flex;
   align-items: center;
-  pointer-events: auto;
-  cursor: pointer;
-  overflow: visible;
+  white-space: pre;
   background: var(--terminal-bg, #141419);
+  color: var(--terminal-text, #ece4e8);
+  pointer-events: auto;
+  overflow: visible;
 }
 
 .mc-terminal__thumb img {
-  max-height: 44px;
-  max-width: 100%;
-  border: 1px solid var(--border, #444);
+  // Sized inline to whole cells; contained rather than cropped, so the picture is centred in
+  // the cells it was given instead of being cut to fill them.
+  flex: none;
+  object-fit: contain;
   border-radius: 2px;
-  background: #000;
+  cursor: pointer;
+  display: block;
 }
 
-/* The on-screen key row: thumb-sized targets, scrolling sideways rather than
-   wrapping, and out of the terminal's way. */
-.mc-terminal__keys {
-  display: flex;
-  gap: 4px;
-  padding: 4px 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  background: var(--nav-bg);
-  border-top: 1px solid var(--border);
-  padding-bottom: max(4px, env(safe-area-inset-bottom));
+.mc-terminal__thumb:hover img {
+  border-color: var(--link, #3d98d3);
 }
+
+// The stand-in caret for a line a thumbnail collapsed, and xterm's own cursor hidden while it is
+// showing - two carets on one line is worse than the one in the wrong place.
+.mc-terminal__caret {
+  position: absolute;
+  background: var(--terminal-cursor, #ece4e8);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.mc-terminal__caret.hollow {
+  background: none;
+  outline: 1px solid var(--terminal-cursor, #ece4e8);
+  outline-offset: -1px;
+}
+
+.mc-thumb-caret-on .xterm-cursor-layer {
+  display: none;
+}
+
 
 .mc-terminal__keys::-webkit-scrollbar {
   display: none;
