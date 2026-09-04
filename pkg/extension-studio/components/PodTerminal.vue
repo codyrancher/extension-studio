@@ -56,22 +56,17 @@ const URL_RE = /\bhttps?:\/\/[^\s"'`<>()[\]]+/g;
 // A path has to contain a separator, so a bare word, a flag, or a sentence is never a link. The
 // optional :line:col suffix is stripped off the opened path but kept in the underlined text,
 // because that is how an agent prints a location and how a person expects to click it.
-const PATH_RE = /(?:^|[\s"'`(<[=])((?:~|\.{1,2})?\/[\w.@+\-]+(?:\/[\w.@+\-]+)*\/?)(:\d+(?::\d+)?)?/g;
+// The character before a path only has to be one a path cannot contain. The narrower class this
+// used to be - whitespace and a few brackets - missed every path a TUI draws hard against its own
+// frame: `__/workspace/.images/shot.png` at a composer's left edge matched nothing at all. Letters
+// and digits still block a match, so `and/or` in a sentence stays prose.
+const PATH_RE = /(?:^|[^A-Za-z0-9.@+\-])((?:~|\.{1,2})?\/[\w.@+\-]+(?:\/[\w.@+\-]+)*\/?|[A-Za-z0-9][\w.@+\-]*(?:\/[\w.@+\-]+)+\/?)(?::\d+(?::\d+)?)?/g;
 // What a slash between words is not: a date, a fraction, and the few English constructions
 // that use one. Without this every "and/or" in a sentence lights up as a file.
 const NOT_A_PATH = /^(?:\d+\/\d+(?:\/\d+)?|(?:and|or|either|his|her|its|s?he|yes|no|on|off|true|false|w|n|km|mi)\/[a-z]{1,3})$/i;
 // Trailing punctuation belongs to the sentence the path sits in, not to the name.
 const TRAILING = /[.,;:!?)\]}'"`]+$/;
-// A path that points at an image. Anything under the paste directory counts, and so does any
-// path ending in an image extension - an agent prints both.
-// Round to the display's own pixel grid, so DOM text drawn over the canvas rasterizes on whole
-// device pixels rather than halfway across one - which is what makes an overlay look soft next
-// to the crisp canvas under it.
-function snapPx(v) {
-  const dpr = window.devicePixelRatio || 1;
 
-  return Math.round(v * dpr) / dpr;
-}
 
 // A box border in the last column belongs to the TUI's frame, not to the sentence: collapsing it
 // inward would visibly bend the composer's box, so it is left where the terminal drew it.
@@ -92,7 +87,6 @@ function terminalFontSize() {
 // How far one wheel notch scrolls tmux's scrollback on a touch drag.
 const TOUCH_LINE_PX = 24;
 
-const BOX_EDGE = /[\u2502\u2503\u2551\u258f\u2595|]/;
 
 
 
@@ -100,157 +94,12 @@ const BOX_EDGE = /[\u2502\u2503\u2551\u258f\u2595|]/;
 
 
 
-// Anchored at the separator that starts a path. Without that anchor the leading character class
-// swallows whatever is glued to the left of it - a TUI's own prompt glyph, or a word somebody
-// typed - and the result is a path that does not exist, read once, and given up on for good.
-/** The 256-colour palette, so a re-rendered run keeps the colour the terminal gave it. */
-function paletteColor(i) {
-  const ansi = [
-    '#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5',
-    '#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#e5e5e5',
-  ];
 
-  if (i < 16) {
-    return ansi[i];
-  }
 
-  if (i < 232) {
-    const n = i - 16;
-    const lvl = (v) => (v ? (v * 40) + 55 : 0);
 
-    return `rgb(${ lvl(Math.floor(n / 36) % 6) },${ lvl(Math.floor(n / 6) % 6) },${ lvl(n % 6) })`;
-  }
 
-  const g = ((i - 232) * 10) + 8;
 
-  return `rgb(${ g },${ g },${ g })`;
-}
 
-function rgbHex(v) {
-  return `#${ (v & 0xffffff).toString(16).padStart(6, '0') }`;
-}
-
-function fgOf(c) {
-  if (c.isFgDefault()) {
-    return '';
-  }
-
-  return c.isFgRGB() ? rgbHex(c.getFgColor()) : (c.isFgPalette() ? paletteColor(c.getFgColor()) : '');
-}
-
-function bgOf(c) {
-  if (c.isBgDefault()) {
-    return '';
-  }
-
-  return c.isBgRGB() ? rgbHex(c.getBgColor()) : (c.isBgPalette() ? paletteColor(c.getBgColor()) : '');
-}
-
-/**
- * Paint cells [from, to) as spans, one per run of identical styling.
- *
- * This is what closes the gap the image leaves: the tail of the line is drawn here, right after
- * the image, rather than left where the terminal put it - the terminal cannot reflow, so the
- * text that followed the path would otherwise sit stranded where the path used to end.
- */
-function appendRuns(el, line, from, to, cellBuf, theme) {
-  let run = '';
-  let sig = null;
-  let style = {};
-  let runStart = from;
-  const flush = (upto) => {
-    if (!run) {
-      runStart = upto;
-
-      return;
-    }
-
-    const span = document.createElement('span');
-
-    span.textContent = run;
-    if (style.fg) {
-      span.style.color = style.fg;
-    }
-    if (style.bg) {
-      span.style.background = style.bg;
-    }
-    if (style.bold) {
-      span.style.fontWeight = 'bold';
-    }
-    if (style.dim) {
-      span.style.opacity = '0.6';
-    }
-    if (style.italic) {
-      span.style.fontStyle = 'italic';
-    }
-    if (style.underline) {
-      span.style.textDecoration = 'underline';
-    }
-    // Buffer columns, not characters: the caret is placed by counting these.
-    span.dataset.cols = String(upto - runStart);
-    el.appendChild(span);
-    run = '';
-    runStart = upto;
-  };
-
-  for (let x = from; x < to; x++) {
-    const c = cellBuf ? line.getCell(x, cellBuf) && cellBuf : line.getCell(x);
-
-    if (!c || c.getWidth() === 0) {
-      continue;
-    }
-
-    const next = {
-      fg:        c.isInverse() ? theme.background : fgOf(c),
-      bg:        c.isInverse() ? theme.foreground : bgOf(c),
-      bold:      c.isBold() ? '1' : '',
-      dim:       c.isDim() ? '1' : '',
-      italic:    c.isItalic() ? '1' : '',
-      underline: c.isUnderline() ? '1' : '',
-    };
-    const nextSig = Object.values(next).join('|');
-
-    if (nextSig !== sig) {
-      flush(x);
-      sig = nextSig;
-      style = next;
-    }
-
-    run += c.getChars() || ' ';
-  }
-
-  flush(to);
-}
-
-/**
- * Where the caret belongs in a collapsed line, and how wide it should be.
- *
- * Walk the overlay's children counting the buffer columns each stands for. A column inside the
- * image gets the image's whole box: those columns are a picture now, and a thin bar sliding
- * through it in fractions of a pixel would just look stuck.
- */
-function caretBox(el, start, col, cellW) {
-  let acc = start;
-
-  for (const child of Array.from(el.children)) {
-    const cols = Number(child.dataset.cols || 0);
-
-    if (col < acc + cols) {
-      return child.tagName === 'IMG'
-        ? { x: child.offsetLeft, w: child.offsetWidth }
-        : { x: child.offsetLeft + ((col - acc) * cellW), w: cellW };
-    }
-
-    acc += cols;
-  }
-
-  const last = el.lastElementChild;
-  const contentEnd = last ? last.offsetLeft + last.offsetWidth : 0;
-
-  return { x: contentEnd + (Math.max(0, col - acc) * cellW), w: cellW };
-}
-
-const IMAGE_PATH_RE = /(?:~|\.{1,2})?\/[\w.@+/-]*\.(?:png|jpe?g|gif|webp|bmp)\b/gi;
 
 // The row a phone keyboard is missing. Termux, Blink and iSH all ship one for
 // the same reason: without arrows there is no way to go back and fix a typo,
@@ -363,21 +212,6 @@ export default {
       // The path a clicked link opened, and the pod to read it from.
       viewerPath:   '',
       viewerPod:    '',
-      // The thumbnail layer, the frame it is waiting on, and the images that turned out not to
-      // be readable - asking for those again on every repaint would be a request per frame.
-      thumbLayer:   null,
-      thumbFrame:   0,
-      thumbSrc:     {},
-      thumbMissing: {},
-      // Overlays are kept per replaced span rather than rebuilt each frame, and the caret is the
-      // stand-in drawn when a thumbnail has collapsed the cursor's own line.
-      thumbImgs:    {},
-      // The signature of the overlays currently in the DOM, so an unchanged screen is left alone.
-      thumbSig:     '',
-      advanceCache: {},
-      caretEl:      null,
-      // Sizing: the coalescing frame, the settle timer, how much of the viewport the on-screen
-      // keyboard covers, and where a touch drag started.
       fitFrame:     0,
       settleTimer:  null,
       kbInset:      0,
@@ -650,9 +484,6 @@ export default {
       // terminal and typing stops working.
       terminal.registerLinkProvider({ provideLinks: (row, callback) => callback(this.linksFor(row, terminal)) });
 
-      // Every repaint can move the text, so the thumbnails are re-placed after it.
-      terminal.onRender(() => this.scheduleThumbs());
-      terminal.onScroll(() => this.scheduleThumbs());
 
       // The pane is resizable (the editor's divider) and the window is too, so
       // the size is watched rather than taken once.
@@ -777,10 +608,59 @@ export default {
     },
 
     /**
-     * The links on one row: every URL, and every path that looks like one on purpose.
+     * The whole logical line a row belongs to, and how to get back from it to the screen.
      *
-     * A URL opens in a tab. A path opens in the viewer, which reads it out of the pod this
-     * session is attached to, so it works for anything the session can see.
+     * A path or a URL longer than the pane wraps, and xterm keeps the continuation in the next
+     * row with `isWrapped` set. Reading one row at a time therefore sees two halves of a name
+     * and matches neither - or worse, matches each half as a link to something that does not
+     * exist. Rows in a wrapped run are exactly `cols` wide, so an index into the joined text maps
+     * straight back to a row and a column.
+     */
+    logicalLine(terminal, row) {
+      const buf = terminal.buffer.active;
+      let first = row;
+
+      while (first > 1 && buf.getLine(buf.viewportY + first - 1)?.isWrapped) {
+        first -= 1;
+      }
+
+      let text = '';
+      let last = first;
+
+      for (let r = first; r <= terminal.rows; r++) {
+        const line = buf.getLine(buf.viewportY + r - 1);
+
+        if (!line || (r > first && !line.isWrapped)) {
+          break;
+        }
+
+        const next = buf.getLine(buf.viewportY + r);
+        const continues = !!next?.isWrapped;
+
+        // Every row but the last in the run is full width, so it is taken untrimmed - trimming
+        // would lose the columns that make the index arithmetic work.
+        text += continues ? line.translateToString(false) : line.translateToString(true);
+        last = r;
+
+        if (!continues) {
+          break;
+        }
+      }
+
+      return {
+        text,
+        first,
+        last,
+        at: (index) => ({ row: first + Math.floor(index / terminal.cols), col: index % terminal.cols }),
+      };
+    },
+
+    /**
+     * The links on a row: every URL, and every path that looks like one on purpose.
+     *
+     * Matched against the whole logical line, so a name that wrapped is one link rather than two
+     * broken halves. The range can span rows, which is what makes the underline continue onto
+     * the next one and either half open the same thing.
      */
     linksFor(row, terminal) {
       const line = terminal.buffer.active.getLine(row - 1);
@@ -789,20 +669,41 @@ export default {
         return undefined;
       }
 
-      const text = line.translateToString(true);
+      const logical = this.logicalLine(terminal, row);
+      const { text } = logical;
       const links = [];
-      const taken = (index, len) => links.some((l) => index + 1 <= l.range.end.x && l.range.start.x <= index + len);
+      const taken = [];
+      const add = (raw, index, activate) => {
+        if (taken.some(([s2, e2]) => index < e2 && s2 < index + raw.length)) {
+          return;
+        }
+
+        taken.push([index, index + raw.length]);
+
+        const from = logical.at(index);
+        const to = logical.at(index + raw.length - 1);
+
+        // Only offer it on the rows it actually covers: xterm asks per row, and a link claiming
+        // rows it does not touch would underline text it has nothing to do with.
+        if (row < from.row || row > to.row) {
+          return;
+        }
+
+        links.push({
+          range: {
+            start: { x: from.col + 1, y: from.row }, end: { x: to.col + 1, y: to.row },
+          },
+          text:        raw,
+          decorations: { pointerCursor: true, underline: true },
+          activate,
+        });
+      };
 
       URL_RE.lastIndex = 0;
       for (let hit = URL_RE.exec(text); hit; hit = URL_RE.exec(text)) {
         const raw = hit[0].replace(TRAILING, '');
 
-        links.push({
-          range:       { start: { x: hit.index + 1, y: row }, end: { x: hit.index + raw.length, y: row } },
-          text:        raw,
-          decorations: { pointerCursor: true, underline: true },
-          activate:    (_event, t) => window.open(t, '_blank', 'noopener'),
-        });
+        add(raw, hit.index, (_event, t) => window.open(t, '_blank', 'noopener'));
       }
 
       PATH_RE.lastIndex = 0;
@@ -810,12 +711,12 @@ export default {
         const raw = (hit[1] || '').replace(TRAILING, '');
         const index = hit.index + hit[0].indexOf(hit[1] || '');
 
-        if (raw.length < 3 || NOT_A_PATH.test(raw) || taken(index, raw.length)) {
+        if (raw.length < 3 || NOT_A_PATH.test(raw)) {
           continue;
         }
 
-        // A relative path has to look like one: a file with an extension, or deep enough that
-        // it cannot be a sentence with a slash in it.
+        // A relative path has to look like one: a file with an extension, or deep enough that it
+        // cannot be a sentence with a slash in it.
         const rooted = /^[~/.]/.test(raw);
         const hasExt = /\.[A-Za-z0-9]{1,8}$/.test(raw);
         const depth = (raw.match(/\//g) || []).length;
@@ -824,346 +725,21 @@ export default {
           continue;
         }
 
-        links.push({
-          range:       { start: { x: index + 1, y: row }, end: { x: index + raw.length, y: row } },
-          text:        raw,
-          decorations: { pointerCursor: true, underline: true },
-          // The line reference an agent appends (file.ts:253) is not part of the name.
-          activate:    (_event, t) => this.openPath(t.replace(/:\d+(?::\d+)?$/, '')),
-        });
+        // The line reference an agent appends (file.ts:253) is not part of the name.
+        add(raw, index, (_event, t) => this.openPath(t.replace(/:\d+(?::\d+)?$/, '')));
       }
 
       return links.length ? links : undefined;
     },
 
-    /** Coalesce the repaints xterm fires in bursts into one placement per frame. */
-    scheduleThumbs() {
-      if (this.thumbFrame) {
-        return;
-      }
 
-      this.thumbFrame = requestAnimationFrame(() => {
-        this.thumbFrame = 0;
-        this.drawThumbs();
-      });
-    },
 
-    /** One cell in CSS pixels, so an overlay lines up with the glyphs under it. */
-    cellSize() {
-      const dims = this.terminal?._core?._renderService?.dimensions?.css?.cell;
 
-      if (dims?.width && dims?.height) {
-        return { w: dims.width, h: dims.height };
-      }
 
-      const screen = this.terminal?.element?.querySelector('.xterm-screen');
 
-      if (!screen || !this.terminal?.cols || !this.terminal?.rows) {
-        return null;
-      }
 
-      return { w: screen.clientWidth / this.terminal.cols, h: screen.clientHeight / this.terminal.rows };
-    },
 
-    /** The image bytes for a path, fetched once and kept - a repaint must not re-read the pod. */
-    async thumbFor(path) {
-      if (this.thumbSrc[path] || this.thumbMissing[path]) {
-        return;
-      }
 
-      // Claimed before the await, so a burst of repaints starts one read rather than twenty.
-      this.thumbSrc = { ...this.thumbSrc, [path]: '' };
-
-      try {
-        const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
-        const base64 = await readPodFileBase64(pod, path, this.podContainer);
-        const ext = (path.split('.').pop() || 'png').toLowerCase();
-
-        this.thumbSrc = { ...this.thumbSrc, [path]: `data:image/${ ext === 'jpg' ? 'jpeg' : ext };base64,${ base64 }` };
-        this.scheduleThumbs();
-      } catch {
-        this.thumbMissing = { ...this.thumbMissing, [path]: true };
-      }
-    },
-
-    /**
-     * Draw each image path as the image, in as many whole cells as the image actually needs.
-     *
-     * The image is scaled to the line's height, its width rounded up to a whole number of cells
-     * and the picture centred across them - two and a half cells wide becomes three. The rest of
-     * the path's columns are collapsed away: the tail of the line is re-rendered immediately
-     * after the image, in the colours the terminal gave it, so forty-seven columns of filename
-     * become three cells of picture and the line closes up behind it.
-     */
-    drawThumbs() {
-      const screen = this.terminal?.element?.querySelector('.xterm-screen');
-      const cell = this.cellSize();
-
-      if (!screen || !cell) {
-        return;
-      }
-
-      if (!this.thumbLayer || this.thumbLayer.parentElement !== screen) {
-        this.thumbLayer = document.createElement('div');
-        this.thumbLayer.className = 'mc-terminal__thumbs';
-        screen.appendChild(this.thumbLayer);
-        this.thumbSig = '';
-      }
-
-      const buf = this.terminal.buffer.active;
-      const theme = {
-        background: this.terminal.options.theme?.background || '#141419',
-        foreground: this.terminal.options.theme?.foreground || '#eee',
-      };
-      const cellBuf = buf.getNullCell?.();
-      const wanted = [];
-
-      for (let row = 0; row < this.terminal.rows; row++) {
-        const line = buf.getLine(buf.viewportY + row);
-
-        if (!line) {
-          continue;
-        }
-
-        const text = line.translateToString(true);
-
-        if (!text.includes('/')) {
-          continue;
-        }
-
-        const hits = [];
-
-        IMAGE_PATH_RE.lastIndex = 0;
-        for (let hit = IMAGE_PATH_RE.exec(text); hit; hit = IMAGE_PATH_RE.exec(text)) {
-          const path = hit[0];
-
-          if (this.thumbMissing[path]) {
-            continue;
-          }
-
-          const src = this.thumbSrc[path];
-
-          if (src === undefined) {
-            this.thumbFor(path);
-          } else if (src) {
-            hits.push({ name: path, index: hit.index, src });
-          }
-        }
-
-        if (!hits.length) {
-          continue;
-        }
-
-        let end = text.length;
-
-        if (end && BOX_EDGE.test(text[end - 1])) {
-          end -= 1;
-        }
-
-        while (end > 0 && text[end - 1] === ' ') {
-          end -= 1;
-        }
-
-        const start = hits[0].index;
-
-        if (end <= start) {
-          continue;
-        }
-
-        // Out to the pane's edge, so the cell being typed into is inside the overlay. A
-        // box-drawing character is a split layout's border and is left where it is.
-        while (end < this.terminal.cols && !BOX_EDGE.test(text[end] ?? ' ')) {
-          end += 1;
-        }
-
-        wanted.push({
-          row, start, end, line, hits, key: `${ row }:${ start }:${ text.slice(start, end) }`,
-        });
-      }
-
-      // Touch the DOM only when the overlays actually change: rebuilding every frame tears the
-      // image out from under a click that spans a repaint, and something always repaints.
-      const sig = wanted.map((w) => w.key).join('|');
-      const rebuild = sig !== this.thumbSig || this.thumbLayer.childElementCount !== wanted.length;
-
-      if (rebuild) {
-        this.thumbSig = sig;
-        this.thumbLayer.replaceChildren();
-        this.caretEl = null;
-      }
-
-      let caretRow = null;
-
-      wanted.forEach((w, i) => {
-        let el = rebuild ? null : this.thumbLayer.children[i];
-
-        if (!el) {
-          el = document.createElement('div');
-          el.className = 'mc-terminal__thumb';
-          const font = String(this.terminal.options.fontFamily);
-          const size = this.terminal.options.fontSize;
-
-          el.style.fontFamily = font;
-          el.style.fontSize = `${ size }px`;
-          // Put the text back on the terminal's grid: see charAdvance.
-          el.style.letterSpacing = `${ cell.w - this.charAdvance(font, size) }px`;
-
-          let cursor = w.start;
-
-          for (const hit of w.hits) {
-            if (hit.index >= w.end) {
-              break;
-            }
-
-            if (hit.index < cursor) {
-              continue;
-            }
-
-            if (hit.index > cursor) {
-              appendRuns(el, w.line, cursor, hit.index, cellBuf, theme);
-            }
-
-            el.appendChild(this.thumbImage(hit, cell));
-            cursor = hit.index + hit.name.length;
-          }
-
-          if (cursor < w.end) {
-            appendRuns(el, w.line, cursor, w.end, cellBuf, theme);
-          }
-
-          this.thumbLayer.appendChild(el);
-        } else {
-          // Sizes depend on the image's natural aspect, which arrives after the first draw.
-          [...el.children].forEach((k) => {
-            if (k.tagName === 'IMG') {
-              this.sizeThumb(k, cell);
-            }
-          });
-        }
-
-        el.style.left = `${ snapPx(w.start * cell.w) }px`;
-        el.style.top = `${ snapPx(w.row * cell.h) }px`;
-        el.style.width = `${ snapPx((w.end - w.start) * cell.w) }px`;
-        el.style.height = `${ snapPx(cell.h) }px`;
-        el.style.lineHeight = `${ snapPx(cell.h) }px`;
-
-        if (buf.viewportY === buf.baseY && w.row === buf.cursorY && buf.cursorX >= w.start) {
-          caretRow = {
-            el, start: w.start, row: w.row,
-          };
-        }
-      });
-
-      this.drawCaret(caretRow, buf.cursorX, cell);
-    },
-
-    /**
-     * xterm draws its caret at the cursor's real column, which on a collapsed line is far to the
-     * right of the text being typed. Hide it there and draw one here instead; every other line
-     * keeps the terminal's own.
-     */
-    drawCaret(hit, col, cell) {
-      const host = this.terminal?.element;
-
-      if (!hit || !this.thumbLayer) {
-        this.caretEl?.remove();
-        this.caretEl = null;
-        host?.classList.remove('mc-thumb-caret-on');
-
-        return;
-      }
-
-      if (!this.caretEl || this.caretEl.parentElement !== this.thumbLayer) {
-        this.caretEl = document.createElement('div');
-        this.caretEl.className = 'mc-terminal__caret';
-        this.thumbLayer.appendChild(this.caretEl);
-      }
-
-      const box = caretBox(hit.el, hit.start, col, cell.w);
-
-      this.caretEl.style.left = `${ snapPx((hit.start * cell.w) + box.x) }px`;
-      this.caretEl.style.top = `${ snapPx(hit.row * cell.h) }px`;
-      this.caretEl.style.width = `${ snapPx(box.w) }px`;
-      this.caretEl.style.height = `${ snapPx(cell.h) }px`;
-      // Unfocused, xterm outlines the cell rather than filling it. Match that, or the terminal
-      // looks focused when it is not. A caret sitting on the image is always an outline: filled,
-      // it would hide the picture it is meant to be pointing at.
-      this.caretEl.classList.toggle('hollow', box.w > cell.w || !host?.classList.contains('focus'));
-      host?.classList.add('mc-thumb-caret-on');
-    },
-
-    /**
-     * How far one character advances in the DOM, for the terminal's own font and size.
-     *
-     * It is not the cell width. xterm paints each glyph at an exact multiple of the cell on a
-     * canvas, while the DOM advances by whatever the font says - here 7.6px against a 7px cell -
-     * and the two disagree a little more with every character. Two hundred columns of re-rendered
-     * tail put the text a hundred and seventy pixels right of the grid, which is the caret
-     * falling steadily further behind what is being typed. Measured once per font and size, and
-     * corrected with letter-spacing below.
-     */
-    charAdvance(font, size) {
-      const key = `${ font }|${ size }`;
-
-      if (this.advanceCache[key]) {
-        return this.advanceCache[key];
-      }
-
-      const probe = document.createElement('span');
-
-      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;';
-      probe.style.fontFamily = font;
-      probe.style.fontSize = `${ size }px`;
-      probe.textContent = 'M'.repeat(100);
-      (this.thumbLayer || document.body).appendChild(probe);
-
-      const advance = probe.getBoundingClientRect().width / 100;
-
-      probe.remove();
-
-      if (advance > 0) {
-        this.advanceCache = { ...this.advanceCache, [key]: advance };
-      }
-
-      return advance || size * 0.6;
-    },
-
-    /** The image's box: its own aspect at one line tall, rounded up to whole cells. */
-    sizeThumb(img, cell) {
-      const aspect = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1;
-      const cols = Math.max(1, Math.ceil((cell.h * aspect) / cell.w));
-
-      img.style.width = `${ snapPx(cols * cell.w) }px`;
-      img.style.height = `${ snapPx(cell.h) }px`;
-    },
-
-    /** One <img> per path, kept, so a repaint never re-decodes it or interrupts a click on it. */
-    thumbImage(hit, cell) {
-      let img = this.thumbImgs[hit.name];
-
-      if (!img) {
-        img = document.createElement('img');
-        img.src = hit.src;
-        img.alt = hit.name;
-        img.title = `${ hit.name } - click to view`;
-        // Until it loads the image measures zero wide, and the caret is placed by walking these
-        // children's widths, so re-place once there is a real width.
-        img.addEventListener('load', () => this.scheduleThumbs());
-        img.addEventListener('click', (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          this.openPath(hit.name);
-        });
-        this.thumbImgs[hit.name] = img;
-      }
-
-      // The buffer columns this image stands for - the whole path - which is what the caret
-      // counts. How wide it is drawn is a separate question, answered by sizeThumb.
-      img.dataset.cols = String(hit.name.length);
-      this.sizeThumb(img, cell);
-
-      return img;
-    },
 
     /**
      * The clipboard, for when the keystroke never becomes a paste event this can see.
@@ -1194,6 +770,18 @@ export default {
           this.imageError = '';
         }, 6000);
       }
+    },
+
+    /** Open a path from this session's own pod. */
+    async openPath(path) {
+      const pod = this.target === 'agent' ? await agentPod() : await extensionPod(this.extension);
+
+      if (!pod) {
+        return;
+      }
+
+      this.viewerPod = pod;
+      this.viewerPath = path;
     },
 
     async onImages(event, source) {
@@ -1350,8 +938,6 @@ export default {
       try {
         this.terminal.refresh(0, this.terminal.rows - 1);
       } catch { /* ignore */ }
-
-      this.scheduleThumbs();
     },
 
     /** Coalesce the several triggers into one pass per frame. */
@@ -1433,7 +1019,6 @@ export default {
       if (!lines) {
         return;
       }
-
       this.touchAcc -= lines * TOUCH_LINE_PX;
       event.preventDefault();
       this.wheel(Math.abs(lines), lines > 0);
@@ -1519,63 +1104,6 @@ export default {
 </template>
 
 <style lang="scss">
-.mc-terminal__thumbs {
-  position: absolute;
-  inset: 0;
-  // The rows underneath keep their clicks, their selection and their wheel events.
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 5;
-}
-
-// Covers the cells from the filename to the end of the line, opaque, with the thumbnail and the
-// rest of the sentence re-rendered inside it. Re-rendering is what closes the hole: the terminal
-// cannot reflow, so text that followed the name would otherwise stay where the name used to end.
-.mc-terminal__thumb {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  white-space: pre;
-  background: var(--terminal-bg, #141419);
-  color: var(--terminal-text, #ece4e8);
-  pointer-events: auto;
-  overflow: visible;
-}
-
-.mc-terminal__thumb img {
-  // Sized inline to whole cells; contained rather than cropped, so the picture is centred in
-  // the cells it was given instead of being cut to fill them.
-  flex: none;
-  object-fit: contain;
-  border-radius: 2px;
-  cursor: pointer;
-  display: block;
-}
-
-.mc-terminal__thumb:hover img {
-  border-color: var(--link, #3d98d3);
-}
-
-// The stand-in caret for a line a thumbnail collapsed, and xterm's own cursor hidden while it is
-// showing - two carets on one line is worse than the one in the wrong place.
-.mc-terminal__caret {
-  position: absolute;
-  background: var(--terminal-cursor, #ece4e8);
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-.mc-terminal__caret.hollow {
-  background: none;
-  outline: 1px solid var(--terminal-cursor, #ece4e8);
-  outline-offset: -1px;
-}
-
-.mc-thumb-caret-on .xterm-cursor-layer {
-  display: none;
-}
-
-
 .mc-terminal__keys::-webkit-scrollbar {
   display: none;
 }
