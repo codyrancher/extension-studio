@@ -370,6 +370,19 @@ export const ROUTES = [
   },
   {
     method:      'GET',
+    path:        '/v1/projects/{project}/conversations/{id}/pane',
+    handler:     'projectConversationPane',
+    auth:        true,
+    operationId: 'projectConversationPane',
+    parameters:  [PROJECT_PARAM, CONVERSATION_PARAM, {
+      name: 'lines', in: 'query', required: false, description: 'How much of the foot of the pane, 4 to 200. Defaults to 40.', schema: { type: 'integer' },
+    }],
+    summary:     'What one conversation is showing right now.',
+    description: 'The visible pane, stripped to ASCII, so a caller can read a verdict a skill was told to end on without attaching a terminal. "running" is false when the conversation has no pane yet - nothing has attached to it since the pod started.',
+    responses:   { 200: '{ text, running }', 400: 'The id is not one of this project\'s.', 503: 'The agent pod is not running.' },
+  },
+  {
+    method:      'GET',
     path:        '/v1/extensions/{name}/exec',
     handler:     'execStream',
     auth:        true,

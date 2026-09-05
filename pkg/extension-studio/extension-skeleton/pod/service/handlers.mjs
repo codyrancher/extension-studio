@@ -774,6 +774,36 @@ async function endProjectConversation({ cred, params }) {
   return ok({ project, id, ended: true });
 }
 
+
+/**
+ * What one of a project's conversations is showing right now.
+ *
+ * The visible pane, stripped to ASCII, as `extensionPane` does for an extension's assistant -
+ * so a caller can read a verdict a skill was told to end on, or say what the agent is doing,
+ * without attaching a terminal. Run as the pane's own user: a tmux server is per user, and the
+ * agent's panes belong to node.
+ */
+async function projectConversationPane({ cred, params, url }) {
+  const project = projectIn(params);
+  const id = conversationIn(params, project);
+  const lines = Math.max(4, Math.min(200, Math.floor(Number(url.searchParams.get('lines')) || 40)));
+  const pod = await agentPodFor(cred);
+  const script = [
+    `if tmux has-session -t mc-${ id } 2>/dev/null ; then`,
+    `tmux capture-pane -p -S -${ lines } -t mc-${ id } | tr -cd '\\11\\12\\15\\40-\\176'`,
+    `| sed -e 's/[[:space:]]*$//' | grep -v '^$' | tail -n ${ lines } ; else echo BARN-NO-SESSION ; fi`,
+  ].join(' ');
+  const result = await runInPod(cred, pod, ['su', 'node', '-c', script], SESSIONS_TIMEOUT_MS, AGENT_CONTAINER);
+
+  if (isRefusal(result.httpStatus)) {
+    throw new ApiError(result.status, result.httpStatus);
+  }
+
+  const text = result.stdout || '';
+
+  return ok({ project, id, running: !text.includes('BARN-NO-SESSION'), text: text.replace('BARN-NO-SESSION', '').trim() });
+}
+
 export const HANDLERS = {
   health,
   openapiDocument: openapi,
@@ -795,5 +825,6 @@ export const HANDLERS = {
   createProjectConversation,
   renameProjectConversation,
   endProjectConversation,
+  projectConversationPane,
   execStream,
 };
