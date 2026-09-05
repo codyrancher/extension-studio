@@ -36,6 +36,22 @@ const POD_PARAM = {
 // each route then advertised the other's field: the by-pod route rejects `script` with a 400,
 // and the by-name route accepts `container` and silently ignores it. Two shapes is the honest
 // arrangement, and the descriptions no longer have to end with a sentence retracting themselves.
+const PROJECT_PARAM = {
+  name:        'project',
+  in:          'path',
+  required:    true,
+  description: 'A project name: lowercase letters, digits and hyphens. The Dev extension uses a workspace\'s name.',
+  schema:      { type: 'string' },
+};
+
+const CONVERSATION_PARAM = {
+  name:        'id',
+  in:          'path',
+  required:    true,
+  description: 'A conversation id as the list reports it, p-<project>-<n>.',
+  schema:      { type: 'string' },
+};
+
 const COMMAND_FIELDS = {
   command: {
     type:        'array',
@@ -292,6 +308,65 @@ export const ROUTES = [
     summary:     'The turns the pod recorded, newest first.',
     description: 'What was asked, what it touched and what it committed, as pod/barn-provenance.mjs recorded it while it happened.',
     responses:   { 200: 'The turns.' },
+  },
+  {
+    method:      'GET',
+    path:        '/v1/projects/{project}/conversations',
+    handler:     'listProjectConversations',
+    auth:        true,
+    operationId: 'listProjectConversations',
+    parameters:  [PROJECT_PARAM],
+    summary:     'The conversations one project holds in the agent pod.',
+    description: 'A project\'s conversations run in the same agent pod as the drawer\'s, in the same shared transcript directory, and are namespaced by the project\'s name so the drawer never lists them. Each one comes with what a terminal needs to attach to it: the namespace, pod, container and argv for the apiserver\'s exec subresource.',
+    responses:   {
+      200: 'The conversations, each with an id, a title and an "attach" block.',
+      400: 'The project name is not one.',
+      503: 'The agent pod is not running, so there is nowhere to hold a conversation.',
+    },
+  },
+  {
+    method:      'POST',
+    path:        '/v1/projects/{project}/conversations',
+    handler:     'createProjectConversation',
+    auth:        true,
+    operationId: 'createProjectConversation',
+    parameters:  [PROJECT_PARAM],
+    requestBody: {
+      title: {
+        type:        'string',
+        description: 'What to call it. Optional; an unnamed conversation is labelled by its ordinal until claude names it.',
+      },
+    },
+    summary:     'Start a conversation in a project.',
+    description: 'The pod allocates the name, with a mkdir, so two callers pressing + at once get two conversations and a name whose directory still exists is never handed out again. Nothing runs until something attaches to it.',
+    responses:   {
+      200: 'The new conversation: id, title and an "attach" block.',
+      400: 'The project name is not one.',
+      503: 'The agent pod is not running.',
+    },
+  },
+  {
+    method:      'PUT',
+    path:        '/v1/projects/{project}/conversations/{id}',
+    handler:     'renameProjectConversation',
+    auth:        true,
+    operationId: 'renameProjectConversation',
+    parameters:  [PROJECT_PARAM, CONVERSATION_PARAM],
+    requestBody: { title: { type: 'string', description: 'What to call it.' } },
+    summary:     'Name a conversation.',
+    description: 'Kept in the pod beside the transcript rather than in any browser, so every tab sees the same name.',
+    responses:   { 200: 'The conversation with its new title.', 400: 'No title, or the id is not one of this project\'s.' },
+  },
+  {
+    method:      'DELETE',
+    path:        '/v1/projects/{project}/conversations/{id}',
+    handler:     'endProjectConversation',
+    auth:        true,
+    operationId: 'endProjectConversation',
+    parameters:  [PROJECT_PARAM, CONVERSATION_PARAM],
+    summary:     'End a conversation.',
+    description: 'The tmux session and the directory both; the transcript stays, and the resume picker in any pane is how it comes back.',
+    responses:   { 200: '{ "ended": true }', 400: 'The id is not one of this project\'s.' },
   },
   {
     method:      'GET',

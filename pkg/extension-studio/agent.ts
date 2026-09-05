@@ -347,6 +347,66 @@ export async function startAgentSession(): Promise<string> {
 }
 
 /**
+ * A project's conversations, and how to start, name and end one.
+ *
+ * The same pod, the same panes and the same shared transcript directory as the drawer's
+ * conversations, namespaced by the project's name in the pod's own sessions.sh so that the
+ * drawer never lists them (its list asks for no project and gets only agent-<n>). The Dev
+ * extension's workspaces are the first project; the in-pod API offers the same four verbs to
+ * anything that cannot import this file - see pod/service/routes.mjs, /v1/projects.
+ */
+export const PROJECT_NAME_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+
+function assertProject(project: string): string {
+  if (!PROJECT_NAME_RE.test(project) || project.length > 40) {
+    throw new Error(`"${ project }" is not a project name: lowercase letters, digits and hyphens.`);
+  }
+
+  return project;
+}
+
+export function isProjectSession(project: string, id: string): boolean {
+  return new RegExp(`^p-${ project }-\\d+$`).test(id);
+}
+
+export async function projectSessions(project: string): Promise<AgentSession[]> {
+  const name = assertProject(project);
+  const listing = await sessionScript(['list', name], `read ${ name }'s conversations`).catch(() => '');
+
+  return listing.split('\n')
+    .map((line) => line.replace(/\r$/, ''))
+    .filter(Boolean)
+    .map((line) => {
+      const tab = line.indexOf('\t');
+      const id = tab === -1 ? line : line.slice(0, tab);
+
+      return { id, title: tab === -1 ? id : line.slice(tab + 1) };
+    })
+    .filter((session) => isProjectSession(name, session.id))
+    .sort((a, b) => Number(a.id.slice(a.id.lastIndexOf('-') + 1)) - Number(b.id.slice(b.id.lastIndexOf('-') + 1)));
+}
+
+export async function startProjectSession(project: string, title = ''): Promise<string> {
+  const name = assertProject(project);
+  const id = (await sessionScript(['new', name], `start a conversation in ${ name }`)).trim();
+
+  if (!isProjectSession(name, id)) {
+    throw new Error(`The agent pod answered "${ id }", which is not a conversation name.`);
+  }
+
+  if (title.trim()) {
+    await sessionScript(['rename', id, title.trim()], `name ${ id }`);
+  }
+
+  return id;
+}
+
+/** The pane for one of a project's conversations: the same shell.sh, the same directory. */
+export function projectShellUrl(pod: string, id: string, mode = 'claude'): string {
+  return agentShellUrl(pod, id, mode);
+}
+
+/**
  * Give one conversation a name.
  *
  * In the pod, for the same reason the list is read from there: a name kept in localStorage

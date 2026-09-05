@@ -6,7 +6,7 @@
 // has an identity, and everything above it becomes a decision about permissions that Rancher
 // was already making correctly.
 import {
-  EXT_BASE, EXT_NS, EXT_CONTAINER, PATH_SEPARATOR,
+  EXT_BASE, EXT_NS, EXT_CONTAINER, PATH_SEPARATOR, AGENT_OBJECT, AGENT_CONTAINER,
   extensionObject, extensionName, extensionUrl, normalizeExtensionName,
 } from './names.mjs';
 import { rancherFetch, ApiError } from './rancher.mjs';
@@ -630,6 +630,150 @@ async function execStream({ cred, params, url, req, socket, head }) {
  * handler is one assertion in scripts/check-service.mjs rather than a 500 nobody hits until the
  * route is called.
  */
+
+// ── Conversations in a project ──────────────────────────────────────────────────────────────
+//
+// A project here is anything that wants conversations of its own in the agent pod: the Dev
+// extension's workspaces are the first. They run where the drawer's conversations run - same
+// pod, same panes, same shared transcript directory - and are namespaced by name in the pod's
+// own sessions.sh (`p-<project>-<n>`), which is what keeps them out of the drawer: its list
+// asks for no project and gets only `agent-<n>`. See pod/agent/sessions.sh for the rule.
+//
+// This is a route rather than a pattern for callers to copy because the four verbs rest on one
+// fact that is easy to get wrong - a conversation is a directory the pod allocates, not a tmux
+// session - and because an extension that is not this one cannot import agent.ts.
+
+const PROJECT_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+const SESSIONS_TIMEOUT_MS = 15000;
+
+function projectIn(params) {
+  const project = params.project || '';
+
+  if (!PROJECT_NAME.test(project) || project.length > 40) {
+    throw new ApiError(
+      `"${ project }" is not a project name: lowercase letters, digits and hyphens, up to 40, starting and ending with a letter or digit.`,
+      400,
+    );
+  }
+
+  return project;
+}
+
+function conversationIn(params, project) {
+  const id = params.id || '';
+
+  if (!new RegExp(`^p-${ project }-\\d+$`).test(id)) {
+    throw new ApiError(`"${ id }" is not one of ${ project }'s conversations; they are named p-${ project }-<n>.`, 400);
+  }
+
+  return id;
+}
+
+async function agentPodFor(cred) {
+  const pod = await runningPod(cred, AGENT_OBJECT);
+
+  if (!pod) {
+    throw new ApiError('The agent pod is not running yet, so there is nowhere to hold a conversation.', 503);
+  }
+
+  return pod;
+}
+
+/** One call to the pod's own account of its conversations. See pod/agent/sessions.sh. */
+async function sessionsScript(cred, args, what) {
+  const pod = await agentPodFor(cred);
+  const result = await runInPod(cred, pod, ['/bin/sh', '/seed/sessions.sh', ...args], SESSIONS_TIMEOUT_MS, AGENT_CONTAINER);
+
+  if (isRefusal(result.httpStatus)) {
+    throw new ApiError(result.status, result.httpStatus);
+  }
+
+  if (result.code !== 0) {
+    throw new ApiError(`Could not ${ what }: ${ (result.stderr || '').trim() || result.status || `exit ${ result.code }` }`, 502);
+  }
+
+  return { pod, stdout: result.stdout };
+}
+
+/**
+ * How to attach a terminal to one conversation.
+ *
+ * Everything a caller needs to open the apiserver's exec subresource on the right pod: the
+ * namespace, the pod, the container and the argv. The argv is shell.sh's, positional and all
+ * required, spelled here once rather than by every extension that opens a pane - the third
+ * argument in particular is the pod's durable home, and shell.sh's default for it is a
+ * directory this pod does not have.
+ */
+function attachment(pod, id, mode = 'claude') {
+  return {
+    namespace: EXT_NS,
+    pod,
+    container: AGENT_CONTAINER,
+    command:   ['/bin/sh', '/seed/shell.sh', id, '/workspace/conversations', '/workspace/.home', mode],
+  };
+}
+
+function parseSessions(stdout, pod) {
+  return stdout.split('\n')
+    .map((line) => line.replace(/\r$/, ''))
+    .filter(Boolean)
+    .map((line) => {
+      const tab = line.indexOf('\t');
+      const id = tab === -1 ? line : line.slice(0, tab);
+
+      return { id, title: tab === -1 ? id : line.slice(tab + 1), attach: attachment(pod, id) };
+    })
+    .sort((a, b) => Number(a.id.slice(a.id.lastIndexOf('-') + 1)) - Number(b.id.slice(b.id.lastIndexOf('-') + 1)));
+}
+
+async function listProjectConversations({ cred, params }) {
+  const project = projectIn(params);
+  const { pod, stdout } = await sessionsScript(cred, ['list', project], `read ${ project }'s conversations`);
+
+  return ok({ project, conversations: parseSessions(stdout, pod) });
+}
+
+async function createProjectConversation({ cred, params, body }) {
+  const project = projectIn(params);
+  const { pod, stdout } = await sessionsScript(cred, ['new', project], `start a conversation in ${ project }`);
+  const id = stdout.trim();
+
+  if (!new RegExp(`^p-${ project }-\\d+$`).test(id)) {
+    throw new ApiError(`The agent pod answered "${ id }", which is not a conversation name.`, 502);
+  }
+
+  const title = typeof body?.title === 'string' ? body.title.trim() : '';
+
+  if (title) {
+    await sessionsScript(cred, ['rename', id, title], `name ${ id }`);
+  }
+
+  return ok({ project, id, title: title || id.slice(id.lastIndexOf('-') + 1), attach: attachment(pod, id) });
+}
+
+async function renameProjectConversation({ cred, params, body }) {
+  const project = projectIn(params);
+  const id = conversationIn(params, project);
+  const title = typeof body?.title === 'string' ? body.title.trim() : '';
+
+  if (!title) {
+    throw new ApiError('Send {"title": "..."}: what to call it.', 400);
+  }
+
+  await sessionsScript(cred, ['rename', id, title], `rename ${ id }`);
+
+  return ok({ project, id, title });
+}
+
+async function endProjectConversation({ cred, params }) {
+  const project = projectIn(params);
+  const id = conversationIn(params, project);
+
+  await sessionsScript(cred, ['end', id], `end ${ id }`);
+
+  return ok({ project, id, ended: true });
+}
+
 export const HANDLERS = {
   health,
   openapiDocument: openapi,
@@ -647,5 +791,9 @@ export const HANDLERS = {
   extensionChanges,
   extensionProvenance,
   extensionTurns,
+  listProjectConversations,
+  createProjectConversation,
+  renameProjectConversation,
+  endProjectConversation,
   execStream,
 };

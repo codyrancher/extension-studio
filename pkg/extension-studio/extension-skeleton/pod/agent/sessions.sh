@@ -41,6 +41,36 @@ AGENT_HOME=/workspace/.home
 VERB=${1:-list}
 ID=$2
 
+# A conversation belongs either to the drawer or to one project, and the two never mix.
+#
+# The drawer's conversations are `agent-<n>`. A project's are `p-<project>-<n>`, held in the
+# same directory and run by the same panes, but listed only when that project is asked for -
+# and never by the drawer, which asks with no project and gets only its own. That is what keeps
+# a workspace's conversations out of the terminal strip: not a filter in the browser, which a
+# second caller would have to know to apply, but the list itself, which answers one question.
+#
+# `list` and `new` take the project as their second argument. `end` and `rename` take an id,
+# which already says which it is.
+PROJECT=''
+
+case "$VERB" in
+  list|new) PROJECT=$2; ID='' ;;
+esac
+
+case "$PROJECT" in
+  '') ;;
+  *[!a-z0-9-]*|-*|*-)
+    echo "not a project name: $PROJECT" >&2
+    exit 2
+    ;;
+esac
+
+if [ -n "$PROJECT" ]; then
+  PREFIX="p-$PROJECT-"
+else
+  PREFIX="agent-"
+fi
+
 mkdir -p "$SESSIONS"
 
 # An id names a directory, so it is checked rather than trusted. Everything that reaches here
@@ -101,19 +131,25 @@ title_of() {
 
   [ -n "$found" ] || found=$(ai_title_of "$1")
 
-  # Ordinal, which is what the id is made of, so a conversation nobody has named still has a
-  # short label rather than a blank tab.
-  [ -n "$found" ] || found=${1#agent-}
+  # Ordinal, which is what the id ends in whichever kind it is, so a conversation nobody has
+  # named still has a short label rather than a blank tab.
+  [ -n "$found" ] || found=${1##*-}
 
   printf '%s' "$found"
 }
 
 case "$VERB" in
   list)
-    for dir in "$SESSIONS"/*/; do
+    for dir in "$SESSIONS"/"$PREFIX"*/; do
       [ -d "$dir" ] || continue
 
       id=$(basename "$dir")
+
+      # The prefix is a glob, and a glob for project `foo` also matches project `foo-bar`, so
+      # what follows the prefix has to be nothing but the ordinal.
+      case "${id#"$PREFIX"}" in
+        ''|*[!0-9]*) continue ;;
+      esac
 
       # Tab separated, one line each, because a title may contain spaces and an id may not.
       printf '%s\t%s\n' "$id" "$(title_of "$id")"
@@ -129,7 +165,7 @@ case "$VERB" in
     n=1
 
     while [ "$n" -lt 1000 ]; do
-      id="agent-$n"
+      id="$PREFIX$n"
 
       if mkdir "$SESSIONS/$id" 2>/dev/null; then
         printf '%s\n' "$id"
@@ -181,7 +217,7 @@ case "$VERB" in
     ;;
 
   *)
-    echo "unknown verb: $VERB (list, new, end, rename)" >&2
+    echo "unknown verb: $VERB (list [project], new [project], end ID, rename ID TITLE)" >&2
     exit 2
     ;;
 esac

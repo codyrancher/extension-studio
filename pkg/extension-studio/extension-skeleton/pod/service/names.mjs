@@ -21,6 +21,12 @@ const EXT_PORT = 8005;
 // told where it is: an extension created through this service has to reach the same one an
 // extension created from the dashboard does, or a screenshot taken in it goes nowhere.
 export const BROWSER_OBJECT = 'browser';
+
+// The one claude that can see every extension, which the drawer's conversations run in - and,
+// scoped by project, a workspace's conversations too. Spelled here as well as in agent.ts for
+// the reason every other name on this file is: the service has no way to import the browser's.
+export const AGENT_OBJECT = 'extension-studio-agent';
+export const AGENT_CONTAINER = 'agent';
 const BROWSER_CDP_PORT = 9222;
 
 // ConfigMap keys cannot contain '/', so tree paths are flattened with this and boot.sh
