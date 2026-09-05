@@ -704,6 +704,9 @@ async function sessionsScript(cred, args, what) {
  * argument in particular is the pod's durable home, and shell.sh's default for it is a
  * directory this pod does not have.
  */
+/** Where a queued prompt waits: `$(dirname home)/.queue/<session>`, which shell.sh reads. */
+const AGENT_QUEUE = '/workspace/.queue';
+
 function attachment(pod, id, mode = 'claude') {
   return {
     namespace: EXT_NS,
@@ -748,7 +751,24 @@ async function createProjectConversation({ cred, params, body }) {
     await sessionsScript(cred, ['rename', id, title], `name ${ id }`);
   }
 
-  return ok({ project, id, title: title || id.slice(id.lastIndexOf('-') + 1), attach: attachment(pod, id) });
+  // What it opens with. A file the pane reads on its first start (MC_QUEUE in shell.sh), base64
+  // through the shell so the prompt arrives whole, owned by the user the pane runs as.
+  const prompt = typeof body?.prompt === 'string' ? body.prompt : '';
+  let queued = false;
+
+  if (prompt.trim()) {
+    const encoded = Buffer.from(prompt, 'utf8').toString('base64');
+    const script = `mkdir -p ${ AGENT_QUEUE } && echo ${ encoded } | base64 -d > ${ AGENT_QUEUE }/${ id } && chown 1000:1000 ${ AGENT_QUEUE } ${ AGENT_QUEUE }/${ id } 2>/dev/null; echo queued`;
+    const result = await runInPod(cred, pod, ['/bin/sh', '-c', script], SESSIONS_TIMEOUT_MS, AGENT_CONTAINER);
+
+    if (!(result.stdout || '').includes('queued')) {
+      throw new ApiError(`The conversation was made but its prompt could not be queued: ${ (result.stderr || '').trim() || result.status || `exit ${ result.code }` }`, 502);
+    }
+
+    queued = true;
+  }
+
+  return ok({ project, id, title: title || id.slice(id.lastIndexOf('-') + 1), queued, attach: attachment(pod, id) });
 }
 
 async function renameProjectConversation({ cred, params, body }) {

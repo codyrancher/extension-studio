@@ -386,7 +386,7 @@ export async function projectSessions(project: string): Promise<AgentSession[]> 
     .sort((a, b) => Number(a.id.slice(a.id.lastIndexOf('-') + 1)) - Number(b.id.slice(b.id.lastIndexOf('-') + 1)));
 }
 
-export async function startProjectSession(project: string, title = ''): Promise<string> {
+export async function startProjectSession(project: string, title = '', prompt = ''): Promise<string> {
   const name = assertProject(project);
   const id = (await sessionScript(['new', name], `start a conversation in ${ name }`)).trim();
 
@@ -398,7 +398,92 @@ export async function startProjectSession(project: string, title = ''): Promise<
     await sessionScript(['rename', id, title.trim()], `name ${ id }`);
   }
 
+  if (prompt.trim()) {
+    await queueSessionPrompt(id, prompt);
+  }
+
   return id;
+}
+
+/** Where a queued prompt waits: shell.sh reads `$(dirname home)/.queue/<session>` on a pane's first start. */
+const AGENT_QUEUE = `${ AGENT_WORKSPACE }/.queue`;
+
+const SESSION_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * Queue what a conversation opens with.
+ *
+ * A file rather than keystrokes, because the thing that queues a prompt is a page and the thing
+ * that runs it is a pane that may not exist yet: claude-session.sh hands the file to claude as
+ * its opening message the first time the session starts (see MC_QUEUE in shell.sh). Base64
+ * through the shell so a prompt with quotes, newlines and dollar signs in it arrives whole, and
+ * owned by the pane's user, which is who reads it.
+ */
+export async function queueSessionPrompt(id: string, prompt: string): Promise<void> {
+  if (!SESSION_ID_RE.test(id)) {
+    throw new Error(`"${ id }" is not a conversation id.`);
+  }
+
+  const pod = await agentPod();
+
+  if (!pod) {
+    throw new Error('The agent pod is not running yet, so there is nowhere to queue a prompt.');
+  }
+
+  const bytes = new TextEncoder().encode(prompt);
+  let binary = '';
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  const script = `mkdir -p ${ AGENT_QUEUE } && echo ${ btoa(binary) } | base64 -d > ${ AGENT_QUEUE }/${ id } && chown 1000:1000 ${ AGENT_QUEUE } ${ AGENT_QUEUE }/${ id } 2>/dev/null; echo queued`;
+  const result = await podExecResult(pod, ['/bin/sh', '-c', script], 15000, AGENT_CONTAINER);
+
+  if (!result.stdout.includes('queued')) {
+    throw new Error(`The prompt could not be written into the agent pod: ${ result.stderr.trim() || result.status || `exit ${ result.code }` }`);
+  }
+}
+
+/**
+ * The argv a pane runs for one conversation - the thing PodTerminal's `command` prop takes.
+ *
+ * Spelled here once rather than by every extension that places a pane: shell.sh's arguments are
+ * positional and all required, and a caller that copied them would be a caller that stopped
+ * matching the first time they changed.
+ */
+export function sessionCommand(id: string, mode: 'claude' | 'shell' = 'claude'): string[] {
+  return ['/bin/sh', '/seed/shell.sh', id, sharedWorkdir(), `${ AGENT_WORKSPACE }/.home`, mode];
+}
+
+/**
+ * What a conversation's pane is showing, stripped to printable text.
+ *
+ * Read off tmux in the pod as the pane's own user - a tmux server is per user. `running` is
+ * false when nothing has attached to the conversation since the pod started, in which case
+ * whatever was queued for it has not run yet.
+ */
+export async function sessionPane(id: string, lines = 60): Promise<{ text: string; running: boolean }> {
+  if (!SESSION_ID_RE.test(id)) {
+    throw new Error(`"${ id }" is not a conversation id.`);
+  }
+
+  const pod = await agentPod();
+
+  if (!pod) {
+    return { text: '', running: false };
+  }
+
+  const count = Math.max(4, Math.min(400, Math.floor(lines) || 60));
+  const script = [
+    `if tmux has-session -t mc-${ id } 2>/dev/null; then`,
+    `tmux capture-pane -p -S -${ count } -t mc-${ id } | tr -cd '\\11\\12\\15\\40-\\176' | sed -e 's/[[:space:]]*$//' | grep -v '^$' | tail -n ${ count };`,
+    'else echo BARN-NO-SESSION; fi',
+  ].join(' ');
+  const result = await podExecResult(pod, ['su', 'node', '-c', script], 15000, AGENT_CONTAINER);
+  const text = result.stdout || '';
+
+  return { running: !text.includes('BARN-NO-SESSION'), text: text.replace('BARN-NO-SESSION', '').trim() };
 }
 
 /** The pane for one of a project's conversations: the same shell.sh, the same directory. */

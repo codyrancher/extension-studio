@@ -5,6 +5,7 @@ import { ensureService } from './service';
 import { ensureAgent } from './agent';
 import { registerAgentOverlay } from './agent-overlay';
 import { ensureApiRegistration, studioApiEntry } from './api-registry';
+import { installBrowserApi } from './public-api';
 import {
   EDITOR_ROUTE, EXTENSION_STARTING_ROUTE, STUDIO_ROUTE, NEW_EXTENSION_ROUTE,
   REVIEW_ROUTE, FILES_ROUTE, REVIEW_QUEUE_ROUTE, REVIEW_CHANGE_ROUTE,
@@ -35,6 +36,11 @@ export default function(plugin: IPlugin): void {
 
   // Provide plugin metadata from package.json
   plugin.metadata = require('./package.json');
+
+  // What other extensions in this page may borrow - the terminal, and the agent pod behind it.
+  // Before anything that needs a cluster, because it needs nothing but this bundle: an
+  // extension that loads next can place a pane without waiting for a pod to answer.
+  installBrowserApi(plugin.metadata.version);
 
   // Side-menu button (flask icon) -> the chrome-less editor page below.
   plugin.addProduct(require('./editor-product'));

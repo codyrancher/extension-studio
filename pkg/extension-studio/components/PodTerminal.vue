@@ -23,7 +23,7 @@ import Socket, {
   EVENT_CONNECT_ERROR,
 } from '@shell/utils/socket';
 import {
-  extensionPod, extensionShellUrl, writeImageToPod, readPodFileBase64, DEFAULT_EXTENSION
+  extensionPod, extensionShellUrl, writeImageToPod, readPodFileBase64, DEFAULT_EXTENSION, execUrl
 } from '../extensions';
 import { agentPod, agentShellUrl, AGENT_CONTAINER } from '../agent';
 import PodFileViewer from './PodFileViewer';
@@ -189,6 +189,16 @@ export default {
       type:      String,
       default:   'claude',
       validator: (value) => ['claude', 'shell'].includes(value),
+    },
+
+    // What to exec, spelled out, instead of the session/mode pair above. For another extension
+    // placing one of these panes somewhere of its own - a workspace's conversation list, a pull
+    // request's review - which knows exactly what it wants run in the agent pod and where. Every
+    // pane still opens on the same pod, through the same exec subresource, with the same cookie:
+    // that is the whole reason the pane is borrowed rather than copied. See public-api.ts.
+    command: {
+      type:    Array,
+      default: null,
     },
   },
 
@@ -523,9 +533,11 @@ export default {
     },
 
     connect(pod) {
-      const url = this.target === 'agent'
-        ? agentShellUrl(pod, this.session, this.mode)
-        : extensionShellUrl(pod, this.session, this.mode);
+      const url = this.command?.length
+        ? execUrl(pod, this.command, true, this.target === 'agent' ? AGENT_CONTAINER : undefined)
+        : this.target === 'agent'
+          ? agentShellUrl(pod, this.session, this.mode)
+          : extensionShellUrl(pod, this.session, this.mode);
       const socket = new Socket(url, false, 0, 'base64.channel.k8s.io');
 
       socket.addEventListener(EVENT_CONNECTING, () => {

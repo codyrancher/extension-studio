@@ -336,11 +336,15 @@ export const ROUTES = [
         type:        'string',
         description: 'What to call it. Optional; an unnamed conversation is labelled by its ordinal until claude names it.',
       },
+      prompt: {
+        type:        'string',
+        description: 'What it opens with. Optional; queued in the pod and handed to claude the first time a pane attaches.',
+      },
     },
     summary:     'Start a conversation in a project.',
     description: 'The pod allocates the name, with a mkdir, so two callers pressing + at once get two conversations and a name whose directory still exists is never handed out again. Nothing runs until something attaches to it.',
     responses:   {
-      200: 'The new conversation: id, title and an "attach" block.',
+      200: 'The new conversation: id, title, whether a prompt was queued, and an "attach" block.',
       400: 'The project name is not one.',
       503: 'The agent pod is not running.',
     },
