@@ -108,6 +108,14 @@ const changed = [
   update(SETTINGS, (settings) => {
     settings.skipDangerousModePermissionPrompt = true;
 
+    // Which model a pane starts on. Opus, unless somebody picked something else themselves:
+    // a home that outlives the pod keeps whatever `/model` last chose, and a choice made in a
+    // session should survive the next tab. What does not survive is the fable default an
+    // earlier build wrote here, which is the one this replaces.
+    if (!settings.model || /fable/i.test(String(settings.model))) {
+      settings.model = 'opus';
+    }
+
     // Stop, not a session end: it runs every time claude finishes a response,
     // which is the only moment this can be sure a refresh has already landed in
     // the file. The script itself does nothing when the local copy is not newer,
