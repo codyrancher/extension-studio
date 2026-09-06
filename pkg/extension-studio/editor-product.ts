@@ -108,7 +108,8 @@ export function init($plugin: IPlugin, store: any) {
     // person looking for extensions looks for. Rancher's own Extensions page carries the same
     // icon one section further down; the labels tell them apart, and only one of them is ever
     // the highlighted one.
-    icon:                'extension',
+    // The Studio's own mark rather than a glyph from Rancher's icon font.
+    svg:                 require('./assets/studio-icon.svg'),
     inStore:             'management',
     /**
      * Registered, but not in the top-level menu.
