@@ -102,3 +102,10 @@ browser ---> Rancher ---> apiserver service proxy ---> pod (dashboard + your pac
   bundle straight from the pod, which is why the extension lives exactly as long as the pod does.
 - **A release does not involve the pod at all.** Publish to GitHub, tag it, and the chart on
   `gh-pages` is what other people add as a repository, the same way you added this one.
+
+## The terminal is the agents extension's
+
+Since 0.6.0 the terminal in the editor, the agent pod and the drawer that opens onto it from any
+page (`ctrl+shift+backtick`) belong to the **agents** extension (codyrancher/agents), which
+every extension in the dashboard borrows from through `window.__agents`. Install it beside the
+Studio; the editor's terminal pane says so when it is missing.
