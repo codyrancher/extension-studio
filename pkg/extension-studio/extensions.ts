@@ -37,7 +37,7 @@ const EXT_PORT = 8005;
 
 // The one container in a pod. Named here because two things address it: the
 // Deployment below creates it, and a terminal tab execs into it.
-const EXT_CONTAINER = 'devserver';
+export const EXT_CONTAINER = 'devserver';
 
 // Plain node, not a built image: the pod installs from the seeded package.json,
 // so there is nothing to publish and nothing that can be older than the source.
@@ -3274,7 +3274,7 @@ export async function workingDiff(name: string): Promise<string> {
  * The tmux session the workspace's terminal attaches to.
  *
  * `mc-` is the prefix shell.sh gives every session it opens; `editor` is the session id
- * PodTerminal defaults to, which is the one the workspace pane is looking at. Anything typed
+ * the editor's pane defaults to, which is the one the workspace pane is looking at. Anything typed
  * into it is typed into the claude running in that pane.
  */
 const ASSISTANT_TAB = 'editor';

@@ -3,7 +3,7 @@
 // from the extension box in the header.
 //
 // Left pane: a terminal in the extension's pod, with claude running in it (see
-// components/PodTerminal.vue).
+// components/AgentsTerminal.vue, which places the agents extension's terminal).
 // Right pane: that extension's dev server (see extensions.ts) - the live, hot-reloading
 // Rancher the same pod is serving, framed same-origin through the Kubernetes API service
 // proxy, which is what makes framing it possible.
@@ -20,7 +20,7 @@
 // notification tray, the page-actions menu and the account menu, none of which this page
 // replaces - so the workspace was the one screen in Rancher you could not sign out of. The
 // design draws the header over this frame, and the header is now left where the shell puts it.
-import PodTerminal from '../components/PodTerminal.vue';
+import AgentsTerminal from '../components/AgentsTerminal.vue';
 import PublishStatus from '../components/PublishStatus.vue';
 import ExtensionFiles from '../components/ExtensionFiles.vue';
 import ChangeEvidence from '../components/studio/ChangeEvidence.vue';
@@ -184,7 +184,7 @@ export default {
   name: 'BarnEditor',
 
   components: {
-    PodTerminal, ExtensionFiles, ChangeEvidence, NewExtensionModal, StartingExtensions, BuildFailure,
+    AgentsTerminal, ExtensionFiles, ChangeEvidence, NewExtensionModal, StartingExtensions, BuildFailure,
     PublishStatus, EditorSettingsModal, ImportExtensionModal, PublishGithubModal, PublishModal,
     InstallProgress, EditorMasthead, AssistantPanel, PreviewPanel, WorkingChanges, SButton,
     SModal
@@ -1372,7 +1372,7 @@ export default {
           @cleared="onConversationCleared"
         >
           <template #terminal>
-            <PodTerminal
+            <AgentsTerminal
               ref="terminal"
               :extension="extension"
               :session="shellSession"
