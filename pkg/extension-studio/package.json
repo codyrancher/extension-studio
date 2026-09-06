@@ -1,7 +1,7 @@
 {
   "name": "extension-studio",
   "description": "Author, preview and review Rancher UI extensions from inside Rancher",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": false,
   "icon": "https://codyrancher.github.io/extension-studio/icon.svg",
   "homepage": "https://github.com/codyrancher/extension-studio",

@@ -134,8 +134,19 @@ fi
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "[tools] installing tmux"
-  apt-get update -qq
-  apt-get install -y -qq tmux </dev/null
+  # apt runs one at a time. The pod's own boot is usually in it already, and on a slow network
+  # its `update` takes minutes; wait for it (ten at most) rather than fail on its lock - and
+  # stop waiting the moment tmux is there, whoever installed it.
+  w=0
+  while pgrep -x apt-get >/dev/null 2>&1 && [ "$w" -lt 200 ]; do
+    command -v tmux >/dev/null 2>&1 && break
+    sleep 3
+    w=$((w + 1))
+  done
+  if ! command -v tmux >/dev/null 2>&1; then
+    apt-get -o DPkg::Lock::Timeout=180 update -qq || true
+    apt-get -o DPkg::Lock::Timeout=180 install -y -qq tmux </dev/null || echo "[tools] tmux did not install; the pane cannot run without it"
+  fi
 fi
 
 if [ ! -x "$CLAUDE_BIN" ]; then
