@@ -82,6 +82,7 @@ const { openapiDocument } = await import(path.join(SERVICE, 'openapi.mjs'));
 const { execPath } = await import(path.join(SERVICE, 'exec.mjs'));
 const { callerCredential } = await import(path.join(SERVICE, 'credential.mjs'));
 const { installSteps } = await import(path.join(SERVICE, 'install.mjs'));
+const { seedConfigMapBody } = await import(path.join(SERVICE, 'bodies.mjs'));
 const { statusExitCode, readFrames, channelReader } = await import(path.join(SERVICE, 'podexec.mjs'));
 const podscript = await import(path.join(SERVICE, 'podscript.mjs'));
 const { shellQuote, asPodUser, inPackageCommand } = podscript;
@@ -440,13 +441,17 @@ check('a seed is the same shape however it was read', () => {
         'kubectl.kubernetes.io/last-applied-configuration': '{"metadata":{"name":"base-extension"}}',
       },
     },
-    data: { 'package.json': '{}' },
+    data:       { 'package.json': '{}' },
+    binaryData: { 'assets__logo.woff2': 'd29mZg==' },
   };
   const seed = asSeed(map);
 
-  assert.deepEqual(Object.keys(seed).sort(), ['annotations', 'data']);
+  assert.deepEqual(Object.keys(seed).sort(), ['annotations', 'binaryData', 'data']);
   assert.equal(seed.annotations[SOURCE_ANNOTATION], 'base');
   assert.deepEqual(seed.data, { 'package.json': '{}' });
+  // The bytes travel too. A copy that took only `data` produced an extension missing exactly
+  // its fonts and images, and nothing about the copy said so.
+  assert.deepEqual(seed.binaryData, { 'assets__logo.woff2': 'd29mZg==' });
 });
 
 check('a copied seed leaves the source object\'s own annotations behind', () => {
@@ -456,8 +461,19 @@ check('a copied seed leaves the source object\'s own annotations behind', () => 
 });
 
 check('a ConfigMap with nothing on it is still a seed shape', () => {
-  assert.deepEqual(asSeed({}), { data: {}, annotations: {} });
-  assert.deepEqual(asSeed(null), { data: {}, annotations: {} });
+  assert.deepEqual(asSeed({}), { data: {}, binaryData: {}, annotations: {} });
+  assert.deepEqual(asSeed(null), { data: {}, binaryData: {}, annotations: {} });
+});
+
+check('a seed with bytes in it reaches the ConfigMap as binaryData', () => {
+  const seed = asSeed({ data: { 'a.txt': 'hello' }, binaryData: { 'b.woff2': 'd29mZg==' } });
+  const body = seedConfigMapBody('demo', seed.data, seed.annotations, seed.binaryData);
+
+  // Not in `data`: the apiserver requires those to be UTF-8 strings, so bytes put there are
+  // corrupted on the way in and the object is refused once it is large enough - which is what
+  // a repository with two web fonts in it did, as a 422 nobody was shown.
+  assert.deepEqual(body.data, { 'a.txt': 'hello' });
+  assert.deepEqual(body.binaryData, { 'b.woff2': 'd29mZg==' });
 });
 
 console.log('\nthe review reads');
