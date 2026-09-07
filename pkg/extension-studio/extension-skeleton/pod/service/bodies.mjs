@@ -70,7 +70,7 @@ export function seedData(files) {
  * copy that dropped them would produce an extension whose next re-seed overwrites the answers
  * somebody wrote into it.
  */
-export function seedConfigMapBody(name, data, annotations = {}) {
+export function seedConfigMapBody(name, data, annotations = {}, binaryData = {}) {
   const object = extensionObject(name);
 
   return {
@@ -83,6 +83,11 @@ export function seedConfigMapBody(name, data, annotations = {}) {
       annotations,
     },
     data,
+    // Files that are not UTF-8 - a font, an icon, anything a package legitimately ships as
+    // bytes. They cannot go in `data`, which the apiserver requires to be strings: the attempt
+    // corrupts them on the way in and the object is refused once it is large enough. kubelet
+    // writes these back out as the original bytes when it mounts the volume.
+    binaryData,
   };
 }
 

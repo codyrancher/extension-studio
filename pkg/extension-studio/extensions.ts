@@ -319,6 +319,24 @@ function renameSeedPackage(files: Record<string, string>, seed: string, name: st
   return out;
 }
 
+/**
+ * A tree on its way into a seed: the text half and the bytes half.
+ *
+ * Two maps rather than one, because a ConfigMap has two fields and they are not
+ * interchangeable - `data` is UTF-8 strings and `binaryData` is base64 - and the decision about
+ * which a file belongs in is made once, in the pod, by the only code that has the bytes.
+ */
+export interface SeedTree {
+  files: Record<string, string>;
+  /** path -> base64. */
+  binary: Record<string, string>;
+}
+
+/** A tree of text only, which is what a built-in seed and every caller that hands in extras is. */
+function textTree(files: Record<string, string>): SeedTree {
+  return { files, binary: {} };
+}
+
 function seedData(files: Record<string, string>): Record<string, string> {
   // boot.sh is the container's command and is read straight out of /seed, so it
   // keeps its own name; everything else is a path in the tree.
@@ -343,23 +361,57 @@ function seedData(files: Record<string, string>): Record<string, string> {
  * `sh -c` inside a URL query parameter, and every layer of that has its own opinion about
  * quotes; encoding it means none of them gets a say.
  */
+/**
+ * How both of the scripts below decide what a file is.
+ *
+ * They used to read every file with `readFileSync(path, 'utf8')`, which is wrong twice for
+ * anything that is not text. Node does not throw on invalid UTF-8; it substitutes U+FFFD. So a
+ * woff2 came back silently corrupted - the extension imported, and its fonts did not work -
+ * and it came back *bigger*, because each bad byte became a three-byte replacement character
+ * and then a six-byte `\uFFFD` escape in the JSON. A repository with two web fonts in it
+ * inflated past the 1MiB an object may be and the seed ConfigMap was refused with a 422.
+ *
+ * So a file is read as bytes and offered as text only if it survives a round trip through
+ * UTF-8 unchanged. Anything else travels as base64 and is written to `binaryData`, which is
+ * the half of a ConfigMap that exists for exactly this and which kubelet writes back out as
+ * the original bytes when it mounts the volume - so nothing in the pod has to decode it.
+ */
+const READ_FILE_FN = `
+function readFile(full) {
+  const raw = fs.readFileSync(full);
+  const text = raw.toString('utf8');
+
+  // The round trip is the test. A file whose bytes survive it is text; one where they do not
+  // contained something that is not UTF-8, and the decode has already lost it.
+  if (Buffer.compare(Buffer.from(text, 'utf8'), raw) === 0) return { text: text };
+
+  return { b64: raw.toString('base64') };
+}
+`;
+
 const CLONE_SCRIPT = `
 const fs = require('fs');
 const path = require('path');
+${ READ_FILE_FN }
 const root = fs.readdirSync('/app/pkg').map((d) => path.join('/app/pkg', d)).filter((d) => fs.statSync(d).isDirectory())[0];
 const out = {};
+const bin = {};
 (function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full);
-    else out['pkg/' + path.relative('/app/pkg', full)] = fs.readFileSync(full, 'utf8');
+    else {
+      const key = 'pkg/' + path.relative('/app/pkg', full);
+      const read = readFile(full);
+      if (read.b64 === undefined) out[key] = read.text; else bin[key] = read.b64;
+    }
   }
 })(root);
-process.stdout.write(JSON.stringify(out));
+process.stdout.write(JSON.stringify({ files: out, binary: bin }));
 `;
 
-async function cloneFiles(source: string): Promise<Record<string, string>> {
+async function cloneFiles(source: string): Promise<SeedTree> {
   const pod = await extensionPod(source);
 
   if (!pod) {
@@ -373,15 +425,30 @@ async function cloneFiles(source: string): Promise<Record<string, string>> {
 
   const out = await podExecOnce(pod, asPodUser(`node ${ script }`));
 
-  let tree: Record<string, string>;
+  return withSkeleton(parseTree(out, `${ source }'s tree`));
+}
+
+/**
+ * What the two pod scripts write, checked rather than trusted.
+ *
+ * Both answer `{ files, binary }` now. A pod that has not been updated - or a script that died
+ * partway and printed something else - would otherwise arrive here as an object with neither,
+ * and be seeded as an extension with no files in it, which installs and serves nothing.
+ */
+function parseTree(out: string, what: string): SeedTree {
+  let parsed: { files?: Record<string, string>; binary?: Record<string, string> };
 
   try {
-    tree = JSON.parse(out);
+    parsed = JSON.parse(out);
   } catch {
-    throw new Error(`could not read ${ source }'s tree: ${ out.slice(0, 200) || 'no output' }`);
+    throw new Error(`could not read ${ what }: ${ out.slice(0, 200) || 'no output' }`);
   }
 
-  return withSkeleton(tree);
+  if (!parsed || typeof parsed.files !== 'object' || !parsed.files) {
+    throw new Error(`could not read ${ what }: the pod answered with no file list`);
+  }
+
+  return { files: parsed.files, binary: parsed.binary || {} };
 }
 
 /**
@@ -391,7 +458,7 @@ async function cloneFiles(source: string): Promise<Record<string, string>> {
  * every extension and are not part of what was copied; `pkg/` is stripped out of it so the
  * copy's own package is the only one in the result.
  */
-function withSkeleton(tree: Record<string, string>): Record<string, string> {
+function withSkeleton(tree: SeedTree): SeedTree {
   const skeleton = { ...seedFiles(DEFAULT_SEED) };
 
   for (const key of Object.keys(skeleton)) {
@@ -400,7 +467,8 @@ function withSkeleton(tree: Record<string, string>): Record<string, string> {
     }
   }
 
-  return { ...skeleton, ...tree };
+  // The skeleton is text; only the copied package can carry bytes.
+  return { files: { ...skeleton, ...tree.files }, binary: { ...tree.binary } };
 }
 
 /** `github:owner/repo`, or `github:owner/repo#branch`. Null for anything that is not one. */
@@ -486,6 +554,7 @@ export function parseGithubRepoInput(input: string): { repo: string; branch: str
 const IMPORT_SCRIPT = `
 const fs = require('fs');
 const path = require('path');
+${ READ_FILE_FN }
 const root = '/tmp/barn-import';
 
 // Two shapes of repository, and both are ones this product produces.
@@ -517,15 +586,20 @@ if (!dir) {
 
 dir = dir || process.env.BARN_IMPORT_NAME;
 const out = {};
+const bin = {};
 (function walk(d) {
   for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
     const full = path.join(d, entry.name);
     if (entry.isDirectory()) walk(full);
-    else out['pkg/' + dir + '/' + path.relative(src, full)] = fs.readFileSync(full, 'utf8');
+    else {
+      const key = 'pkg/' + dir + '/' + path.relative(src, full);
+      const read = readFile(full);
+      if (read.b64 === undefined) out[key] = read.text; else bin[key] = read.b64;
+    }
   }
 })(src);
-process.stdout.write(JSON.stringify(out));
+process.stdout.write(JSON.stringify({ files: out, binary: bin }));
 `;
 
 /**
@@ -717,7 +791,7 @@ function readGithubAnswer(out: string, where: string): any {
  * do it at all for a repository whose files somebody has to be logged in to read. `git clone`
  * is one command that already handles both, and there is a container here that has git in it.
  */
-async function githubFiles(repo: string, ref: string, fallbackName: string): Promise<Record<string, string>> {
+async function githubFiles(repo: string, ref: string, fallbackName: string): Promise<SeedTree> {
   const pod = await anyRunningPod();
 
   if (!pod) {
@@ -757,15 +831,9 @@ async function githubFiles(repo: string, ref: string, fallbackName: string): Pro
     `BARN_IMPORT_NAME=${ shellQuote(fallbackName) } node ${ script }`
   ));
 
-  let tree: Record<string, string>;
+  const tree = parseTree(out, `${ repo }'s tree`);
 
-  try {
-    tree = JSON.parse(out);
-  } catch {
-    throw new Error(`could not read ${ repo }'s tree: ${ out.slice(0, 200) || 'no output' }`);
-  }
-
-  if (!Object.keys(tree).length) {
+  if (!Object.keys(tree.files).length && !Object.keys(tree.binary).length) {
     throw new Error(`${ repo } has no files to import`);
   }
 
@@ -1127,15 +1195,17 @@ export function ensureExtension(name: string, source?: string, extras?: Record<s
     // Three kinds of source: a built-in seed that is already in this bundle, a repository
     // to clone, and the name of an extension running here to copy out of its pod.
     const github = parseGithubSource(from);
-    let files: Record<string, string>;
+    let tree: SeedTree;
 
     if (BUILT_IN_SEEDS.includes(from)) {
-      files = renameSeedPackage(seedFiles(from), from, name);
+      tree = textTree(renameSeedPackage(seedFiles(from), from, name));
     } else if (github) {
-      files = await githubFiles(github.repo, github.ref, name);
+      tree = await githubFiles(github.repo, github.ref, name);
     } else {
-      files = await cloneFiles(from);
+      tree = await cloneFiles(from);
     }
+
+    const files = tree.files;
 
     // Laid over the assembled tree, not merged into the seed: a file named here is meant to
     // win over the seed's copy of it, which is the whole point of handing one in. The package
@@ -1156,6 +1226,9 @@ export function ensureExtension(name: string, source?: string, extras?: Record<s
     }
 
     const data = seedData(files);
+    // The bytes half, keyed the same way. kubelet writes these back out as the original bytes
+    // when it mounts the volume, so the pod's own un-flattening does not have to know.
+    const binaryData = seedData(tree.binary);
     const annotations: Record<string, string> = { [SOURCE_ANNOTATION]: from };
 
     if (authored.length) {
@@ -1176,17 +1249,24 @@ export function ensureExtension(name: string, source?: string, extras?: Record<s
       }
     }
 
-    if (cm) {
-      await rancherFetch(`${ EXT_BASE }/v1/configmaps/${ EXT_NS }/${ object }`, {
+    // Not `.catch(() => null)`, which is what this was, and which is the second half of the
+    // bug above: the 422 the oversized seed was refused with was swallowed here, and then
+    // `ensureRunning` went on to create the Deployment and the Service anyway. What that
+    // leaves is an extension with no seed - a pod stuck in ContainerCreating for ever on a
+    // volume that does not exist - reported by the Studio's own list as "Building", because
+    // nothing had been told otherwise. A seed that cannot be written is not a partial
+    // success; there is nothing for a pod to serve, so nothing else is created.
+    const wrote = cm
+      ? await rancherFetch(`${ EXT_BASE }/v1/configmaps/${ EXT_NS }/${ object }`, {
         method: 'PUT',
         body:   JSON.stringify({
           ...cm,
           metadata: { ...cm.metadata, annotations: { ...(cm.metadata?.annotations || {}), ...annotations } },
           data,
+          binaryData,
         }),
-      }).catch(() => null);
-    } else {
-      await rancherFetch(`${ EXT_BASE }/v1/configmaps`, {
+      }).catch((e: Error) => e)
+      : await rancherFetch(`${ EXT_BASE }/v1/configmaps`, {
         method: 'POST',
         body:   JSON.stringify({
           apiVersion: 'v1',
@@ -1195,8 +1275,12 @@ export function ensureExtension(name: string, source?: string, extras?: Record<s
             namespace: EXT_NS, name: object, labels: { app: object }, annotations,
           },
           data,
+          binaryData,
         }),
-      }).catch(() => null);
+      }).catch((e: Error) => e);
+
+    if (wrote instanceof Error) {
+      throw new Error(`${ name }'s seed could not be written, so nothing else was created: ${ wrote.message }`);
     }
 
     await ensureRunning(name, object);

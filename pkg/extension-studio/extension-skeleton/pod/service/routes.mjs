@@ -206,6 +206,52 @@ export const ROUTES = [
   },
   {
     method:      'POST',
+    path:        '/v1/extensions/{name}/publish',
+    handler:     'publishExtensionLocally',
+    auth:        true,
+    operationId: 'publishExtensionLocally',
+    parameters:  [NAME_PARAM],
+    summary:     'Build this extension in its pod and load it into this Rancher.',
+    description: 'Runs build-pkg in the extension\'s own pod, copies the bundle where that pod already serves files on Rancher\'s origin, and points a UIPlugin at it - creating the UIPlugin if there is none, and otherwise patching only where it loads from, so one installed from a catalog keeps everything else about it. The URL carries the pod\'s clock, because the browser has loaded that path before and a republish that served the previous bundle is the failure this exists to avoid. Ungated on purpose: it reaches the cluster you are standing in and nobody else. Minutes, not seconds - a build is a build - so wait on the answer rather than polling.',
+    responses:   {
+      200: 'The plugin name, the version built, the URL the UIPlugin now points at, and the tail of the build log.',
+      404: 'The extension has no running pod to build in.',
+      502: 'It did not build, or the bundle could not be put where the pod serves it. The log says which.',
+    },
+  },
+  {
+    method:      'POST',
+    path:        '/v1/extensions/{name}/publish/github',
+    handler:     'publishExtensionToGithub',
+    auth:        true,
+    operationId: 'publishExtensionToGithub',
+    parameters:  [NAME_PARAM],
+    summary:     'Commit this extension\'s tree and push it to a branch.',
+    description: 'Source, not a built bundle: a chart repository is built by the receiving repository\'s own workflow from a version it can see, and a bundle committed by hand is the same artifact with no provenance. The branch is required and is the gate - this will not push to a default branch, because pushing to the branch everyone else builds from is a distribution and a distribution is the thing that is supposed to be reviewed. Open a pull request from what this pushes. The credential never passes through this service: the pod reads the Studio\'s configured token from a Secret with its own identity and hands it to git in the environment, and the log is scrubbed on the way back.',
+    requestBody: {
+      repo: {
+        type:        'string',
+        description: '"owner/name" of the repository to push to.',
+      },
+      branch: {
+        type:        'string',
+        description: 'The branch to push to. Required, and must not be the repository\'s default.',
+      },
+      message: {
+        type:        'string',
+        description: 'The commit subject. Defaults to "Publish <name>".',
+      },
+    },
+    responses: {
+      200: 'What was pushed, whether there was anything new to commit, and where to open the pull request.',
+      400: 'The repository or the branch was missing or malformed.',
+      404: 'The extension has no running pod, so there is no tree to push.',
+      412: 'No GitHub token is configured for the Studio.',
+      502: 'git refused the push. The log says why, with anything token-shaped removed.',
+    },
+  },
+  {
+    method:      'POST',
     path:        '/v1/pods/{pod}/exec',
     handler:     'runInNamedPod',
     auth:        true,

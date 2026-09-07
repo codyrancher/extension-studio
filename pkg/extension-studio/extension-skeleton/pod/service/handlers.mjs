@@ -25,6 +25,7 @@ import { runInPod, EXEC_TIMEOUT_MS } from './podexec.mjs';
  */
 const PACKAGING_TIMEOUT_MS = 5000;
 import { inPackageCommand, shellQuote, ASSISTANT_SESSION } from './podscript.mjs';
+import { publishLocal, publishToGithub } from './publish.mjs';
 import {
   approvalScript, parseApproval, changedFilesScript, parseChangedFiles,
   provenanceScript, parseProvenance, turnsScript, parseTurns,
@@ -247,7 +248,14 @@ async function copiedSeed(cred, from) {
  * it and got a 500 on a route that otherwise worked.
  */
 export function asSeed(configMap) {
-  return { data: configMap?.data || {}, annotations: ours(configMap?.metadata?.annotations) };
+  return {
+    data:        configMap?.data || {},
+    // The bytes half. A seed whose package carries a font or an image has them here, and a
+    // copy that took only `data` produced an extension missing exactly those files - silently,
+    // because everything else about it was right.
+    binaryData:  configMap?.binaryData || {},
+    annotations: ours(configMap?.metadata?.annotations),
+  };
 }
 
 /**
@@ -439,6 +447,26 @@ async function runInExtension({ cred, params, body }) {
  * there is nothing to choose. The agent pod is addressed here, by name, and its container is
  * not called what an extension's is.
  */
+/**
+ * Build this extension in its own pod and point this Rancher at the result.
+ *
+ * The ungated half of publishing: it reaches exactly the cluster the caller is standing in, and
+ * a dev preview asks nobody. Slow - a `build-pkg` is minutes - so a caller should expect to
+ * wait rather than poll.
+ */
+async function publishExtensionLocally({ cred, params }) {
+  const pod = await podFor(cred, params.name);
+
+  return ok(await publishLocal(cred, pod, params.name));
+}
+
+/** Push this extension's source to a branch of a repository, for a pull request to be opened from. */
+async function publishExtensionToGithub({ cred, params, body }) {
+  const pod = await podFor(cred, params.name);
+
+  return ok(await publishToGithub(cred, pod, params.name, body?.repo, body?.branch, body?.message));
+}
+
 async function runInNamedPod({ cred, params, body }) {
   const container = typeof body?.container === 'string' && body.container ? body.container : undefined;
 
@@ -644,6 +672,8 @@ export const HANDLERS = {
   extensionInstallState,
   runInExtension,
   runInNamedPod,
+  publishExtensionLocally,
+  publishExtensionToGithub,
   extensionConversation,
   extensionPane,
   extensionApproval,

@@ -76,7 +76,7 @@ function extensionSteps(name, seed) {
           throw new Error(`no seed was resolved for ${ name }, so there is nothing to write into its ConfigMap`);
         }
 
-        return seedConfigMapBody(name, seed.data, seed.annotations);
+        return seedConfigMapBody(name, seed.data, seed.annotations, seed.binaryData);
       },
     },
     {
