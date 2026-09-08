@@ -3,6 +3,35 @@
 A Rancher extension for writing Rancher extensions. Allows you to create, edit and install extensions on the 
 rancher instance it's hosted on.
 
+## Extensions
+
+The extensions that run in and around the Studio. Each is its own repository; install them
+alongside the Studio from its `gh-pages` chart the same way you add this one (see Installing).
+
+<table>
+<tr>
+<td align="center" valign="top" width="25%">
+<a href="https://github.com/codyrancher/extension-studio"><img src="https://codyrancher.github.io/extension-studio/icon.svg" width="56" height="56" alt="Extension Studio"><br><b>Extension Studio</b></a><br>
+<sub>Author, preview and review Rancher UI extensions from inside Rancher <em>(this repo)</em></sub>
+</td>
+<td align="center" valign="top" width="25%">
+<a href="https://github.com/codyrancher/dev-extension"><img src="https://codyrancher.github.io/dev-extension/icon.svg" width="56" height="56" alt="Dev Extension"><br><b>Dev Extension</b></a><br>
+<sub>Workspaces for rancher/dashboard pointed at any Rancher, with reviews, fixes, shares and agents</sub>
+</td>
+<td align="center" valign="top" width="25%">
+<a href="https://github.com/codyrancher/agents"><img src="https://codyrancher.github.io/agents/icon.svg" width="56" height="56" alt="Agents"><br><b>Agents</b></a><br>
+<sub>The terminal, the agent pod and its conversations, offered to every extension in this Rancher</sub>
+</td>
+<td align="center" valign="top" width="25%">
+<a href="https://github.com/codyrancher/apps-plus"><b>Apps Plus</b></a><br>
+<sub>Apps and instances: a chart you can edit in the dashboard, deployed by Fleet</sub>
+</td>
+</tr>
+</table>
+
+**base** is the built-in starter every new extension begins as. It is created inside the Studio
+rather than from a repository, so it has no card above.
+
 
 ## Installing
 
