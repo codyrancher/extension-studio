@@ -23,7 +23,7 @@ alongside the Studio from its `gh-pages` chart the same way you add this one (se
 <sub>The terminal, the agent pod and its conversations, offered to every extension in this Rancher</sub>
 </td>
 <td align="center" valign="top" width="25%">
-<a href="https://github.com/codyrancher/apps-plus"><b>Apps Plus</b></a><br>
+<a href="https://github.com/codyrancher/apps-plus"><img src="https://codyrancher.github.io/apps-plus/icon.svg" width="56" height="56" alt="Apps Plus"><br><b>Apps Plus</b></a><br>
 <sub>Apps and instances: a chart you can edit in the dashboard, deployed by Fleet</sub>
 </td>
 </tr>
