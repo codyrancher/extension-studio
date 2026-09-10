@@ -1,12 +1,12 @@
 {
   "name": "base",
   "description": "A Rancher extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "rancher": {
     "annotations": {
       "catalog.cattle.io/rancher-version": ">= 2.10.0",
-      "catalog.cattle.io/ui-extensions-version": ">= 3.0.0 < 4.0.0"
+      "catalog.cattle.io/ui-extensions-version": ">= 3.0.0 < 5.0.0"
     }
   },
   "scripts": {},
