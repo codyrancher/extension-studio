@@ -12,16 +12,38 @@ entries:
       catalog.cattle.io/ui-component: plugins
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
     apiVersion: v2
-    appVersion: 0.6.6
-    created: "2026-09-08T06:12:45.573645401Z"
+    appVersion: 0.6.7
+    created: "2026-09-10T15:50:06.412445526Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
-    digest: b21684f4e106c24e48e2eebd39a5f8313518e7986e1894d09d0a2eef4dd87ea3
+    digest: 549362733b98c6efc42167bb3161d8996e9927b91349eae09b998f990ccf8f71
     home: https://github.com/codyrancher/extension-studio
     icon: https://codyrancher.github.io/extension-studio/icon.svg
     name: extension-studio
     type: application
     urls:
-    - assets/extension-studio/extension-studio-0.6.6.tgz
+    - assets/extension-studio/extension-studio-0.6.7.tgz
+    version: 0.6.7
+  - annotations:
+      catalog.cattle.io/certified: rancher
+      catalog.cattle.io/display-name: Extension Studio
+      catalog.cattle.io/namespace: cattle-ui-plugin-system
+      catalog.cattle.io/os: linux
+      catalog.cattle.io/permits-os: linux, windows
+      catalog.cattle.io/rancher-version: '>= 2.10.0'
+      catalog.cattle.io/scope: management
+      catalog.cattle.io/ui-component: plugins
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
+    apiVersion: v2
+    appVersion: 0.6.6
+    created: "2026-09-08T06:13:24.755290991Z"
+    description: Author, preview and review Rancher UI extensions from inside Rancher
+    digest: 7eb5dcbb707bab88f2faf503672378fb22cf8cb4fcda8d3da80bd082c37ee8d4
+    home: https://github.com/codyrancher/extension-studio
+    icon: https://codyrancher.github.io/extension-studio/icon.svg
+    name: extension-studio
+    type: application
+    urls:
+    - https://github.com/codyrancher/extension-studio/releases/download/extension-studio-0.6.6/extension-studio-0.6.6.tgz
     version: 0.6.6
   - annotations:
       catalog.cattle.io/certified: rancher
@@ -1233,4 +1255,4 @@ entries:
     urls:
     - assets/extension-studio/extension-studio-0.5.22.tgz
     version: 0.5.22
-generated: "2026-09-08T06:12:45.572471127Z"
+generated: "2026-09-10T15:50:06.411981888Z"
