@@ -1,0 +1,2 @@
+(("undefined"!==typeof self?self:this)["webpackChunkextension_studio_0_6_8"]=("undefined"!==typeof self?self:this)["webpackChunkextension_studio_0_6_8"]||[]).push([[37],{49037:function(e){const n=[{product:{"barn-editor":"Extension Studio"}}];e.exports=n.length<=1?n[0]:n}}]);
+//# sourceMappingURL=extension-studio-0.6.8.umd.min.37.js.map

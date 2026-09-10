@@ -10,18 +10,40 @@ entries:
       catalog.cattle.io/rancher-version: '>= 2.10.0'
       catalog.cattle.io/scope: management
       catalog.cattle.io/ui-component: plugins
-      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 5.0.0'
     apiVersion: v2
-    appVersion: 0.6.7
-    created: "2026-09-10T15:50:06.412445526Z"
+    appVersion: 0.6.8
+    created: "2026-09-10T20:54:28.802867923Z"
     description: Author, preview and review Rancher UI extensions from inside Rancher
-    digest: 549362733b98c6efc42167bb3161d8996e9927b91349eae09b998f990ccf8f71
+    digest: ef64fea147a06b45ed873526e2e81168716af35c035a84dc03629c58a2d58e8a
     home: https://github.com/codyrancher/extension-studio
     icon: https://codyrancher.github.io/extension-studio/icon.svg
     name: extension-studio
     type: application
     urls:
-    - assets/extension-studio/extension-studio-0.6.7.tgz
+    - assets/extension-studio/extension-studio-0.6.8.tgz
+    version: 0.6.8
+  - annotations:
+      catalog.cattle.io/certified: rancher
+      catalog.cattle.io/display-name: Extension Studio
+      catalog.cattle.io/namespace: cattle-ui-plugin-system
+      catalog.cattle.io/os: linux
+      catalog.cattle.io/permits-os: linux, windows
+      catalog.cattle.io/rancher-version: '>= 2.10.0'
+      catalog.cattle.io/scope: management
+      catalog.cattle.io/ui-component: plugins
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 4.0.0'
+    apiVersion: v2
+    appVersion: 0.6.7
+    created: "2026-09-10T15:50:44.76710925Z"
+    description: Author, preview and review Rancher UI extensions from inside Rancher
+    digest: 74a1554a3bfb4ab228deba4b76296f9f3f502c19a904423086f5c2e6d4acf2e0
+    home: https://github.com/codyrancher/extension-studio
+    icon: https://codyrancher.github.io/extension-studio/icon.svg
+    name: extension-studio
+    type: application
+    urls:
+    - https://github.com/codyrancher/extension-studio/releases/download/extension-studio-0.6.7/extension-studio-0.6.7.tgz
     version: 0.6.7
   - annotations:
       catalog.cattle.io/certified: rancher
@@ -1255,4 +1277,4 @@ entries:
     urls:
     - assets/extension-studio/extension-studio-0.5.22.tgz
     version: 0.5.22
-generated: "2026-09-10T15:50:06.411981888Z"
+generated: "2026-09-10T20:54:28.801680007Z"
